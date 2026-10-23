@@ -54,7 +54,7 @@ bool LibraryView::attach(HWND list, UINT dpi, const AppPaths& paths)
     ListView_SetImageList(list_, covers_.images(), LVSIL_NORMAL);
     ListView_SetItemCountEx(list_, 0, 0);
     try {
-        const HWND owner = GetParent(list_);
+        const auto owner = GetParent(list_);
         cache_ = std::make_unique<CoverCache>(paths.covers);
         worker_ = std::make_unique<CoverWorker>(
             *cache_, paths.data / L"pending_cover", [owner] { return PostMessageW(owner, WM_APP_COVER_READY, 0, 0) != FALSE; });

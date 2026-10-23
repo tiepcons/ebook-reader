@@ -15,7 +15,7 @@ namespace eb {
 namespace {
 
 constexpr size_t kMetaCap = 1024;
-constexpr size_t kSampleBytes = 64 * 1024;
+constexpr size_t kSampleBytes = size_t{64} * 1024;
 constexpr int32_t kSamplePages = 8;
 constexpr float kLayoutW = 400, kLayoutH = 600, kLayoutEm = 12;
 

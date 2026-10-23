@@ -22,7 +22,7 @@ enum class MenuOutcome : unsigned char { None, Open, Removed };
 // The owner-data book grid. Rows are served from a cached copy of the last query.
 class LibraryView {
 public:
-    explicit LibraryView(Db& db) noexcept : db_(db) {}
+    explicit LibraryView(Db& db) : db_(db) {}
     ~LibraryView();
     LibraryView(const LibraryView&) = delete;
     LibraryView& operator=(const LibraryView&) = delete;

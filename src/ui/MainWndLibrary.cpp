@@ -56,6 +56,14 @@ bool MainWnd::on_library_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         SendMessageW(tree_, msg, wp, lp);
         SendMessageW(list_, msg, wp, lp);
         return true;
+    default:
+        return on_worker_msg(msg, wp, lp);
+    }
+}
+
+bool MainWnd::on_worker_msg(UINT msg, WPARAM wp, LPARAM lp)
+{
+    switch (msg) {
     case WM_APP_SCAN_PROGRESS:
         on_scan_progress(wp, lp);
         return true;
@@ -69,8 +77,9 @@ bool MainWnd::on_library_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         return true;
     case WM_APP_OPEN_BOOK:
         if (!open_queue_.empty()) {
-            log::info("open book {}", open_queue_.front());
+            const std::string id = std::move(open_queue_.front());
             open_queue_.erase(open_queue_.begin());
+            open_book(id);
         }
         return true;
     default:
@@ -107,7 +116,8 @@ void MainWnd::on_first_paint()
     if (smoke_scan_)
         return;
     if (smoke_) {
-        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        if (smoke_open_.empty())
+            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         return;
     }
     refresh_tree();
