@@ -92,7 +92,7 @@ TEST_CASE("progress saver coalesces updates and flush writes immediately")
     eb::ProgressSaver saver(store, "a");
     for (int i = 0; i < 50; ++i) {
         saver.update({static_cast<uint64_t>(i), 0.5, -1, i});
-        saver.tick(i * 18);
+        saver.tick(static_cast<int64_t>(i) * 18);
     }
     saver.tick(900);
     CHECK_FALSE(store.load("a").value().has_value());

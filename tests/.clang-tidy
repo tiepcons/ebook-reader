@@ -1,0 +1,4 @@
+# Tests inherit the project checks. doctest's REQUIRE() aborts the test case on failure, but clang-tidy's
+# optional-access dataflow cannot see that, so this one check is disabled for test code only.
+InheritParentConfig: true
+Checks: '-bugprone-unchecked-optional-access'

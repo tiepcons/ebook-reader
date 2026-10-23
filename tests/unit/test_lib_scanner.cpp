@@ -302,7 +302,7 @@ TEST_CASE("scanner: no write transaction is held while meta runs")
 TEST_CASE("scanner: other roots and offline roots are left alone")
 {
     Fixture f;
-    ebtest::TempDir b;
+    const ebtest::TempDir b;
     const auto pa = make(f.root.path() / L"a.epub", "aaa");
     make(b.path() / L"b.epub", "bbb");
     CHECK(f.scan_roots({f.root.path(), b.path()}).added == 2);
