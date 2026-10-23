@@ -162,20 +162,13 @@ static eb_status open_stream(fz_context* ctx, FILE* file, const char* magic, fz_
 
 static eb_status open_mobi_buffer(fz_context* ctx, const uint8_t* data, size_t size, fz_document** fdoc, eb_mobi_info* info)
 {
-    uint8_t* epub = NULL;
-    size_t epub_size = 0;
     fz_buffer* buf = NULL;
     fz_stream* stm = NULL;
-    eb_status st = eb_mobi_convert(data, size, &epub, &epub_size, info);
-    if (st != EB_OK) {
-        eb_mobi_info_free(info);
-        return st;
-    }
-    fz_var(buf);
+    eb_status st = eb_mobi_convert(ctx, data, size, &buf, info);
+    if (st != EB_OK) return st;
     fz_var(stm);
     fz_try(ctx)
     {
-        buf = fz_new_buffer_from_copied_data(ctx, epub, epub_size);
         stm = fz_open_buffer(ctx, buf);
         *fdoc = fz_open_document_with_stream(ctx, ".epub", stm);
     }
@@ -185,12 +178,14 @@ static eb_status open_mobi_buffer(fz_context* ctx, const uint8_t* data, size_t s
         fz_drop_buffer(ctx, buf);
     }
     fz_catch(ctx) st = eb_fail(ctx);
-    eb_mobi_free(epub);
-    if (st != EB_OK) eb_mobi_info_free(info);
     return st;
 }
 
-static int mobi_fatal(eb_status st) { return st == EB_E_DRM || st == EB_E_LIMIT || st == EB_E_NOMEM; }
+/* DRM, limits, memory exhaustion and hostile structure end the open; other failures fall back to MuPDF. */
+static int mobi_fatal(eb_status st, const eb_mobi_info* info)
+{
+    return st == EB_E_DRM || st == EB_E_LIMIT || st == EB_E_NOMEM || info->rejected;
+}
 
 static eb_status read_all(FILE* f, uint8_t** data, size_t* size)
 {
@@ -222,7 +217,12 @@ static eb_status open_source_file(fz_context* ctx, FILE* file, const char* magic
         st = read_all(file, &data, &size);
         if (st == EB_OK) st = open_mobi_buffer(ctx, data, size, fdoc, info);
         free(data);
-        if (st == EB_OK || mobi_fatal(st)) return st;
+        if (st == EB_OK) return st;
+        if (mobi_fatal(st, info)) {
+            eb_mobi_info_free(info);
+            return st;
+        }
+        eb_mobi_info_free(info);
     }
     if (_fseeki64(file, 0, SEEK_SET) != 0) return eb_fail_msg(EB_E_OPEN, "cannot seek file");
     return open_stream(ctx, file, magic, fdoc);
@@ -276,7 +276,9 @@ eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_do
     if (eb_mobi_sniff(data, size)) {
         st = open_mobi_buffer(ctx, data, size, &fdoc, &info);
         if (st == EB_OK) return adopt(ctx, fdoc, NULL, &info, out);
-        if (mobi_fatal(st)) {
+        const int fatal = mobi_fatal(st, &info);
+        eb_mobi_info_free(&info);
+        if (fatal) {
             eb_release_ctx(ctx);
             return st;
         }

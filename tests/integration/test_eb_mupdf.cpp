@@ -1,5 +1,4 @@
-#include <doctest/doctest.h>
-#include <eb_mupdf.h>
+#include "eb_test_util.h"
 
 #include <algorithm>
 #include <atomic>
@@ -16,93 +15,7 @@
 #include <thread>
 #include <vector>
 
-namespace fs = std::filesystem;
-
 namespace {
-
-struct Lib {
-    explicit Lib(const eb_limits* limits = nullptr) { REQUIRE(eb_init(limits) == EB_OK); }
-    Lib(const Lib&) = delete;
-    Lib& operator=(const Lib&) = delete;
-    ~Lib() { eb_shutdown(); }
-};
-
-struct DocDeleter {
-    void operator()(eb_doc* d) const { eb_close(d); }
-};
-struct BitmapDeleter {
-    void operator()(eb_bitmap* b) const { eb_bitmap_free(b); }
-};
-struct TextDeleter {
-    void operator()(eb_text* t) const { eb_text_free(t); }
-};
-using DocPtr = std::unique_ptr<eb_doc, DocDeleter>;
-using BitmapPtr = std::unique_ptr<eb_bitmap, BitmapDeleter>;
-using TextPtr = std::unique_ptr<eb_text, TextDeleter>;
-
-std::vector<fs::path> corpus(const char* sub)
-{
-    std::vector<fs::path> out;
-    std::error_code ec;
-    const fs::path dir = fs::path(EB_CORPUS_DIR) / sub;
-    if (!fs::is_directory(dir, ec)) return out;
-    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-        if (it->is_regular_file(ec)) out.push_back(it->path());
-    }
-    std::sort(out.begin(), out.end());
-    return out;
-}
-
-bool has_image_ext(const fs::path& p)
-{
-    const std::string e = p.extension().string();
-    for (const char* x : {".cbz", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff"}) {
-        if (e == x) return true;
-    }
-    return false;
-}
-
-DocPtr open_doc(const fs::path& p)
-{
-    eb_doc* d = nullptr;
-    const eb_status st = eb_open(p.c_str(), &d);
-    INFO(p.string(), " -> ", eb_status_text(st), ": ", eb_last_error());
-    REQUIRE(st == EB_OK);
-    DocPtr doc(d);
-    REQUIRE(eb_layout(d, 400, 600, 12, nullptr) == EB_OK);
-    return doc;
-}
-
-bool not_uniform(const eb_bitmap& b)
-{
-    for (int32_t y = 0; y < b.height; ++y) {
-        const uint8_t* row = b.bgra + static_cast<size_t>(y) * static_cast<size_t>(b.stride);
-        for (int32_t x = 0; x < b.width * 4; x += 4) {
-            if (row[x] != 255 || row[x + 1] != 255 || row[x + 2] != 255) return true;
-        }
-    }
-    return false;
-}
-
-bool all_opaque(const eb_bitmap& b)
-{
-    for (int32_t y = 0; y < b.height; ++y) {
-        const uint8_t* row = b.bgra + static_cast<size_t>(y) * static_cast<size_t>(b.stride);
-        for (int32_t x = 3; x < b.width * 4; x += 4) {
-            if (row[x] != 255) return false;
-        }
-    }
-    return true;
-}
-
-BitmapPtr render0(eb_doc* d, const eb_render_opts& o)
-{
-    eb_bitmap* b = nullptr;
-    REQUIRE(eb_render_page(d, 0, &o, &b) == EB_OK);
-    REQUIRE(b != nullptr);
-    return BitmapPtr(b);
-}
-
 bool any_page_has_text(eb_doc* d, int32_t count)
 {
     for (int32_t p = 0; p < std::min<int32_t>(count, 20); ++p) {
@@ -267,9 +180,10 @@ TEST_CASE("eb_mupdf enforces limits and argument checks")
     CHECK(b == nullptr);
     const eb_render_opts ok{1.0f, 0, 0xFFFFFF, 0};
     CHECK(eb_render_page(d.get(), 100000, &ok, &b) == EB_E_RANGE);
+    const DocPtr cbz = open_doc(first_with_ext(".cbz"));
     char buf[8] = {};
     size_t needed = 0;
-    CHECK(eb_meta(d.get(), "language", buf, sizeof buf, &needed) == EB_E_RANGE);
+    CHECK(eb_meta(cbz.get(), "language", buf, sizeof buf, &needed) == EB_E_RANGE);
     int32_t unused = 0;
     CHECK(eb_page_of_bookmark(d.get(), 0x7FFFFFF00000, &unused) != EB_OK);
 }
@@ -453,70 +367,4 @@ TEST_CASE("eb_mupdf documents on different threads render concurrently")
     }
     for (auto& th : threads) th.join();
     CHECK(failures == 0);
-}
-
-TEST_CASE("eb_mupdf reads Kindle books through libmobi with metadata and cover")
-{
-    const Lib lib;
-    for (const char* sub : {"good/mobi", "good/azw3"}) {
-        for (const auto& p : corpus(sub)) {
-            INFO(p.string());
-            const DocPtr d = open_doc(p);
-            char fmt[16] = {};
-            size_t needed = 0;
-            REQUIRE(eb_meta(d.get(), "format", fmt, sizeof fmt, &needed) == EB_OK);
-            const std::string format = fmt;
-            CHECK((format == "MOBI" || format == "AZW3"));
-            char lang[32] = {};
-            CHECK(eb_meta(d.get(), "language", lang, sizeof lang, &needed) == EB_OK);
-            CHECK(lang[0] != '\0');
-            char title[256] = {};
-            CHECK(eb_meta(d.get(), "title", title, sizeof title, &needed) == EB_OK);
-            eb_bitmap* raw = nullptr;
-            REQUIRE(eb_render_cover(d.get(), 200, &raw) == EB_OK);
-            const BitmapPtr cover(raw);
-            CHECK(std::max(cover->width, cover->height) == 200);
-            CHECK(not_uniform(*cover));
-            eb_toc_item* items = nullptr;
-            int32_t n = 0;
-            REQUIRE(eb_toc(d.get(), &items, &n) == EB_OK);
-            CHECK(n > 0);
-            eb_toc_free(items, n);
-        }
-    }
-}
-
-TEST_CASE("eb_mupdf mobi error paths: truncated, wrong compression, bad record table")
-{
-    const Lib lib;
-    const auto mobis = corpus("good/mobi");
-    REQUIRE_FALSE(mobis.empty());
-    std::ifstream in(mobis[0], std::ios::binary);
-    std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    REQUIRE(data.size() > 4096);
-    eb_doc* d = nullptr;
-
-    const std::string cut = data.substr(0, 10000);
-    const eb_status cutStatus = eb_open_memory(cut.data(), cut.size(), ".mobi", &d);
-    CHECK((cutStatus == EB_OK) == (d != nullptr));
-    eb_close(d);
-    d = nullptr;
-
-    std::string table = data;
-    table[78] = '\xff';
-    table[79] = '\xff';
-    table[80] = '\xff';
-    table[81] = '\xff';
-    CHECK(eb_open_memory(table.data(), table.size(), ".mobi", &d) != EB_OK);
-    CHECK(d == nullptr);
-
-    std::string huff = data;
-    const size_t rec0 = (static_cast<unsigned char>(huff[78]) << 24) | (static_cast<unsigned char>(huff[79]) << 16) |
-                        (static_cast<unsigned char>(huff[80]) << 8) | static_cast<unsigned char>(huff[81]);
-    huff[rec0] = '\x44';
-    huff[rec0 + 1] = '\x48';
-    const eb_status st = eb_open_memory(huff.data(), huff.size(), ".mobi", &d);
-    INFO(eb_status_text(st) << ": " << eb_last_error());
-    CHECK(st != EB_OK);
-    CHECK(d == nullptr);
 }

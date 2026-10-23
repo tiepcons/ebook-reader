@@ -17,6 +17,7 @@ typedef struct eb_mobi_info {
     const char* format;
     uint8_t* cover;
     size_t cover_size;
+    int rejected; /* set when a structural pre-check refused the book: no MuPDF fallback */
 } eb_mobi_info;
 
 struct eb_doc {
@@ -56,11 +57,20 @@ void eb_check_abort(eb_doc* doc);
 
 /* eb_mobi.c: libmobi to in-memory EPUB. eb_mobi_sniff needs the first 68 bytes. */
 int eb_mobi_sniff(const uint8_t* head, size_t size);
-eb_status eb_mobi_convert(const uint8_t* data, size_t size, uint8_t** epub, size_t* epub_size, eb_mobi_info* info);
+eb_status eb_mobi_convert(fz_context* ctx, const uint8_t* data, size_t size, fz_buffer** epub, eb_mobi_info* info);
 void eb_mobi_info_free(eb_mobi_info* info);
-void eb_mobi_free(void* p);
+
+/* eb_mobi_check.c: cheap structural checks on a loaded book (struct MOBIData is libmobi's), before it is parsed. */
+struct MOBIData;
+eb_status eb_mobi_precheck(const struct MOBIData* m, size_t file_size);
 
 /* eb_cover.c: renders the embedded cover image (doc->mobi.cover) scaled so its longer side is max_side. */
 eb_status eb_render_embedded_cover(eb_doc* doc, int32_t max_side, eb_bitmap** out);
+
+/* eb_render.c helpers shared with eb_cover.c. eb_new_bitmap throws EB_E_LIMIT-class errors on ctx; the pixmap
+ * aliases the bitmap's pixels (BGRA, alpha forced opaque by eb_make_opaque). */
+eb_bitmap* eb_new_bitmap(fz_context* ctx, int w, int h);
+fz_pixmap* eb_bitmap_pixmap(fz_context* ctx, eb_bitmap* bmp);
+void eb_make_opaque(fz_pixmap* pix);
 
 #endif

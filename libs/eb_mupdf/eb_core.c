@@ -292,7 +292,7 @@ eb_status eb_meta(eb_doc* doc, const char* key, char* buf, size_t cap, size_t* n
         return EB_OK;
     }
     mk = meta_key(key);
-    if (!mk) return eb_fail_msg(EB_E_RANGE, "metadata key not available");
+    if (!mk) return eb_fail_msg(EB_E_RANGE, "metadata missing");
     fz_try(doc->ctx) n = fz_lookup_metadata(doc->ctx, doc->doc, mk, tmp, sizeof tmp);
     fz_catch(doc->ctx) return eb_fail(doc->ctx);
     if (n <= 1) return eb_fail_msg(EB_E_RANGE, "metadata missing");

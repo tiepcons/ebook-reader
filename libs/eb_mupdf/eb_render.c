@@ -5,6 +5,7 @@
 #define EB_MAX_COVER_SIDE 8192
 #define EB_MAX_SIDE_PX 32767.0
 #define EB_PIXEL_OFFSET (((sizeof(eb_bitmap) + 15) / 16) * 16)
+#define EB_MAX_BITMAP_SIDE 32767
 
 typedef struct render_req {
     float scale;
@@ -12,6 +13,31 @@ typedef struct render_req {
     int tint;
     uint32_t fg, bg;
 } render_req;
+
+eb_bitmap* eb_new_bitmap(fz_context* ctx, int w, int h)
+{
+    eb_bitmap* bmp = NULL;
+    if (w < 1 || h < 1 || w > EB_MAX_BITMAP_SIDE || h > EB_MAX_BITMAP_SIDE ||
+        (double)w * (double)h > (double)eb_g_limits.max_bitmap_px)
+        fz_throw(ctx, FZ_ERROR_LIMIT, "bitmap exceeds max_bitmap_px");
+    bmp = malloc(EB_PIXEL_OFFSET + (size_t)w * (size_t)h * 4u);
+    if (!bmp) eb_throw_oom(ctx);
+    bmp->width = w;
+    bmp->height = h;
+    bmp->stride = (int32_t)((size_t)w * 4u);
+    bmp->bgra = (uint8_t*)bmp + EB_PIXEL_OFFSET;
+    return bmp;
+}
+
+fz_pixmap* eb_bitmap_pixmap(fz_context* ctx, eb_bitmap* bmp)
+{
+    return fz_new_pixmap_with_bbox_and_data(ctx, fz_device_bgr(ctx), (fz_irect){0, 0, bmp->width, bmp->height}, NULL, 1, bmp->bgra);
+}
+
+void eb_make_opaque(fz_pixmap* pix)
+{
+    for (size_t i = 3; i < (size_t)pix->stride * (size_t)pix->h; i += 4) pix->samples[i] = 255;
+}
 
 static void dims_of(fz_rect b, float scale, int32_t max_side, int* w, int* h, float* used)
 {
@@ -48,7 +74,7 @@ static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, con
     fz_always(ctx) fz_drop_device(ctx, dev);
     fz_catch(ctx) fz_rethrow(ctx);
     if (rq->tint) fz_tint_pixmap(ctx, pix, (int)rq->fg, (int)rq->bg);
-    for (size_t i = 3; i < (size_t)pix->stride * (size_t)pix->h; i += 4) pix->samples[i] = 255;
+    eb_make_opaque(pix);
 }
 
 static eb_status render_impl(eb_doc* d, int32_t page, const render_req* rq, eb_bitmap** out)
@@ -70,15 +96,8 @@ static eb_status render_impl(eb_doc* d, int32_t page, const render_req* rq, eb_b
         pg = fz_load_page(ctx, d->doc, page);
         fz_rect b = fz_bound_page(ctx, pg);
         dims_of(b, rq->scale, rq->max_side, &w, &h, &s);
-        if (w < 0 || h < 0 || (double)w * (double)h > (double)eb_g_limits.max_bitmap_px)
-            fz_throw(ctx, FZ_ERROR_LIMIT, "bitmap exceeds max_bitmap_px");
-        bmp = malloc(EB_PIXEL_OFFSET + (size_t)w * (size_t)h * 4u);
-        if (!bmp) eb_throw_oom(ctx);
-        bmp->width = w;
-        bmp->height = h;
-        bmp->stride = (int32_t)((size_t)w * 4u);
-        bmp->bgra = (uint8_t*)bmp + EB_PIXEL_OFFSET;
-        pix = fz_new_pixmap_with_bbox_and_data(ctx, fz_device_bgr(ctx), (fz_irect){0, 0, w, h}, NULL, 1, bmp->bgra);
+        bmp = eb_new_bitmap(ctx, w, h);
+        pix = eb_bitmap_pixmap(ctx, bmp);
         draw(d, pg, b, s, pix, rq);
     }
     fz_always(ctx)

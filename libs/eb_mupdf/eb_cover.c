@@ -2,25 +2,20 @@
 
 #include <math.h>
 
-#define EB_MAX_SIDE_PX 32767
-#define EB_COVER_OFFSET (((sizeof(eb_bitmap) + 15) / 16) * 16)
-
-static void cover_dims(const fz_image* img, int32_t max_side, int* w, int* h)
+static void cover_dims(const fz_image* img, int swap, int32_t max_side, int* w, int* h)
 {
-    const double longer = (double)(img->w > img->h ? img->w : img->h);
-    const double s = (double)max_side / (longer >= 1.0 ? longer : 1.0);
-    double dw = ceil((double)img->w * s);
-    double dh = ceil((double)img->h * s);
-    if (dw < 1.0) dw = 1.0;
-    if (dh < 1.0) dh = 1.0;
-    *w = (int)fmin(dw, (double)max_side);
-    *h = (int)fmin(dh, (double)max_side);
+    const double iw = swap ? img->h : img->w;
+    const double ih = swap ? img->w : img->h;
+    const double s = (double)max_side / (iw > ih ? iw : ih);
+    *w = (int)fmin(fmax(ceil(iw * s), 1.0), (double)max_side);
+    *h = (int)fmin(fmax(ceil(ih * s), 1.0), (double)max_side);
 }
 
+/* Same placement as MuPDF's image documents: orientation matrix first, then scale to the target size. */
 static void draw_cover(fz_context* ctx, fz_image* img, fz_pixmap* pix, int w, int h)
 {
     fz_device* dev = NULL;
-    fz_matrix m = {(float)w, 0, 0, -(float)h, 0, (float)h};
+    const fz_matrix m = fz_post_scale(fz_image_orientation_matrix(ctx, img), (float)w, (float)h);
     fz_clear_pixmap_with_value(ctx, pix, 255);
     fz_var(dev);
     fz_try(ctx)
@@ -31,7 +26,7 @@ static void draw_cover(fz_context* ctx, fz_image* img, fz_pixmap* pix, int w, in
     }
     fz_always(ctx) fz_drop_device(ctx, dev);
     fz_catch(ctx) fz_rethrow(ctx);
-    for (size_t i = 3; i < (size_t)pix->stride * (size_t)pix->h; i += 4) pix->samples[i] = 255;
+    eb_make_opaque(pix);
 }
 
 eb_status eb_render_embedded_cover(eb_doc* doc, int32_t max_side, eb_bitmap** out)
@@ -51,16 +46,12 @@ eb_status eb_render_embedded_cover(eb_doc* doc, int32_t max_side, eb_bitmap** ou
         buf = fz_new_buffer_from_copied_data(ctx, doc->mobi.cover, doc->mobi.cover_size);
         img = fz_new_image_from_buffer(ctx, buf);
         if (img->w <= 0 || img->h <= 0) fz_throw(ctx, FZ_ERROR_FORMAT, "empty cover image");
-        cover_dims(img, max_side, &w, &h);
-        if (w > EB_MAX_SIDE_PX || h > EB_MAX_SIDE_PX || (double)w * (double)h > (double)eb_g_limits.max_bitmap_px)
-            fz_throw(ctx, FZ_ERROR_LIMIT, "cover exceeds max_bitmap_px");
-        bmp = malloc(EB_COVER_OFFSET + (size_t)w * (size_t)h * 4u);
-        if (!bmp) eb_throw_oom(ctx);
-        bmp->width = w;
-        bmp->height = h;
-        bmp->stride = (int32_t)((size_t)w * 4u);
-        bmp->bgra = (uint8_t*)bmp + EB_COVER_OFFSET;
-        pix = fz_new_pixmap_with_bbox_and_data(ctx, fz_device_bgr(ctx), (fz_irect){0, 0, w, h}, NULL, 1, bmp->bgra);
+        const uint8_t orientation = fz_image_orientation(ctx, img);
+        if ((int64_t)img->w * (int64_t)img->h > (int64_t)eb_g_limits.max_bitmap_px)
+            fz_throw(ctx, FZ_ERROR_LIMIT, "cover image exceeds max_bitmap_px");
+        cover_dims(img, orientation != 0 && (orientation & 1) == 0, max_side, &w, &h);
+        bmp = eb_new_bitmap(ctx, w, h);
+        pix = eb_bitmap_pixmap(ctx, bmp);
         draw_cover(ctx, img, pix, w, h);
     }
     fz_always(ctx)
