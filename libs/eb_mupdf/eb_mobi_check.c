@@ -70,11 +70,11 @@ static eb_status check_indx_record(const MOBIPdbRecord* r, size_t file_size)
     header_len = be32(r->data + 4);
     entries = be32(r->data + 24);
     total = be32(r->data + 36);
-    if (header_len > r->size || r->size - header_len < 12 || memcmp(r->data + header_len, "TAGX", 4) != 0) return EB_OK;
-    if (total == 0) return reject("precheck: index without entries");
     if ((uint64_t)total > (uint64_t)entries * INDX_ENTRIES_PER_RECORD || total > file_size / 2)
         return reject("precheck: index entry count too large");
+    if (header_len > r->size || r->size - header_len < 12 || memcmp(r->data + header_len, "TAGX", 4) != 0) return EB_OK;
     if (be32(r->data + header_len + 8) > TAGX_CONTROL_BYTES_MAX) return reject("precheck: index tag table too large");
+    if (total == 0) return reject("precheck: index without entries");
     return EB_OK;
 }
 
