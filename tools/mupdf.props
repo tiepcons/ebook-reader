@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Injected via ForceImportBeforeCppTargets: static CRT, trimmed feature set, out-of-tree outputs. -->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <OutDir>$(EbMuRoot)\$(EbCfg)\</OutDir>
+    <OutDir Condition="'$(ProjectName)'=='bin2coff'">$(EbMuRoot)\tools\</OutDir>
+    <IntDir>$(EbMuRoot)\obj\$(EbCfg)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(ProjectName)'=='bin2coff'">$(EbMuRoot)\obj\tools\</IntDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Remove="@(ProjectReference)" />
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <BrowseInformation>false</BrowseInformation>
+      <RuntimeLibrary Condition="'$(EbCfg)'=='Release'">MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(EbCfg)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);TOFU_CJK;FZ_ENABLE_JS=0;FZ_ENABLE_OCR_OUTPUT=0;FZ_ENABLE_DOCX_OUTPUT=0;FZ_ENABLE_ODT_OUTPUT=0;FZ_ENABLE_BARCODE=0;FZ_ENABLE_OFFICE=0</PreprocessorDefinitions>
+      <UndefinePreprocessorDefinitions>HAVE_TESSERACT;HAVE_LEPTONICA;%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
+    </ClCompile>
+    <bin2coff__ttf_><CommandLineTemplate>"$(EbMuRoot)\tools\bin2coff.exe" "%(FullPath)" "$(IntDir)%(Filename)_ttf.obj" _binary_%(Filename)_ttf $(Platform)</CommandLineTemplate></bin2coff__ttf_>
+    <bin2coff__otf_><CommandLineTemplate>"$(EbMuRoot)\tools\bin2coff.exe" "%(FullPath)" "$(IntDir)%(Filename)_otf.obj" _binary_%(Filename)_otf $(Platform)</CommandLineTemplate></bin2coff__otf_>
+    <bin2coff__cff_><CommandLineTemplate>"$(EbMuRoot)\tools\bin2coff.exe" "%(FullPath)" "$(IntDir)%(Filename)_cff.obj" _binary_%(Filename)_cff $(Platform)</CommandLineTemplate></bin2coff__cff_>
+    <bin2coff__ttc_><CommandLineTemplate>"$(EbMuRoot)\tools\bin2coff.exe" "%(FullPath)" "$(IntDir)%(Filename)_ttc.obj" _binary_%(Filename)_ttc $(Platform)</CommandLineTemplate></bin2coff__ttc_>
+    <bin2coff__zip_><CommandLineTemplate>"$(EbMuRoot)\tools\bin2coff.exe" "%(FullPath)" "$(IntDir)%(Filename)_zip.obj" _binary_%(Filename)_zip $(Platform)</CommandLineTemplate></bin2coff__zip_>
+  </ItemDefinitionGroup>
+</Project>
