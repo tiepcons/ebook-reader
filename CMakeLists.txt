@@ -63,8 +63,8 @@ list(TRANSFORM EB_MOBI_SRC APPEND ".c")
 add_library(eb_libmobi STATIC ${EB_MOBI_SRC})
 target_include_directories(eb_libmobi SYSTEM PUBLIC "${EB_MOBI_DIR}")
 target_compile_definitions(eb_libmobi PRIVATE USE_XMLWRITER USE_MINIZ MOBI_INLINE=__inline
-  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
-target_compile_options(eb_libmobi PRIVATE /W0 /wd4146 /wd4703)
+  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES _CRT_SECURE_NO_WARNINGS)
+target_compile_options(eb_libmobi PRIVATE /W0 /wd4146 /wd4703 /wd4996)
 set_source_files_properties("${EB_MOBI_DIR}/read.c" PROPERTIES
   COMPILE_OPTIONS "/FI${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_mobi_io.h")
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)

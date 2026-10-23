@@ -18,7 +18,7 @@ TEST_CASE("crash loop guard reports an unfinished operation")
         CHECK_FALSE(g.previous_suspect().has_value());
         REQUIRE(g.begin("open", "book-123").has_value());
     }
-    eb::CrashLoopGuard next(marker);
+    const eb::CrashLoopGuard next(marker);
     REQUIRE(next.previous_suspect().has_value());
     CHECK(*next.previous_suspect() == "book-123");
 }

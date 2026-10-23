@@ -1,6 +1,7 @@
 #include "CrashGuard.h"
 
 #include "AtomicFile.h"
+#include "Handle.h"
 #include "Log.h"
 
 #include <windows.h>
@@ -36,14 +37,14 @@ void write_dump(EXCEPTION_POINTERS* ep) noexcept
             t.wMinute, t.wSecond, GetCurrentProcessId())
         < 0)
         return;
-    const HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
+    const UniqueHandle h(CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!h)
         return;
     MINIDUMP_EXCEPTION_INFORMATION mei{GetCurrentThreadId(), ep, FALSE};
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange): MINIDUMP_TYPE is a flag set
     const auto type = static_cast<MINIDUMP_TYPE>(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory);
-    MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h, type, ep != nullptr ? &mei : nullptr, nullptr,
-        nullptr);
-    CloseHandle(h);
+    MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h.get(), type, ep != nullptr ? &mei : nullptr,
+        nullptr, nullptr);
 }
 
 [[noreturn]] void die(EXCEPTION_POINTERS* ep) noexcept

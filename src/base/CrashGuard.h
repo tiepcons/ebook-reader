@@ -1,4 +1,5 @@
 #pragma once
+#include "Log.h"
 #include "Result.h"
 
 #include <filesystem>
@@ -20,7 +21,11 @@ public:
 
     class Scope {
     public:
-        Scope(CrashLoopGuard& g, std::string_view op, std::string_view id) : g_(g) { static_cast<void>(g_.begin(op, id)); }
+        Scope(CrashLoopGuard& g, std::string_view op, std::string_view id) : g_(g) 
+        {
+            if (!g_.begin(op, id))
+                log::error("crash marker write failed");
+        }
         Scope(const Scope&) = delete;
         Scope& operator=(const Scope&) = delete;
         ~Scope() { g_.end(); }

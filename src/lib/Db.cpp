@@ -1,5 +1,6 @@
 #include "Db.h"
 
+#include "base/Log.h"
 #include "base/Text.h"
 
 #include <sqlite3.h>
@@ -190,8 +191,8 @@ Result<void> Tx::commit() noexcept
 
 Tx::~Tx()
 {
-    if (db_ != nullptr)
-        static_cast<void>(db_->exec("ROLLBACK"));
+    if (db_ != nullptr && !db_->exec("ROLLBACK"))
+        log::error("rollback failed");
 }
 
 }
