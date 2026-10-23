@@ -1,0 +1,24 @@
+# Build output
+/build/
+/out/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.exe
+*.dll
+
+# Runtime data (portable layout)
+/ebooks/
+/data/
+/voices/
+
+# IDE
+.vs/
+*.user
+CMakeUserPresets.json
+
+# Claude Code local-only files
+.claude/settings.local.json
+.claude/worktrees/
