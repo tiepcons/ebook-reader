@@ -92,6 +92,7 @@ void eb_close(eb_doc* doc)
 {
     if (!doc) return;
     fz_drop_document(doc->ctx, doc->doc);
+    eb_mobi_info_free(&doc->mobi);
     if (doc->file) fclose(doc->file);
     eb_release_ctx(doc->ctx);
     free(doc);
@@ -115,14 +116,15 @@ void eb_check_abort(eb_doc* doc)
     if (InterlockedCompareExchange((volatile LONG*)&doc->cookie.abort, 0, 0)) fz_throw(doc->ctx, FZ_ERROR_ABORT, "cancelled");
 }
 
-/* Takes ownership of ctx, fdoc and file on every path. */
-static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_doc** out)
+/* Takes ownership of ctx, fdoc, file and the strings in info (may be NULL) on every path. */
+static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_mobi_info* info, eb_doc** out)
 {
     eb_status st = EB_OK;
     int drm = 0;
     eb_doc* d = calloc(1, sizeof *d);
     if (!d) {
         fz_drop_document(ctx, fdoc);
+        eb_mobi_info_free(info);
         if (file) fclose(file);
         eb_release_ctx(ctx);
         return eb_fail_msg(EB_E_NOMEM, "out of memory");
@@ -130,6 +132,7 @@ static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_doc** 
     d->ctx = ctx;
     d->doc = fdoc;
     d->file = file;
+    if (info) d->mobi = *info;
     fz_try(ctx)
     {
         drm = fz_needs_password(ctx, fdoc);
@@ -157,13 +160,83 @@ static eb_status open_stream(fz_context* ctx, FILE* file, const char* magic, fz_
     return st;
 }
 
+static eb_status open_mobi_buffer(fz_context* ctx, const uint8_t* data, size_t size, fz_document** fdoc, eb_mobi_info* info)
+{
+    uint8_t* epub = NULL;
+    size_t epub_size = 0;
+    fz_buffer* buf = NULL;
+    fz_stream* stm = NULL;
+    eb_status st = eb_mobi_convert(data, size, &epub, &epub_size, info);
+    if (st != EB_OK) {
+        eb_mobi_info_free(info);
+        return st;
+    }
+    fz_var(buf);
+    fz_var(stm);
+    fz_try(ctx)
+    {
+        buf = fz_new_buffer_from_copied_data(ctx, epub, epub_size);
+        stm = fz_open_buffer(ctx, buf);
+        *fdoc = fz_open_document_with_stream(ctx, ".epub", stm);
+    }
+    fz_always(ctx)
+    {
+        fz_drop_stream(ctx, stm);
+        fz_drop_buffer(ctx, buf);
+    }
+    fz_catch(ctx) st = eb_fail(ctx);
+    eb_mobi_free(epub);
+    if (st != EB_OK) eb_mobi_info_free(info);
+    return st;
+}
+
+static int mobi_fatal(eb_status st) { return st == EB_E_DRM || st == EB_E_LIMIT || st == EB_E_NOMEM; }
+
+static eb_status read_all(FILE* f, uint8_t** data, size_t* size)
+{
+    long long n = 0;
+    if (_fseeki64(f, 0, SEEK_END) != 0) return eb_fail_msg(EB_E_OPEN, "cannot seek file");
+    n = _ftelli64(f);
+    if (n < 0 || _fseeki64(f, 0, SEEK_SET) != 0) return eb_fail_msg(EB_E_OPEN, "cannot seek file");
+    if ((unsigned long long)n > EB_MOBI_MAX_INPUT) return eb_fail_msg(EB_E_LIMIT, "book too large for conversion");
+    *data = malloc((size_t)n ? (size_t)n : 1);
+    if (!*data) return eb_fail_msg(EB_E_NOMEM, "out of memory");
+    if (fread(*data, 1, (size_t)n, f) != (size_t)n) {
+        free(*data);
+        *data = NULL;
+        return eb_fail_msg(EB_E_OPEN, "cannot read file");
+    }
+    *size = (size_t)n;
+    return EB_OK;
+}
+
+/* Kindle/MOBI books go through libmobi; if it cannot parse one, MuPDF gets the original bytes (plain PalmDOC). */
+static eb_status open_source_file(fz_context* ctx, FILE* file, const char* magic, fz_document** fdoc, eb_mobi_info* info)
+{
+    uint8_t head[68];
+    uint8_t* data = NULL;
+    size_t size = 0;
+    eb_status st = EB_OK;
+    const size_t n = fread(head, 1, sizeof head, file);
+    if (eb_mobi_sniff(head, n)) {
+        st = read_all(file, &data, &size);
+        if (st == EB_OK) st = open_mobi_buffer(ctx, data, size, fdoc, info);
+        free(data);
+        if (st == EB_OK || mobi_fatal(st)) return st;
+    }
+    if (_fseeki64(file, 0, SEEK_SET) != 0) return eb_fail_msg(EB_E_OPEN, "cannot seek file");
+    return open_stream(ctx, file, magic, fdoc);
+}
+
 eb_status eb_open(const wchar_t* path, eb_doc** out)
 {
     fz_document* fdoc = NULL;
     fz_context* ctx = NULL;
     FILE* file = NULL;
     char magic[EB_MAX_MAGIC_CHARS + 1];
+    eb_mobi_info info;
     eb_status st = EB_OK;
+    memset(&info, 0, sizeof info);
     if (!out) return eb_fail_msg(EB_E_ARG, "null out");
     *out = NULL;
     if (!path || wcsnlen(path, EB_MAX_PATH_CHARS + 1) > EB_MAX_PATH_CHARS) return eb_fail_msg(EB_E_ARG, "bad path");
@@ -173,9 +246,13 @@ eb_status eb_open(const wchar_t* path, eb_doc** out)
     st = open_file(path, &file);
     if (st == EB_OK) {
         extension_magic(path, magic);
-        st = open_stream(ctx, file, magic, &fdoc);
+        st = open_source_file(ctx, file, magic, &fdoc, &info);
     }
-    if (st == EB_OK) return adopt(ctx, fdoc, file, out);
+    if (st == EB_OK && info.format) {
+        fclose(file);
+        file = NULL;
+    }
+    if (st == EB_OK) return adopt(ctx, fdoc, file, &info, out);
     if (file) fclose(file);
     eb_release_ctx(ctx);
     return st;
@@ -187,13 +264,24 @@ eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_do
     fz_buffer* buf = NULL;
     fz_stream* stm = NULL;
     fz_context* ctx = NULL;
+    eb_mobi_info info;
     eb_status st = EB_OK;
+    memset(&info, 0, sizeof info);
     if (!out) return eb_fail_msg(EB_E_ARG, "null out");
     *out = NULL;
     if (!data || !size || !magic) return eb_fail_msg(EB_E_ARG, "bad memory arguments");
     if (size > eb_g_limits.max_file_bytes) return eb_fail_msg(EB_E_LIMIT, "data too large");
     ctx = eb_acquire_ctx();
     if (!ctx) return eb_take_oom() ? eb_fail_msg(EB_E_NOMEM, "out of memory") : eb_fail_msg(EB_E_ARG, "eb_init not called");
+    if (eb_mobi_sniff(data, size)) {
+        st = open_mobi_buffer(ctx, data, size, &fdoc, &info);
+        if (st == EB_OK) return adopt(ctx, fdoc, NULL, &info, out);
+        if (mobi_fatal(st)) {
+            eb_release_ctx(ctx);
+            return st;
+        }
+        st = EB_OK;
+    }
     fz_var(buf);
     fz_var(stm);
     fz_try(ctx)
@@ -208,7 +296,7 @@ eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_do
         fz_drop_buffer(ctx, buf);
     }
     fz_catch(ctx) st = eb_fail(ctx);
-    if (st == EB_OK) return adopt(ctx, fdoc, NULL, out);
+    if (st == EB_OK) return adopt(ctx, fdoc, NULL, NULL, out);
     eb_release_ctx(ctx);
     return st;
 }

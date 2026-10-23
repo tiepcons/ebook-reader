@@ -454,3 +454,69 @@ TEST_CASE("eb_mupdf documents on different threads render concurrently")
     for (auto& th : threads) th.join();
     CHECK(failures == 0);
 }
+
+TEST_CASE("eb_mupdf reads Kindle books through libmobi with metadata and cover")
+{
+    const Lib lib;
+    for (const char* sub : {"good/mobi", "good/azw3"}) {
+        for (const auto& p : corpus(sub)) {
+            INFO(p.string());
+            const DocPtr d = open_doc(p);
+            char fmt[16] = {};
+            size_t needed = 0;
+            REQUIRE(eb_meta(d.get(), "format", fmt, sizeof fmt, &needed) == EB_OK);
+            const std::string format = fmt;
+            CHECK((format == "MOBI" || format == "AZW3"));
+            char lang[32] = {};
+            CHECK(eb_meta(d.get(), "language", lang, sizeof lang, &needed) == EB_OK);
+            CHECK(lang[0] != '\0');
+            char title[256] = {};
+            CHECK(eb_meta(d.get(), "title", title, sizeof title, &needed) == EB_OK);
+            eb_bitmap* raw = nullptr;
+            REQUIRE(eb_render_cover(d.get(), 200, &raw) == EB_OK);
+            const BitmapPtr cover(raw);
+            CHECK(std::max(cover->width, cover->height) == 200);
+            CHECK(not_uniform(*cover));
+            eb_toc_item* items = nullptr;
+            int32_t n = 0;
+            REQUIRE(eb_toc(d.get(), &items, &n) == EB_OK);
+            CHECK(n > 0);
+            eb_toc_free(items, n);
+        }
+    }
+}
+
+TEST_CASE("eb_mupdf mobi error paths: truncated, wrong compression, bad record table")
+{
+    const Lib lib;
+    const auto mobis = corpus("good/mobi");
+    REQUIRE_FALSE(mobis.empty());
+    std::ifstream in(mobis[0], std::ios::binary);
+    std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(data.size() > 4096);
+    eb_doc* d = nullptr;
+
+    const std::string cut = data.substr(0, 10000);
+    const eb_status cutStatus = eb_open_memory(cut.data(), cut.size(), ".mobi", &d);
+    CHECK((cutStatus == EB_OK) == (d != nullptr));
+    eb_close(d);
+    d = nullptr;
+
+    std::string table = data;
+    table[78] = '\xff';
+    table[79] = '\xff';
+    table[80] = '\xff';
+    table[81] = '\xff';
+    CHECK(eb_open_memory(table.data(), table.size(), ".mobi", &d) != EB_OK);
+    CHECK(d == nullptr);
+
+    std::string huff = data;
+    const size_t rec0 = (static_cast<unsigned char>(huff[78]) << 24) | (static_cast<unsigned char>(huff[79]) << 16) |
+                        (static_cast<unsigned char>(huff[80]) << 8) | static_cast<unsigned char>(huff[81]);
+    huff[rec0] = '\x44';
+    huff[rec0 + 1] = '\x48';
+    const eb_status st = eb_open_memory(huff.data(), huff.size(), ".mobi", &d);
+    INFO(eb_status_text(st) << ": " << eb_last_error());
+    CHECK(st != EB_OK);
+    CHECK(d == nullptr);
+}

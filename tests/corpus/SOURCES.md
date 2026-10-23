@@ -43,3 +43,4 @@ Vietnamese text and generated samples. Source for all text: Wikisource (public d
 | bad/badxml.fb2 | malformed FB2 | unclosed tags, 287 bytes | generated locally |
 | bad/truncated.mobi | corrupt MOBI | first 10 KB of good/mobi/pg11.mobi | derived from Gutenberg pg11 |
 | good/pdf/us-constitution-cdoc-110hdoc50.pdf | PDF | https://www.govinfo.gov/content/pkg/CDOC-110hdoc50/pdf/CDOC-110hdoc50.pdf | Public domain (U.S. Government work, 17 U.S.C. 105) |
+| good/azw3/pg84-kf8.azw3 | AZW3 (KF8) | https://www.gutenberg.org/cache/epub/84/pg84-images-kf8.mobi | Public domain (Project Gutenberg) |

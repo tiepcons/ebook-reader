@@ -6,6 +6,19 @@
 #include <mupdf/fitz.h>
 #include <stdio.h>
 
+#define EB_MOBI_MAX_INPUT ((size_t)256 << 20)
+#define EB_MOBI_MAX_EPUB ((size_t)256 << 20)
+
+/* Metadata and cover pulled out of a Kindle/MOBI book by libmobi; strings are malloc'd, UTF-8, may be NULL. */
+typedef struct eb_mobi_info {
+    char* title;
+    char* author;
+    char* language;
+    const char* format;
+    uint8_t* cover;
+    size_t cover_size;
+} eb_mobi_info;
+
 struct eb_doc {
     fz_context* ctx;
     fz_document* doc;
@@ -13,6 +26,7 @@ struct eb_doc {
     int reflowable;
     int laid_out;
     fz_cookie cookie;
+    eb_mobi_info mobi;
 };
 
 extern eb_limits eb_g_limits;
@@ -39,5 +53,14 @@ void eb_throw_oom(fz_context* ctx);
 /* Per-call cancellation: eb_begin_call resets the cookie, eb_check_abort throws FZ_ERROR_ABORT if it was set. */
 void eb_begin_call(eb_doc* doc);
 void eb_check_abort(eb_doc* doc);
+
+/* eb_mobi.c: libmobi to in-memory EPUB. eb_mobi_sniff needs the first 68 bytes. */
+int eb_mobi_sniff(const uint8_t* head, size_t size);
+eb_status eb_mobi_convert(const uint8_t* data, size_t size, uint8_t** epub, size_t* epub_size, eb_mobi_info* info);
+void eb_mobi_info_free(eb_mobi_info* info);
+void eb_mobi_free(void* p);
+
+/* eb_cover.c: renders the embedded cover image (doc->mobi.cover) scaled so its longer side is max_side. */
+eb_status eb_render_embedded_cover(eb_doc* doc, int32_t max_side, eb_bitmap** out);
 
 #endif

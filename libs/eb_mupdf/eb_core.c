@@ -268,6 +268,16 @@ static const char* meta_key(const char* key)
     return NULL;
 }
 
+static const char* mobi_value(const eb_mobi_info* info, const char* key)
+{
+    const char* v = NULL;
+    if (!strcmp(key, "title")) v = info->title;
+    else if (!strcmp(key, "author")) v = info->author;
+    else if (!strcmp(key, "language")) v = info->language;
+    else if (!strcmp(key, "format")) v = info->format;
+    return v && *v ? v : NULL;
+}
+
 eb_status eb_meta(eb_doc* doc, const char* key, char* buf, size_t cap, size_t* needed)
 {
     char tmp[EB_MAX_META_BYTES];
@@ -275,6 +285,12 @@ eb_status eb_meta(eb_doc* doc, const char* key, char* buf, size_t cap, size_t* n
     int n = -1;
     eb_status st = EB_OK;
     if (!doc || !key || !buf || !needed) return eb_fail_msg(EB_E_ARG, "null argument");
+    mk = mobi_value(&doc->mobi, key);
+    if (mk) {
+        *needed = strlen(mk) + 1;
+        if (cap > 0) strncpy_s(buf, cap, mk, _TRUNCATE);
+        return EB_OK;
+    }
     mk = meta_key(key);
     if (!mk) return eb_fail_msg(EB_E_RANGE, "metadata key not available");
     fz_try(doc->ctx) n = fz_lookup_metadata(doc->ctx, doc->doc, mk, tmp, sizeof tmp);
