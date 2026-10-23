@@ -170,11 +170,11 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 - File agent mới chỉ được nạp khi phiên khởi động. Sau khi sửa `.claude/agents/` thì mở lại bằng `claude --continue` (giữ nguyên cuộc trò chuyện).
 
 ### 5.5 Commit local (chống mất code)
-- Repo git local khởi tạo từ đầu. **Không push lên remote** nếu chưa được PO đồng ý.
+- Repo public: **github.com/tiepcons/ebook-reader**. Commit và CI (`tools/ci.ps1`) đều chạy **local**. **Chỉ push `main` khi xong trọn một phase** và CI local xanh (quyết định của PO ngày 2026-10-23).
 - **Mỗi task xong (✅) có 1 commit** `T<id>: …` do RUN thực hiện.
 - **Commit checkpoint** `wip(T<id>): …` trước mỗi lần giao việc cho agent sửa code, trước thao tác rủi ro, và cuối mỗi phiên. Luôn quay lại được bằng `git restore` hoặc `git reset`.
 - Task chạy song song dùng worktree trên nhánh `task/T<id>`. LEAD merge về `main` sau khi review đạt.
-- Chống mất ổ đĩa: cuối mỗi phase chạy `git bundle create <ổ khác>\ebook-reader.bundle --all`, hoặc push lên repo GitHub private (miễn phí) khi PO đồng ý.
+- Chống mất ổ đĩa: việc push cuối mỗi phase lên GitHub cũng là bản sao lưu.
 
 ---
 
@@ -194,7 +194,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T0.6 | **Spike định dạng**: mở EPUB, PDF, MOBI, **AZW3**, FB2, CBZ, và TXT→HTML qua MuPDF | DEV | T0.5 | 0,4 | Có báo cáo. Nếu AZW3 không được thì kích hoạt T1.9 | ✅ (AZW3 ✗, xem D16) |
 | T0.7 | Vendor SQLite amalgamation và doctest | DEV | T0.4 | 0,1 | | ✅ |
 | T0.8 | **Spike Piper**: onnxruntime (bản prebuilt từ GitHub release) + espeak-ng, đọc thử `vi_VN` và `en_US` | DEV | T0.4 | 0,5 | Ra được file wav tiếng Việt | ⬜ |
-| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV → CI | T0.5 | 0,4 | Pipeline xanh | ⬜ repo public đã tạo: github.com/tiepcons/ebook-reader |
+| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV | T0.5 | 0,4 | **CI chạy local** (`tools/ci.ps1`: debug, asan, lint, release, kiểm tra kích thước), theo yêu cầu của PO, không dùng GitHub Actions | ⬜ |
 | T0.10 | Corpus test: Project Gutenberg, Standard Ebooks, truyện tiếng Việt public domain. Mỗi định dạng ít nhất 3 file, cộng 5 file cố tình làm hỏng | RUN + **PO** | — | 0,3 | Có `tests/corpus/` | ✅ 8 MB |
 | T0.11 | Script **im lặng** `tools/build.ps1` và `tools/test.ps1` (tham số preset): chỉ in lỗi đầu tiên của mỗi file, số test pass/fail và kích thước exe/DLL | LEAD | T0.4 | 0,2 | Build thành công chỉ in 1 dòng | ✅ |
 
