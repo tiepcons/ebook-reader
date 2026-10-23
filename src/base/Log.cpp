@@ -21,7 +21,8 @@ struct State {
 State& state() noexcept
 {
     alignas(State) static unsigned char storage[sizeof(State)];
-    static State* const s = new (storage) State();
+    // Placement new into static storage cannot throw: State's members are all noexcept-constructible.
+    static State* const s = new (storage) State(); // NOLINT(bugprone-unhandled-exception-at-new)
     return *s;
 }
 
