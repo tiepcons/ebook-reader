@@ -5,6 +5,8 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+#include <cctype>
 #include <climits>
 #include <new>
 
@@ -59,6 +61,22 @@ Result<void> check(sqlite3* db, int rc) noexcept
     return db_fail(db, rc);
 }
 
+Result<void> apply_pragmas(Db& db) noexcept
+{
+    auto mode = db.prepare("PRAGMA journal_mode=WAL");
+    if (!mode)
+        return std::unexpected(std::move(mode.error()));
+    if (auto step = mode->step(); !step)
+        return std::unexpected(std::move(step.error()));
+    if (mode->column_text(0) != "wal")
+        log::write("WARN", "database is not in WAL mode");
+    for (const char* pragma : {"PRAGMA synchronous=NORMAL", "PRAGMA busy_timeout=2000", "PRAGMA foreign_keys=ON"}) {
+        if (auto r = db.exec(pragma); !r)
+            return r;
+    }
+    return {};
+}
+
 }
 
 void DbCloser::operator()(sqlite3* db) const noexcept
@@ -82,11 +100,8 @@ Result<Db> Db::open(const std::filesystem::path& file) noexcept
         Db db(raw);
         if (rc != SQLITE_OK)
             return db_fail(raw, rc);
-        for (const char* pragma : {"PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL", "PRAGMA busy_timeout=2000",
-                 "PRAGMA foreign_keys=ON"}) {
-            if (auto r = db.exec(pragma); !r)
-                return std::unexpected(std::move(r.error()));
-        }
+        if (auto r = apply_pragmas(db); !r)
+            return std::unexpected(std::move(r.error()));
         return db;
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::NoMemory);
@@ -105,10 +120,17 @@ Result<Stmt> Db::prepare(std::string_view sql) noexcept
     if (sql.size() > static_cast<size_t>(INT_MAX))
         return fail(ErrorCode::Limit, L"sql too long");
     sqlite3_stmt* st = nullptr;
-    const int rc = sqlite3_prepare_v2(db_.get(), sql.data(), static_cast<int>(sql.size()), &st, nullptr);
+    const char* tail = nullptr;
+    const int rc = sqlite3_prepare_v2(db_.get(), sql.data(), static_cast<int>(sql.size()), &st, &tail);
     Stmt s(st);
     if (rc != SQLITE_OK)
         return db_fail(db_.get(), rc);
+    if (st == nullptr)
+        return fail(ErrorCode::Format, L"empty statement");
+    const char* end = sql.data() + sql.size();
+    if (std::find_if(tail, end, [](char c) { return !std::isspace(static_cast<unsigned char>(c)) && c != '\0'; })
+        != end)
+        return fail(ErrorCode::Format, L"trailing text after statement");
     return s;
 }
 
@@ -124,8 +146,9 @@ Result<void> Stmt::bind_double(int index, double v) noexcept
 
 Result<void> Stmt::bind_text(int index, std::string_view utf8) noexcept
 {
+    const char* data = utf8.data() != nullptr ? utf8.data() : "";
     return check(sqlite3_db_handle(st_.get()),
-        sqlite3_bind_text64(st_.get(), index, utf8.data(), utf8.size(), SQLITE_TRANSIENT, SQLITE_UTF8));
+        sqlite3_bind_text64(st_.get(), index, data, utf8.size(), SQLITE_TRANSIENT, SQLITE_UTF8));
 }
 
 Result<void> Stmt::bind_null(int index) noexcept
@@ -191,7 +214,7 @@ Result<void> Tx::commit() noexcept
 
 Tx::~Tx()
 {
-    if (db_ != nullptr && !db_->exec("ROLLBACK"))
+    if (db_ != nullptr && sqlite3_get_autocommit(db_->raw()) == 0 && !db_->exec("ROLLBACK"))
         log::error("rollback failed");
 }
 

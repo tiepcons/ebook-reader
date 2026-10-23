@@ -41,6 +41,7 @@ private:
     std::unique_ptr<sqlite3_stmt, StmtFinalizer> st_;
 };
 
+// A Db must not be moved while a Tx on it is alive.
 class Db {
 public:
     static Result<Db> open(const std::filesystem::path& file) noexcept;

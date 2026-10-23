@@ -3,6 +3,7 @@
 namespace eb {
 namespace {
 
+// books.id is the content hash produced by eb::book_id (PLAN.md D8), not a rowid.
 constexpr const char* kV1 = R"sql(
 CREATE TABLE books(
   id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, folder TEXT NOT NULL, title TEXT, author TEXT,
@@ -39,6 +40,9 @@ Result<int> user_version(Db& db) noexcept
 
 Result<void> migrate(Db& db) noexcept
 {
+    auto tx = Tx::begin(db);
+    if (!tx)
+        return std::unexpected(std::move(tx.error()));
     auto v = user_version(db);
     if (!v)
         return std::unexpected(std::move(v.error()));
@@ -46,9 +50,6 @@ Result<void> migrate(Db& db) noexcept
         return fail(ErrorCode::Format, L"database is newer than this program");
     if (*v == kSchemaVersion)
         return {};
-    auto tx = Tx::begin(db);
-    if (!tx)
-        return std::unexpected(std::move(tx.error()));
     if (auto r = db.exec(kV1); !r)
         return r;
     return tx->commit();

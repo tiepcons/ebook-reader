@@ -115,3 +115,23 @@ TEST_CASE("UTF-8 text, null, real and errors round-trip")
     CHECK_FALSE(db.prepare("SELEC nonsense").has_value());
     CHECK(eb::Db::open(t.path() / L"missing" / L"x.db").error().code == eb::ErrorCode::NotFound);
 }
+
+TEST_CASE("empty text binds an empty string, not NULL")
+{
+    const ebtest::TempDir t;
+    auto db = fresh(t);
+    auto st = db.prepare("SELECT typeof(?1)");
+    REQUIRE(st->bind_text(1, std::string_view{}).has_value());
+    REQUIRE(st->step().value() == eb::Step::Row);
+    CHECK(st->column_text(0) == "text");
+}
+
+TEST_CASE("prepare rejects empty statements and trailing text")
+{
+    const ebtest::TempDir t;
+    auto db = fresh(t);
+    CHECK_FALSE(db.prepare("").has_value());
+    CHECK_FALSE(db.prepare("-- only a comment").has_value());
+    CHECK_FALSE(db.prepare("SELECT 1; SELECT 2").has_value());
+    CHECK(db.prepare("SELECT 1; \n").has_value());
+}
