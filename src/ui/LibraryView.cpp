@@ -1,10 +1,12 @@
 #include "LibraryView.h"
 
 #include "base/Log.h"
+#include "base/Text.h"
 
 #include <shellapi.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 
@@ -15,7 +17,9 @@ enum : unsigned char { CmdOpen = 1, CmdReveal, CmdRemove };
 
 std::wstring display_text(const BookRow& r)
 {
-    std::wstring t = r.title.empty() ? L"(không tên)" : r.title;
+    std::wstring t = utf8_to_wide(r.title).value_or(std::wstring());
+    if (t.empty())
+        t = L"(không tên)";
     if (r.status == 2)
         t.insert(0, L"\u26A0 ");
     if (r.percent > 0)
@@ -35,18 +39,17 @@ bool file_exists(const std::wstring& path) noexcept
 bool LibraryView::attach(HWND list, UINT dpi)
 {
     list_ = list;
-    covers_ = make_generic_covers(dpi);
-    if (!covers_)
+    if (!covers_.rebuild(dpi))
         return false;
-    ListView_SetImageList(list_, covers_->images(), LVSIL_NORMAL);
+    ListView_SetImageList(list_, covers_.images(), LVSIL_NORMAL);
     ListView_SetItemCountEx(list_, 0, 0);
     return true;
 }
 
-void LibraryView::set_dpi(UINT dpi)
+void LibraryView::rebuild_covers(UINT dpi, bool force)
 {
-    if (covers_ && covers_->rebuild(dpi))
-        ListView_SetImageList(list_, covers_->images(), LVSIL_NORMAL);
+    if (list_ != nullptr && covers_.rebuild(dpi, force))
+        ListView_SetImageList(list_, covers_.images(), LVSIL_NORMAL);
 }
 
 bool LibraryView::refresh(const Query& q)
@@ -56,23 +59,37 @@ bool LibraryView::refresh(const Query& q)
         log::error("library query failed (code {})", static_cast<int>(r.error().code));
         return false;
     }
+    std::string keep;
+    if (const BookRow* cur = selected_row(); cur != nullptr)
+        keep = cur->id;
+    constexpr UINT kState = LVIS_SELECTED | LVIS_FOCUSED;
+    ListView_SetItemState(list_, -1, 0, kState);
     rows_ = std::move(*r);
-    ListView_SetItemCountEx(list_, static_cast<int>(rows_.size()), 0);
+    text_.assign(rows_.size(), std::wstring());
+    ListView_SetItemCountEx(list_, static_cast<int>(rows_.size()), LVSICF_NOSCROLL);
+    const auto it = std::ranges::find(rows_, keep, &BookRow::id);
+    if (!keep.empty() && it != rows_.end())
+        ListView_SetItemState(list_, static_cast<int>(it - rows_.begin()), kState, kState);
     InvalidateRect(list_, nullptr, TRUE);
     return true;
 }
 
-void LibraryView::on_getdispinfo(NMLVDISPINFOW& di) const
+const std::wstring& LibraryView::label(size_t i)
+{
+    if (text_[i].empty())
+        text_[i] = display_text(rows_[i]);
+    return text_[i];
+}
+
+void LibraryView::on_getdispinfo(NMLVDISPINFOW& di)
 {
     if (di.item.iItem < 0 || static_cast<size_t>(di.item.iItem) >= rows_.size())
         return;
-    const BookRow& row = rows_[static_cast<size_t>(di.item.iItem)];
-    if ((di.item.mask & LVIF_TEXT) != 0 && di.item.pszText != nullptr && di.item.cchTextMax > 0) {
-        const std::wstring t = display_text(row);
-        wcsncpy_s(di.item.pszText, static_cast<size_t>(di.item.cchTextMax), t.c_str(), _TRUNCATE);
-    }
-    if ((di.item.mask & LVIF_IMAGE) != 0 && covers_)
-        di.item.iImage = covers_->image_for(row);
+    const auto i = static_cast<size_t>(di.item.iItem);
+    if ((di.item.mask & LVIF_TEXT) != 0 && di.item.pszText != nullptr && di.item.cchTextMax > 0)
+        wcsncpy_s(di.item.pszText, static_cast<size_t>(di.item.cchTextMax), label(i).c_str(), _TRUNCATE);
+    if ((di.item.mask & LVIF_IMAGE) != 0)
+        di.item.iImage = Covers::image_for(rows_[i]);
 }
 
 bool LibraryView::on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result) const
@@ -120,7 +137,7 @@ void LibraryView::reveal(const BookRow& row) const
 
 bool LibraryView::confirm_remove(const BookRow& row) const
 {
-    const std::wstring content = L"Xóa “" + row.title + L"” khỏi thư viện?";
+    const std::wstring content = L"Xóa “" + utf8_to_wide(row.title).value_or(std::wstring()) + L"” khỏi thư viện?";
     TASKDIALOGCONFIG cfg{};
     cfg.cbSize = sizeof(cfg);
     cfg.hwndParent = GetParent(list_);
@@ -130,7 +147,7 @@ bool LibraryView::confirm_remove(const BookRow& row) const
     cfg.pszWindowTitle = L"Ebook Reader";
     cfg.pszMainIcon = TD_WARNING_ICON;
     cfg.pszMainInstruction = content.c_str();
-    cfg.pszContent = L"Tệp sách trên đĩa không bị xóa. Sách sẽ được thêm lại nếu tệp vẫn nằm trong thư mục thư viện.";
+    cfg.pszContent = L"Tệp sách trên đĩa không bị xóa. Có thể hiện lại sách đã ẩn trong Cài đặt → Thư viện.";
     int button = 0;
     return SUCCEEDED(TaskDialogIndirect(&cfg, &button, nullptr, nullptr)) && button == IDYES;
 }
@@ -174,7 +191,7 @@ MenuOutcome LibraryView::context_menu(LPARAM lp, std::string& open_id)
     }
     if (cmd == CmdReveal)
         reveal(book);
-    else if (cmd == CmdRemove && confirm_remove(book) && remove_book(db_, book.id))
+    else if (cmd == CmdRemove && confirm_remove(book) && hide_book(db_, book.id))
         return MenuOutcome::Removed;
     return MenuOutcome::None;
 }

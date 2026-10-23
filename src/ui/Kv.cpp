@@ -1,5 +1,7 @@
 #include "Kv.h"
 
+#include "base/Log.h"
+
 namespace eb {
 
 std::optional<std::string> kv_get(Db& db, std::string_view key) noexcept
@@ -21,9 +23,14 @@ bool kv_set(Db& db, std::string_view key, std::string_view value) noexcept
 {
     try {
         auto st = db.prepare("INSERT INTO kv(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
-        if (!st || !st->bind_text(1, key) || !st->bind_text(2, value))
+        if (!st || !st->bind_text(1, key) || !st->bind_text(2, value)) {
+            log::error("kv_set failed for {}", key);
             return false;
-        return st->step().has_value();
+        }
+        if (st->step())
+            return true;
+        log::error("kv_set failed for {}", key);
+        return false;
     } catch (...) {
         return false;
     }

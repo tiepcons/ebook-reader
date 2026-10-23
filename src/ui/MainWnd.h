@@ -58,7 +58,7 @@ private:
     void start_scan();
     void on_first_paint();
     void on_scan_progress(WPARAM done, LPARAM total);
-    void on_scan_done(bool ok);
+    void on_scan_done(WPARAM result);
     void on_notify(NMHDR& hdr, LRESULT& result);
     void on_context_menu(LPARAM lp);
     void request_open(const std::string& id);
@@ -88,6 +88,8 @@ private:
     ScanWorker scan_;
     std::chrono::steady_clock::time_point last_scan_{};
     int scan_percent_ = -1;
+    bool scan_dirty_ = false;
+    std::vector<std::wstring> tree_folders_, tree_roots_;
     std::vector<std::string> open_queue_;
 };
 

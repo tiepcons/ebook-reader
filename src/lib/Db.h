@@ -44,7 +44,7 @@ private:
 // A Db must not be moved while a Tx on it is alive.
 class Db {
 public:
-    static Result<Db> open(const std::filesystem::path& file) noexcept;
+    static Result<Db> open(const std::filesystem::path& file, int busy_timeout_ms = 2000) noexcept;
 
     Result<void> exec(const char* sql) noexcept;
     Result<Stmt> prepare(std::string_view sql) noexcept;

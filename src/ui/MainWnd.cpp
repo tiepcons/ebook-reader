@@ -201,7 +201,7 @@ void MainWnd::update_font()
     for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
     font_ = std::move(nf);
-    lib_.set_dpi(dpi_);
+    lib_.rebuild_covers(dpi_, false);
 }
 
 void MainWnd::layout()
@@ -264,8 +264,14 @@ void MainWnd::on_command(WPARAM wp)
         refresh_list();
     } else if (id == IdOpen && code == BN_CLICKED) {
         open_ebooks_folder();
-    } else if ((id == IdRescan && code == BN_CLICKED) || (id == IDM_SETTINGS_LIBRARY && show_library_settings(inst_, hwnd_, db_))) {
+    } else if (id == IdRescan && code == BN_CLICKED) {
         PostMessageW(hwnd_, kMsgRescan, 0, 0);
+    } else if (id == IDM_SETTINGS_LIBRARY) {
+        const bool roots_changed = show_library_settings(inst_, hwnd_, db_);
+        refresh_tree();
+        refresh_list();
+        if (roots_changed)
+            PostMessageW(hwnd_, kMsgRescan, 0, 0);
     }
 }
 

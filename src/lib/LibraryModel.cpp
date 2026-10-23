@@ -2,8 +2,6 @@
 
 #include "base/Text.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <map>
 
@@ -73,13 +71,6 @@ Result<void> bind_args(Stmt& st, const std::vector<std::string>& args)
     return {};
 }
 
-std::wstring lower(std::wstring s)
-{
-    if (!s.empty())
-        CharLowerBuffW(s.data(), static_cast<DWORD>(s.size()));
-    return s;
-}
-
 std::wstring trim_slash(std::wstring p)
 {
     while (p.size() > 3 && p.back() == L'\\')
@@ -108,7 +99,7 @@ struct TreeBuilder {
 
     size_t ensure(const std::wstring& prefix, std::wstring label, int parent)
     {
-        const auto [it, fresh] = index.try_emplace(lower(prefix), nodes.size());
+        const auto [it, fresh] = index.try_emplace(lower_case(prefix), nodes.size());
         if (fresh)
             nodes.push_back({std::move(label), prefix, parent});
         return it->second;
@@ -136,7 +127,7 @@ std::vector<FolderNode> emit_sorted(const std::vector<FolderNode>& in)
     for (size_t i = 0; i < in.size(); ++i)
         kids[in[i].parent < 0 ? in.size() : static_cast<size_t>(in[i].parent)].push_back(i);
     for (auto& k : kids) {
-        std::ranges::sort(k, [&](size_t a, size_t b) { return lower(in[a].label) > lower(in[b].label); });
+        std::ranges::sort(k, [&](size_t a, size_t b) { return lower_case(in[a].label) > lower_case(in[b].label); });
     }
     std::vector<FolderNode> out;
     out.reserve(in.size());
@@ -175,7 +166,7 @@ Result<std::vector<BookRow>> query_books(Db& db, const Query& q) noexcept
 {
     try {
         std::string sql = "SELECT b.id,b.title,b.author,b.fmt,COALESCE(p.percent,0),b.status FROM books b "
-                          "LEFT JOIN progress p ON p.book_id=b.id WHERE 1";
+                          "LEFT JOIN progress p ON p.book_id=b.id WHERE b.status<>3";
         std::vector<std::string> args;
         if (q.folder) {
             auto f = wide_to_utf8(*q.folder);
@@ -209,7 +200,7 @@ Result<std::vector<BookRow>> query_books(Db& db, const Query& q) noexcept
                 return std::unexpected(std::move(step.error()));
             if (*step == Step::Done)
                 return rows;
-            rows.push_back({std::string(st->column_text(0)), to_wide(st->column_text(1)), to_wide(st->column_text(2)),
+            rows.push_back({std::string(st->column_text(0)), std::string(st->column_text(1)), std::string(st->column_text(2)),
                 std::string(st->column_text(3)), st->column_double(4), static_cast<int>(st->column_int(5))});
         }
     } catch (const std::bad_alloc&) {
@@ -222,7 +213,7 @@ Result<std::vector<BookRow>> query_books(Db& db, const Query& q) noexcept
 Result<std::vector<std::wstring>> list_folders(Db& db) noexcept
 {
     try {
-        auto rows = step_all_text(db, "SELECT DISTINCT folder FROM books WHERE status<>1 ORDER BY folder");
+        auto rows = step_all_text(db, "SELECT DISTINCT folder FROM books WHERE status NOT IN (1,3) ORDER BY folder");
         if (!rows)
             return std::unexpected(std::move(rows.error()));
         std::vector<std::wstring> out;
@@ -258,14 +249,18 @@ Result<std::wstring> book_path(Db& db, std::string_view id) noexcept
     }
 }
 
-Result<void> remove_book(Db& db, std::string_view id) noexcept
+namespace {
+
+Result<void> set_status(Db& db, const char* sql, std::string_view id) noexcept
 {
     try {
-        auto st = db.prepare("DELETE FROM books WHERE id=?1");
+        auto st = db.prepare(sql);
         if (!st)
             return std::unexpected(std::move(st.error()));
-        if (auto r = st->bind_text(1, id); !r)
-            return r;
+        if (!id.empty()) {
+            if (auto r = st->bind_text(1, id); !r)
+                return r;
+        }
         auto step = st->step();
         if (!step)
             return std::unexpected(std::move(step.error()));
@@ -273,6 +268,18 @@ Result<void> remove_book(Db& db, std::string_view id) noexcept
     } catch (...) {
         return fail(ErrorCode::Internal);
     }
+}
+
+}
+
+Result<void> hide_book(Db& db, std::string_view id) noexcept
+{
+    return set_status(db, "UPDATE books SET status=3 WHERE id=?1", id);
+}
+
+Result<void> unhide_all_books(Db& db) noexcept
+{
+    return set_status(db, "UPDATE books SET status=0 WHERE status=3", {});
 }
 
 std::vector<FolderNode> build_folder_tree(std::span<const std::wstring> folders, std::span<const std::wstring> roots)
@@ -286,10 +293,10 @@ std::vector<FolderNode> build_folder_tree(std::span<const std::wstring> folders,
     for (const auto& r : rs)
         tb.ensure(r, leaf_name(r), -1);
     for (const auto& f : folders) {
-        const std::wstring lf = lower(f);
+        const std::wstring lf = lower_case(f);
         const std::wstring* best = nullptr;
         for (const auto& r : rs) {
-            if (is_under(lf, lower(r)) && (best == nullptr || r.size() > best->size()))
+            if (is_under(lf, lower_case(r)) && (best == nullptr || r.size() > best->size()))
                 best = &r;
         }
         if (best != nullptr)

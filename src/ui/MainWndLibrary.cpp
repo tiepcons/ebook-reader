@@ -34,25 +34,31 @@ bool MainWnd::on_library_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         on_notify(*reinterpret_cast<NMHDR*>(lp), res); // NOLINT(performance-no-int-to-ptr): Win32 message ABI
         return true;
     case WM_CONTEXTMENU:
-        if (reinterpret_cast<HWND>(wp) == list_) // NOLINT(performance-no-int-to-ptr): Win32 message ABI
-            on_context_menu(lp);
+        if (reinterpret_cast<HWND>(wp) != list_) // NOLINT(performance-no-int-to-ptr): Win32 message ABI
+            return false;
+        on_context_menu(lp);
         return true;
     case WM_TIMER:
-        if (wp == kSearchTimer) {
-            KillTimer(hwnd_, kSearchTimer);
-            refresh_list();
-        }
+        if (wp != kSearchTimer)
+            return false;
+        KillTimer(hwnd_, kSearchTimer);
+        refresh_list();
         return true;
     case WM_ACTIVATE:
         if (LOWORD(wp) != WA_INACTIVE && !smoke_ && painted_
             && std::chrono::steady_clock::now() - last_scan_ >= std::chrono::seconds(30))
             start_scan();
+        return false;
+    case WM_SYSCOLORCHANGE:
+        lib_.rebuild_covers(dpi_, true);
+        SendMessageW(tree_, msg, wp, lp);
+        SendMessageW(list_, msg, wp, lp);
         return true;
     case WM_APP_SCAN_PROGRESS:
         on_scan_progress(wp, lp);
         return true;
     case WM_APP_SCAN_DONE:
-        on_scan_done(wp != 0);
+        on_scan_done(wp);
         return true;
     case WM_APP_OPEN_BOOK:
         if (!open_queue_.empty()) {
@@ -111,22 +117,32 @@ void MainWnd::on_scan_progress(WPARAM done, LPARAM total)
     update_status();
 }
 
-void MainWnd::on_scan_done(bool ok)
+void MainWnd::on_scan_done(WPARAM result)
 {
+    const bool changed = (result & 2) != 0;
+    if (!scan_.finished()) { // the DONE of an earlier scan, a newer one is running
+        scan_dirty_ = scan_dirty_ || changed;
+        return;
+    }
     scan_.finish();
     scan_percent_ = -1;
     last_scan_ = std::chrono::steady_clock::now();
-    if (!ok)
+    if ((result & 1) == 0)
         log::error("library scan did not complete");
-    refresh_tree();
-    refresh_list();
+    if (changed || scan_dirty_) {
+        scan_dirty_ = false;
+        refresh_tree();
+        refresh_list();
+    } else {
+        update_status();
+    }
     if (smoke_scan_)
         PostMessageW(hwnd_, WM_CLOSE, 0, 0);
 }
 
 void MainWnd::refresh_tree()
 {
-    const auto folders = list_folders(db_);
+    auto folders = list_folders(db_);
     if (!folders) {
         log::error("list_folders failed (code {})", static_cast<int>(folders.error().code));
         return;
@@ -134,7 +150,11 @@ void MainWnd::refresh_tree()
     std::vector<std::wstring> roots;
     for (const auto& r : library_roots())
         roots.push_back(r.wstring());
+    if (*folders == tree_folders_ && roots == tree_roots_)
+        return;
     ftree_.rebuild(build_folder_tree(*folders, roots));
+    tree_folders_ = std::move(*folders);
+    tree_roots_ = std::move(roots);
 }
 
 Query MainWnd::current_query() const

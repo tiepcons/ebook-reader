@@ -8,3 +8,4 @@
 #define IDC_ROOT_ADD 202
 #define IDC_ROOT_REMOVE 203
 #define IDC_SCAN_ON_START 204
+#define IDC_UNHIDE 205

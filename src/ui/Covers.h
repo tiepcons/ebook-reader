@@ -1,28 +1,31 @@
 #pragma once
+#include "base/Handle.h"
 #include "lib/LibraryModel.h"
 
 #include <windows.h>
 
 #include <commctrl.h>
 
-#include <memory>
-
 namespace eb {
 
-// Supplies the large-icon image list of the book grid. Real covers (T2.4) plug in here.
-class CoverProvider {
-public:
-    CoverProvider() = default;
-    CoverProvider(const CoverProvider&) = delete;
-    CoverProvider& operator=(const CoverProvider&) = delete;
-    virtual ~CoverProvider() = default;
-
-    [[nodiscard]] virtual HIMAGELIST images() const noexcept = 0;
-    [[nodiscard]] virtual int image_for(const BookRow& row) const noexcept = 0;
-    virtual bool rebuild(UINT dpi) noexcept = 0;
+struct ImageListTraits {
+    using Raw = HIMAGELIST;
+    static bool valid(HIMAGELIST h) noexcept { return h != nullptr; }
+    static void close(HIMAGELIST h) noexcept { ImageList_Destroy(h); }
 };
+using UniqueImageList = Unique<ImageListTraits>;
 
-// One drawn book icon per format. Returns null when the image list cannot be created.
-std::unique_ptr<CoverProvider> make_generic_covers(UINT dpi) noexcept;
+// Large-icon image list of the book grid: one drawn book icon per format. Real covers (T2.4) replace image_for().
+class Covers {
+public:
+    [[nodiscard]] HIMAGELIST images() const noexcept { return list_.get(); }
+    [[nodiscard]] static int image_for(const BookRow& row) noexcept;
+    // Redraws for the dpi and the current system colours; a no-op when neither changed unless force is set.
+    bool rebuild(UINT dpi, bool force = false) noexcept;
+
+private:
+    UniqueImageList list_;
+    UINT dpi_ = 0;
+};
 
 }

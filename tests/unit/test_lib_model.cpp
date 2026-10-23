@@ -56,7 +56,7 @@ struct ModelFixture {
         REQUIRE(r.has_value());
         std::vector<std::wstring> out;
         for (const auto& b : *r)
-            out.push_back(b.title);
+            out.push_back(eb::utf8_to_wide(b.title).value());
         return out;
     }
 };
@@ -145,7 +145,7 @@ TEST_CASE("model: reading_only keeps 0 < percent < 0.99 and reports it")
     auto r = eb::query_books(f.db, q);
     REQUIRE(r.has_value());
     REQUIRE(r->size() == 1);
-    CHECK((*r)[0].title == L"Half");
+    CHECK((*r)[0].title == "Half");
     CHECK((*r)[0].percent == doctest::Approx(0.5));
     q.reading_only = false;
     r = eb::query_books(f.db, q);
@@ -162,7 +162,7 @@ TEST_CASE("model: missing books are returned flagged and excluded from folders")
     auto r = eb::query_books(f.db, {});
     REQUIRE(r.has_value());
     REQUIRE(r->size() == 3);
-    CHECK((*r)[1].title == L"Gone");
+    CHECK((*r)[1].title == "Gone");
     CHECK((*r)[1].status == 1);
     CHECK((*r)[0].status == 2);
     auto folders = eb::list_folders(f.db);
@@ -170,7 +170,7 @@ TEST_CASE("model: missing books are returned flagged and excluded from folders")
     CHECK(*folders == V{L"C:\\a"});
 }
 
-TEST_CASE("model: book_path strips the marker and remove_book cascades")
+TEST_CASE("model: book_path strips the marker; hidden books vanish until unhidden")
 {
     ModelFixture f;
     f.add("Gone", "gone", "", "C:\\x", "epub", 1, 0, 0.3);
@@ -179,14 +179,13 @@ TEST_CASE("model: book_path strips the marker and remove_book cascades")
     REQUIRE(p.has_value());
     CHECK(*p == L"C:\\x\\id1.epub");
     CHECK(eb::book_path(f.db, "nope").error().code == eb::ErrorCode::NotFound);
-    REQUIRE(eb::remove_book(f.db, "id1").has_value());
-    auto r = eb::query_books(f.db, {});
-    REQUIRE(r.has_value());
-    CHECK(r->empty());
-    auto st = f.db.prepare("SELECT COUNT(*) FROM progress");
-    REQUIRE(st.has_value());
-    REQUIRE(st->step().has_value());
-    CHECK(st->column_int(0) == 0);
+    f.add("Here", "here", "", "C:\\y");
+    REQUIRE(f.db.exec("UPDATE books SET status=0 WHERE id='id1'").has_value());
+    REQUIRE(eb::hide_book(f.db, "id1").has_value());
+    CHECK(f.titles({}) == V{L"Here"});
+    CHECK(eb::list_folders(f.db).value() == V{L"C:\\y"});
+    REQUIRE(eb::unhide_all_books(f.db).has_value());
+    CHECK(f.titles({}) == V{L"Gone", L"Here"});
 }
 
 TEST_CASE("model: folder tree is relative to each root")
@@ -205,6 +204,35 @@ TEST_CASE("model: folder tree is relative to each root")
     CHECK(t[3].parent == 2);
     CHECK(t[4].label == L"D:\\Booksy");
     CHECK(t[5].label == L"E:\\Elsewhere");
+}
+
+TEST_CASE("model: 50000 rows query within budget")
+{
+    ModelFixture f;
+    REQUIRE(f.db.exec("WITH RECURSIVE c(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM c WHERE i<49999) "
+                      "INSERT INTO books(id,path,folder,title,author,title_nd,author_nd,fmt,size,mtime,added_at,status) "
+                      "SELECT 'id'||i,'C:\\lib\\id'||i||'.epub','C:\\lib\\f'||(i%20),'Sach so '||i,'Tac gia '||(i%50),"
+                      "'sach so '||i,'tac gia '||(i%50),'epub',1,1,i,0 FROM c")
+                .has_value());
+    const auto timed = [&](const eb::Query& q, size_t min_rows) {
+        const auto t0 = std::chrono::steady_clock::now();
+        auto r = eb::query_books(f.db, q);
+        const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        REQUIRE(r.has_value());
+        CHECK(r->size() >= min_rows);
+        return ms;
+    };
+    const double all_ms = timed({}, 50000);
+    eb::Query q;
+    q.text = L"so 49";
+    const double search_ms = timed(q, 1);
+#ifdef NDEBUG
+    CHECK(all_ms < 60.0);
+    CHECK(search_ms < 120.0);
+#else
+    CHECK(all_ms >= 0.0);
+    CHECK(search_ms >= 0.0);
+#endif
 }
 
 TEST_CASE("model: 5000 rows query within budget")

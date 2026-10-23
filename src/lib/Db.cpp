@@ -61,7 +61,7 @@ Result<void> check(sqlite3* db, int rc) noexcept
     return db_fail(db, rc);
 }
 
-Result<void> apply_pragmas(Db& db) noexcept
+Result<void> apply_pragmas(Db& db, int busy_timeout_ms) noexcept
 {
     auto mode = db.prepare("PRAGMA journal_mode=WAL");
     if (!mode)
@@ -70,7 +70,8 @@ Result<void> apply_pragmas(Db& db) noexcept
         return std::unexpected(std::move(step.error()));
     if (mode->column_text(0) != "wal")
         log::write("WARN", "database is not in WAL mode");
-    for (const char* pragma : {"PRAGMA synchronous=NORMAL", "PRAGMA busy_timeout=2000", "PRAGMA foreign_keys=ON"}) {
+    const std::string busy = "PRAGMA busy_timeout=" + std::to_string(std::clamp(busy_timeout_ms, 0, 60000));
+    for (const char* pragma : {"PRAGMA synchronous=NORMAL", busy.c_str(), "PRAGMA foreign_keys=ON"}) {
         if (auto r = db.exec(pragma); !r)
             return r;
     }
@@ -89,7 +90,7 @@ void StmtFinalizer::operator()(sqlite3_stmt* st) const noexcept
     sqlite3_finalize(st);
 }
 
-Result<Db> Db::open(const std::filesystem::path& file) noexcept
+Result<Db> Db::open(const std::filesystem::path& file, int busy_timeout_ms) noexcept
 {
     try {
         auto utf8 = wide_to_utf8(file.wstring());
@@ -100,7 +101,7 @@ Result<Db> Db::open(const std::filesystem::path& file) noexcept
         Db db(raw);
         if (rc != SQLITE_OK)
             return db_fail(raw, rc);
-        if (auto r = apply_pragmas(db); !r)
+        if (auto r = apply_pragmas(db, busy_timeout_ms); !r)
             return std::unexpected(std::move(r.error()));
         return db;
     } catch (const std::bad_alloc&) {

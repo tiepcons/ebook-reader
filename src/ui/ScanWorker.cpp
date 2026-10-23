@@ -11,6 +11,24 @@ namespace eb {
 namespace {
 
 constexpr auto kProgressGap = std::chrono::milliseconds(100);
+constexpr int kPostTries = 3;
+constexpr DWORD kPostRetryMs = 10;
+constexpr int kBusyTimeoutMs = 2000;
+
+bool post_retry(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) noexcept
+{
+    for (int i = 0; i < kPostTries; ++i) {
+        if (PostMessageW(wnd, msg, wp, lp) != FALSE)
+            return true;
+        Sleep(kPostRetryMs);
+    }
+    return false;
+}
+
+bool library_changed(const ScanStats& s) noexcept
+{
+    return s.added + s.updated + s.moved + s.missing + s.bad > 0;
+}
 
 }
 
@@ -30,12 +48,12 @@ Result<BookMeta> stem_meta(const std::filesystem::path& file)
     }
 }
 
-void ScanWorker::run(HWND notify, const ScanJob& job, const std::atomic<bool>& cancel) noexcept
+void ScanWorker::run(HWND notify, const ScanJob& job) noexcept
 {
-    bool ok = false;
+    WPARAM result = 0;
     try {
         SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
-        auto db = Db::open(job.db_file);
+        auto db = Db::open(job.db_file, kBusyTimeoutMs);
         if (db) {
             CrashLoopGuard guard(job.marker_file);
             auto last = std::chrono::steady_clock::now();
@@ -46,28 +64,35 @@ void ScanWorker::run(HWND notify, const ScanJob& job, const std::atomic<bool>& c
                 last = now;
                 PostMessageW(notify, WM_APP_SCAN_PROGRESS, static_cast<WPARAM>(done), static_cast<LPARAM>(total));
             };
-            const auto r = scan_library(*db, job.roots, job.meta, guard, cancel, progress, job.exclude_dirs);
-            ok = r.has_value();
-            if (r)
+            const auto r = scan_library(*db, job.roots, job.meta, guard, cancel_, progress, job.exclude_dirs);
+            if (r) {
+                result = library_changed(*r) ? 3 : 1;
                 log::info("scan: +{} ~{} moved {} missing {} bad {}", r->added, r->updated, r->moved, r->missing, r->bad);
-            else
+            } else {
                 log::error("scan failed (code {})", static_cast<int>(r.error().code));
+            }
         } else {
             log::error("scan: cannot open database");
         }
     } catch (...) {
         log::error("scan: exception");
     }
-    PostMessageW(notify, WM_APP_SCAN_DONE, ok ? 1 : 0, 0);
+    done_ = true;
+    if (!post_retry(notify, WM_APP_SCAN_DONE, result, 0))
+        log::error("scan: completion message could not be posted");
 }
 
 bool ScanWorker::start(HWND notify, ScanJob job) noexcept
 {
-    if (running_)
-        return false;
+    if (running_) {
+        if (!done_)
+            return false;
+        finish();
+    }
     try {
         cancel_ = false;
-        thread_ = std::jthread([this, notify, j = std::move(job)] { run(notify, j, cancel_); });
+        done_ = false;
+        thread_ = std::jthread([this, notify, j = std::move(job)] { run(notify, j); });
         running_ = true;
         return true;
     } catch (...) {

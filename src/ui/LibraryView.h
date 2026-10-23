@@ -7,7 +7,6 @@
 
 #include <commctrl.h>
 
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -22,11 +21,12 @@ public:
     explicit LibraryView(Db& db) noexcept : db_(db) {}
 
     bool attach(HWND list, UINT dpi);
-    void set_dpi(UINT dpi);
+    // Redraws the icons for the dpi / system colours and hands them to the list.
+    void rebuild_covers(UINT dpi, bool force);
     bool refresh(const Query& q);
     [[nodiscard]] size_t count() const noexcept { return rows_.size(); }
 
-    void on_getdispinfo(NMLVDISPINFOW& di) const;
+    void on_getdispinfo(NMLVDISPINFOW& di);
     bool on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result) const;
     [[nodiscard]] std::optional<std::string> selected_id() const;
     // lp is the WM_CONTEXTMENU position, or -1 for the keyboard. Open yields the id through open_id.
@@ -34,13 +34,15 @@ public:
 
 private:
     [[nodiscard]] const BookRow* selected_row() const;
+    [[nodiscard]] const std::wstring& label(size_t i);
     void reveal(const BookRow& row) const;
     bool confirm_remove(const BookRow& row) const;
 
     Db& db_;
     HWND list_ = nullptr;
     std::vector<BookRow> rows_;
-    std::unique_ptr<CoverProvider> covers_;
+    Covers covers_;
+    std::vector<std::wstring> text_; // lazily built label per row; empty = not built yet
 };
 
 }

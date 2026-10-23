@@ -367,6 +367,21 @@ TEST_CASE("scanner: changed file equal to a live book becomes a duplicate and is
     CHECK(s.unchanged == 2);
 }
 
+TEST_CASE("scanner: a hidden book stays hidden and is never re-read")
+{
+    Fixture f;
+    const auto p = make(f.root.path() / L"a.epub", "aaa");
+    f.scan();
+    REQUIRE(f.db.exec("UPDATE books SET status=3").has_value());
+    bump_mtime(p);
+    f.calls = 0;
+    f.scan();
+    f.scan();
+    CHECK(f.calls == 0);
+    CHECK(f.count("status=3") == 1);
+    CHECK(f.count("1=1") == 1);
+}
+
 TEST_CASE("scanner: throwing meta marks the book bad")
 {
     Fixture f;

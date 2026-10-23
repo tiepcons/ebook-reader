@@ -28,15 +28,18 @@ public:
     ScanWorker& operator=(const ScanWorker&) = delete;
     ~ScanWorker() { stop(); }
 
-    [[nodiscard]] bool running() const noexcept { return running_; }
+    [[nodiscard]] bool running() const noexcept { return running_ && !done_; }
+    // The worker has stopped; its DONE message may still be queued.
+    [[nodiscard]] bool finished() const noexcept { return done_; }
     bool start(HWND notify, ScanJob job) noexcept;
     void finish() noexcept;
     void stop() noexcept;
 
 private:
-    static void run(HWND notify, const ScanJob& job, const std::atomic<bool>& cancel) noexcept;
+    void run(HWND notify, const ScanJob& job) noexcept;
 
     std::atomic<bool> cancel_{false};
+    std::atomic<bool> done_{false};
     bool running_ = false;
     std::jthread thread_;
 };

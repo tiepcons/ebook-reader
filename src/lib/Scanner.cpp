@@ -24,6 +24,7 @@ using Clock = std::chrono::steady_clock;
 constexpr size_t kBatch = 200;
 constexpr auto kFlushAfter = std::chrono::milliseconds(250);
 constexpr size_t kLongPath = 240;
+constexpr int kHidden = 3; // removed from the library by the user; kept so a rescan does not bring it back
 
 struct Row {
     Id id{};
@@ -351,6 +352,12 @@ private:
 
     Result<void> changed(const Entry& e, Row& row)
     {
+        if (row.status == kHidden) {
+            row.size = e.size;
+            row.mtime = e.mtime;
+            ++stats_.unchanged;
+            return touch(row, kHidden);
+        }
         auto id = hash_id(open_path(e.path8));
         if (!id) {
             ++stats_.bad;
@@ -460,7 +467,7 @@ private:
         other.size = e.size;
         other.mtime = e.mtime;
         other.seen = true;
-        if (other.status != 2)
+        if (other.status != 2 && other.status != kHidden)
             other.status = 0;
         node.key() = key_of(wide(e.path8));
         rows_.insert(std::move(node));

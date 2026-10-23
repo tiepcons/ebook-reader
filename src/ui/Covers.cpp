@@ -30,11 +30,6 @@ constexpr std::array<FormatStyle, 8> kStyles = {{
     {"", L"?", RGB(120, 120, 120)},
 }};
 
-struct ImageListTraits {
-    using Raw = HIMAGELIST;
-    static bool valid(HIMAGELIST h) noexcept { return h != nullptr; }
-    static void close(HIMAGELIST h) noexcept { ImageList_Destroy(h); }
-};
 struct GdiTraits {
     using Raw = HGDIOBJ;
     static bool valid(HGDIOBJ h) noexcept { return h != nullptr; }
@@ -45,11 +40,10 @@ struct DcTraits {
     static bool valid(HDC h) noexcept { return h != nullptr; }
     static void close(HDC h) noexcept { DeleteDC(h); }
 };
-using UniqueImageList = Unique<ImageListTraits>;
 using UniqueGdi = Unique<GdiTraits>;
 using UniqueDc = Unique<DcTraits>;
 
-int style_index(std::string_view fmt) noexcept
+int style_index(const std::string& fmt) noexcept
 {
     for (size_t i = 0; i + 1 < kStyles.size(); ++i) {
         if (fmt.size() == kStyles[i].fmt.size()) {
@@ -90,51 +84,40 @@ void draw_book(HDC dc, int w, int h, const FormatStyle& st, UINT dpi)
     SelectObject(dc, old_f);
 }
 
-class GenericCovers final : public CoverProvider {
-public:
-    [[nodiscard]] HIMAGELIST images() const noexcept override { return list_.get(); }
-    [[nodiscard]] int image_for(const BookRow& row) const noexcept override { return style_index(row.fmt); }
-
-    bool rebuild(UINT dpi) noexcept override
-    {
-        const int w = MulDiv(kIconW, static_cast<int>(dpi), 96), h = MulDiv(kIconH, static_cast<int>(dpi), 96);
-        UniqueImageList list(ImageList_Create(w, h, ILC_COLOR32, static_cast<int>(kStyles.size()), 0));
-        const UniqueDc screen(CreateCompatibleDC(nullptr));
-        if (!list || !screen)
-            return false;
-        const auto sdc = GetDC(nullptr);
-        for (const auto& st : kStyles) {
-            const UniqueGdi bmp(CreateCompatibleBitmap(sdc, w, h));
-            if (!bmp) {
-                ReleaseDC(nullptr, sdc);
-                return false;
-            }
-            const auto old = SelectObject(screen.get(), bmp.get());
-            draw_book(screen.get(), w, h, st, dpi);
-            SelectObject(screen.get(), old);
-            ImageList_Add(list.get(), static_cast<HBITMAP>(bmp.get()), nullptr);
-        }
-        ReleaseDC(nullptr, sdc);
-        list_ = std::move(list);
-        return true;
-    }
-
-private:
-    UniqueImageList list_;
-};
-
 } // namespace
 
-std::unique_ptr<CoverProvider> make_generic_covers(UINT dpi) noexcept
+int Covers::image_for(const BookRow& row) noexcept
 {
-    try {
-        auto c = std::make_unique<GenericCovers>();
-        if (!c->rebuild(dpi))
-            return nullptr;
-        return c;
-    } catch (...) {
-        return nullptr;
+    return style_index(row.fmt);
+}
+
+bool Covers::rebuild(UINT dpi, bool force) noexcept
+{
+    if (!force && dpi == dpi_ && list_)
+        return true;
+    const int w = MulDiv(kIconW, static_cast<int>(dpi), 96), h = MulDiv(kIconH, static_cast<int>(dpi), 96);
+    UniqueImageList list(ImageList_Create(w, h, ILC_COLOR32, static_cast<int>(kStyles.size()), 0));
+    const auto screen = GetDC(nullptr);
+    if (!list || screen == nullptr)
+        return false;
+    const UniqueDc mem(CreateCompatibleDC(screen));
+    bool ok = mem.valid();
+    for (size_t i = 0; ok && i < kStyles.size(); ++i) {
+        const UniqueGdi bmp(CreateCompatibleBitmap(screen, w, h));
+        ok = bmp.valid();
+        if (!ok)
+            break;
+        const auto old = SelectObject(mem.get(), bmp.get());
+        draw_book(mem.get(), w, h, kStyles[i], dpi);
+        SelectObject(mem.get(), old);
+        ok = ImageList_Add(list.get(), static_cast<HBITMAP>(bmp.get()), nullptr) >= 0;
     }
+    ReleaseDC(nullptr, screen);
+    if (!ok)
+        return false;
+    list_ = std::move(list);
+    dpi_ = dpi;
+    return true;
 }
 
 }

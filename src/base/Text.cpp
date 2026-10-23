@@ -92,6 +92,15 @@ Result<std::string> wide_to_utf8(std::wstring_view s)
     return out;
 }
 
+std::wstring lower_case(std::wstring_view s) noexcept
+{
+    try {
+        return map_lower(std::wstring(s));
+    } catch (...) {
+        return {};
+    }
+}
+
 std::wstring fold_for_search(std::wstring_view s) noexcept
 {
     try {

@@ -40,6 +40,7 @@ struct EngineScope {
     ~EngineScope() { eb_shutdown(); }
 };
 
+constexpr int kUiBusyTimeoutMs = 50;
 bool g_quiet = false;
 
 void show_fatal(const wchar_t* message) noexcept
@@ -148,7 +149,7 @@ int run(HINSTANCE inst, int show)
     if (eb_init(nullptr) != EB_OK)
         return fatal(L"Không khởi tạo được bộ xử lý tài liệu.");
     const EngineScope engine;
-    auto db = Db::open(paths->data / L"library.db");
+    auto db = Db::open(paths->data / L"library.db", kUiBusyTimeoutMs);
     if (!db || !migrate(*db))
         return fatal(L"Không mở được cơ sở dữ liệu thư viện.", db ? nullptr : &db.error());
     const CrashLoopGuard guard(paths->data / L"pending");

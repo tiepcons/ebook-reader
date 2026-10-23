@@ -3,8 +3,10 @@
 #include "Kv.h"
 #include "base/Log.h"
 #include "base/Text.h"
+#include "lib/LibraryModel.h"
 #include "resource.h"
 
+#include <commctrl.h>
 #include <shobjidl.h>
 #include <wrl/client.h>
 
@@ -21,13 +23,6 @@ struct DialogState {
     bool scan_start;
     bool changed;
 };
-
-std::wstring lower(std::wstring s)
-{
-    if (!s.empty())
-        CharLowerBuffW(s.data(), static_cast<DWORD>(s.size()));
-    return s;
-}
 
 std::wstring pick_folder(HWND owner)
 {
@@ -63,8 +58,8 @@ void add_root(HWND dlg, DialogState& st)
     std::wstring p = pick_folder(dlg);
     if (p.empty() || st.roots.size() >= kMaxExtraRoots)
         return;
-    const std::wstring key = lower(p);
-    if (std::ranges::any_of(st.roots, [&](const std::wstring& r) { return lower(r) == key; }))
+    const std::wstring key = lower_case(p);
+    if (std::ranges::any_of(st.roots, [&](const std::wstring& r) { return lower_case(r) == key; }))
         return;
     st.roots.push_back(std::move(p));
     st.changed = true;
@@ -81,7 +76,19 @@ void remove_root(HWND dlg, DialogState& st)
     fill_list(dlg, st);
 }
 
-void save(const DialogState& st)
+void show_save_error(HWND dlg) noexcept
+{
+    TASKDIALOGCONFIG cfg{};
+    cfg.cbSize = sizeof(cfg);
+    cfg.hwndParent = dlg;
+    cfg.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+    cfg.pszWindowTitle = L"Ebook Reader";
+    cfg.pszMainIcon = TD_ERROR_ICON;
+    cfg.pszContent = L"Không lưu được cài đặt";
+    TaskDialogIndirect(&cfg, nullptr, nullptr, nullptr);
+}
+
+bool save(const DialogState& st)
 {
     std::string joined;
     for (const auto& r : st.roots) {
@@ -91,8 +98,8 @@ void save(const DialogState& st)
             joined += *u;
         }
     }
-    kv_set(*st.db, "lib.roots", joined);
-    kv_set(*st.db, "lib.scan_on_start", st.scan_start ? "1" : "0");
+    const bool roots_ok = kv_set(*st.db, "lib.roots", joined);
+    return kv_set(*st.db, "lib.scan_on_start", st.scan_start ? "1" : "0") && roots_ok;
 }
 
 INT_PTR on_command(HWND dlg, DialogState& st, WPARAM wp)
@@ -106,8 +113,15 @@ INT_PTR on_command(HWND dlg, DialogState& st, WPARAM wp)
         return TRUE;
     case IDOK:
         st.scan_start = IsDlgButtonChecked(dlg, IDC_SCAN_ON_START) == BST_CHECKED;
-        save(st);
+        if (!save(st)) {
+            st.changed = false;
+            show_save_error(dlg);
+        }
         EndDialog(dlg, 1);
+        return TRUE;
+    case IDC_UNHIDE:
+        if (!unhide_all_books(*st.db))
+            show_save_error(dlg);
         return TRUE;
     case IDCANCEL:
         st.changed = false;
