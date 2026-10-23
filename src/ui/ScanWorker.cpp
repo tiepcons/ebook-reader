@@ -5,7 +5,6 @@
 #include "lib/Db.h"
 
 #include <chrono>
-#include <cwctype>
 
 namespace eb {
 namespace {
@@ -30,22 +29,6 @@ bool library_changed(const ScanStats& s) noexcept
     return s.added + s.updated + s.moved + s.missing + s.bad > 0;
 }
 
-}
-
-Result<BookMeta> stem_meta(const std::filesystem::path& file)
-{
-    try {
-        BookMeta m;
-        m.title = file.stem().wstring();
-        m.fmt = file.extension().wstring();
-        if (!m.fmt.empty())
-            m.fmt.erase(0, 1);
-        for (wchar_t& c : m.fmt)
-            c = static_cast<wchar_t>(std::towlower(c));
-        return m;
-    } catch (...) {
-        return fail(ErrorCode::NoMemory);
-    }
 }
 
 void ScanWorker::run(HWND notify, const ScanJob& job) noexcept

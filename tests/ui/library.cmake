@@ -15,4 +15,8 @@ execute_process(COMMAND "${DBCOUNT}" "${dir}/data/library.db" 10 RESULT_VARIABLE
 if(NOT rc EQUAL 0)
   message(FATAL_ERROR "library has too few books (rc=${rc}): ${out}")
 endif()
+file(GLOB covers "${dir}/data/covers/*.jpg")
+if(NOT covers)
+  message(FATAL_ERROR "no cover was generated")
+endif()
 file(REMOVE_RECURSE "${dir}")

@@ -108,6 +108,48 @@ inline BitmapPtr render0(eb_doc* d, const eb_render_opts& o)
     return BitmapPtr(b);
 }
 
+// 8x8 24-bit BMP, bottom-up file order; top half black and bottom half white when top_dark.
+inline std::string make_bmp(bool top_dark)
+{
+    const int w = 8;
+    const int h = 8;
+    std::string pixels;
+    for (int row = 0; row < h; ++row) {
+        const bool file_row_is_top = row >= h / 2;
+        const char v = (file_row_is_top == top_dark) ? '\0' : '\xff';
+        pixels.append(static_cast<size_t>(w) * 3, v);
+    }
+    std::string b = "BM";
+    auto le32 = [&b](uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(static_cast<char>((v >> (8 * i)) & 0xFFu));
+    };
+    le32(static_cast<uint32_t>(54 + pixels.size()));
+    le32(0);
+    le32(54);
+    le32(40);
+    le32(w);
+    le32(h);
+    b += std::string("\x01\x00\x18\x00", 4);
+    le32(0);
+    le32(static_cast<uint32_t>(pixels.size()));
+    le32(2835);
+    le32(2835);
+    le32(0);
+    le32(0);
+    return b + pixels;
+}
+
+inline std::string make_solid_bmp(uint8_t r, uint8_t g, uint8_t b)
+{
+    std::string pixels;
+    for (int i = 0; i < 64; ++i) {
+        pixels.push_back(static_cast<char>(b));
+        pixels.push_back(static_cast<char>(g));
+        pixels.push_back(static_cast<char>(r));
+    }
+    return make_bmp(true).substr(0, 54) + pixels;
+}
+
 } // namespace ebt
 
 using namespace ebt;

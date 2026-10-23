@@ -1,5 +1,7 @@
 #include "LibraryView.h"
 
+#include "Kv.h"
+#include "UiMessages.h"
 #include "base/Log.h"
 #include "base/Text.h"
 
@@ -34,22 +36,83 @@ bool file_exists(const std::wstring& path) noexcept
     return !path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+constexpr size_t kCoversPerMessage = 8;
+
 } // namespace
 
-bool LibraryView::attach(HWND list, UINT dpi)
+LibraryView::~LibraryView()
+{
+    if (worker_)
+        worker_->stop();
+}
+
+bool LibraryView::attach(HWND list, UINT dpi, const AppPaths& paths)
 {
     list_ = list;
     if (!covers_.rebuild(dpi))
         return false;
     ListView_SetImageList(list_, covers_.images(), LVSIL_NORMAL);
     ListView_SetItemCountEx(list_, 0, 0);
+    try {
+        const HWND owner = GetParent(list_);
+        cache_ = std::make_unique<CoverCache>(paths.covers);
+        worker_ = std::make_unique<CoverWorker>(
+            *cache_, paths.data / L"pending_cover", [owner] { return PostMessageW(owner, WM_APP_COVER_READY, 0, 0) != FALSE; });
+        if (const auto& bad = worker_->previous_suspect())
+            kv_set(db_, "cover.bad." + *bad, "1");
+    } catch (...) {
+        log::error("cover worker unavailable");
+        worker_.reset();
+    }
     return true;
+}
+
+void LibraryView::request_cover(const BookRow& row)
+{
+    if (!worker_ || row.status != 0 || covers_.has(row.id) || pending_.contains(row.id) || failed_.contains(row.id))
+        return;
+    const auto path = book_path(db_, row.id);
+    if (!path || kv_get(db_, "cover.bad." + row.id)) {
+        failed_.insert(row.id);
+        return;
+    }
+    pending_.insert(row.id);
+    if (const auto dropped = worker_->request(row.id, *path))
+        pending_.erase(*dropped);
+}
+
+void LibraryView::prefetch_covers(size_t n)
+{
+    for (size_t i = 0; i < std::min(n, rows_.size()); ++i)
+        request_cover(rows_[i]);
+}
+
+void LibraryView::on_cover_ready()
+{
+    if (!worker_)
+        return;
+    const auto done = worker_->take_ready(kCoversPerMessage);
+    bool changed = false;
+    for (const auto& r : done) {
+        pending_.erase(r.id);
+        const auto file = r.ok ? cache_->cached(r.id) : std::nullopt;
+        if (file && covers_.set_cover(r.id, *file))
+            changed = true;
+        else
+            failed_.insert(r.id);
+    }
+    if (changed)
+        InvalidateRect(list_, nullptr, FALSE);
+    if (done.size() == kCoversPerMessage)
+        PostMessageW(GetParent(list_), WM_APP_COVER_READY, 0, 0);
 }
 
 void LibraryView::rebuild_covers(UINT dpi, bool force)
 {
-    if (list_ != nullptr && covers_.rebuild(dpi, force))
+    if (list_ != nullptr && covers_.rebuild(dpi, force)) {
+        pending_.clear();
         ListView_SetImageList(list_, covers_.images(), LVSIL_NORMAL);
+    }
 }
 
 bool LibraryView::refresh(const Query& q)
@@ -88,8 +151,10 @@ void LibraryView::on_getdispinfo(NMLVDISPINFOW& di)
     const auto i = static_cast<size_t>(di.item.iItem);
     if ((di.item.mask & LVIF_TEXT) != 0 && di.item.pszText != nullptr && di.item.cchTextMax > 0)
         wcsncpy_s(di.item.pszText, static_cast<size_t>(di.item.cchTextMax), label(i).c_str(), _TRUNCATE);
-    if ((di.item.mask & LVIF_IMAGE) != 0)
-        di.item.iImage = Covers::image_for(rows_[i]);
+    if ((di.item.mask & LVIF_IMAGE) != 0) {
+        request_cover(rows_[i]);
+        di.item.iImage = covers_.image_for(rows_[i]);
+    }
 }
 
 bool LibraryView::on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result) const

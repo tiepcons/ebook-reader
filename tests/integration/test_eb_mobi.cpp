@@ -39,36 +39,6 @@ std::string make_exth()
     return e;
 }
 
-std::string make_bmp(bool top_dark)
-{
-    const int w = 8;
-    const int h = 8;
-    std::string pixels;
-    for (int row = 0; row < h; ++row) {
-        const bool file_row_is_top = row >= h / 2;
-        const char v = (file_row_is_top == top_dark) ? '\0' : '\xff';
-        pixels.append(static_cast<size_t>(w) * 3, v);
-    }
-    std::string b = "BM";
-    auto le32 = [&b](uint32_t v) {
-        for (int i = 0; i < 4; ++i) b.push_back(static_cast<char>((v >> (8 * i)) & 0xFFu));
-    };
-    le32(static_cast<uint32_t>(54 + pixels.size()));
-    le32(0);
-    le32(54);
-    le32(40);
-    le32(w);
-    le32(h);
-    b += std::string("\x01\x00\x18\x00", 4);
-    le32(0);
-    le32(static_cast<uint32_t>(pixels.size()));
-    le32(2835);
-    le32(2835);
-    le32(0);
-    le32(0);
-    return b + pixels;
-}
-
 struct MobiSpec {
     uint32_t version = 6;
     uint32_t compression = 1;

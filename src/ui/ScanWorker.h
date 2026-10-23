@@ -16,9 +16,6 @@ struct ScanJob {
     MetaFn meta;
 };
 
-// Title = file stem, author empty, fmt = lower-case extension. Replaced by the engine metadata in T2.3.
-Result<BookMeta> stem_meta(const std::filesystem::path& file);
-
 // UI-thread owner of the single background scan. The worker opens its own connection and reports
 // through WM_APP_SCAN_PROGRESS and WM_APP_SCAN_DONE; the owner must call finish() when it receives DONE.
 class ScanWorker {

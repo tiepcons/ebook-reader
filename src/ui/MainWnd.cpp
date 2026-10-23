@@ -182,7 +182,7 @@ bool MainWnd::create_children()
     dpi_ = GetDpiForWindow(hwnd_);
     ftree_.attach(tree_);
     ftree_.rebuild({});
-    if (!lib_.attach(list_, dpi_))
+    if (!lib_.attach(list_, dpi_, paths_))
         return false;
     SetMenu(hwnd_, LoadMenuW(inst_, MAKEINTRESOURCEW(IDR_MAINMENU)));
     update_font();

@@ -228,7 +228,7 @@ static void read_info(const MOBIData* m, eb_mobi_info* info)
     s = mobi_meta_get_author(m);
     info->author = dup_plain(s);
     s = mobi_meta_get_language(m);
-    info->language = dup_plain(s);
+    info->language = eb_normalize_language(s);
     info->format = mobi_is_kf8(m) ? "AZW3" : "MOBI";
     read_cover(m, info);
 }

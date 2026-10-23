@@ -93,6 +93,7 @@ void eb_close(eb_doc* doc)
     if (!doc) return;
     fz_drop_document(doc->ctx, doc->doc);
     eb_mobi_info_free(&doc->mobi);
+    fz_drop_buffer(doc->ctx, doc->src);
     if (doc->file) fclose(doc->file);
     eb_release_ctx(doc->ctx);
     free(doc);
@@ -116,14 +117,15 @@ void eb_check_abort(eb_doc* doc)
     if (InterlockedCompareExchange((volatile LONG*)&doc->cookie.abort, 0, 0)) fz_throw(doc->ctx, FZ_ERROR_ABORT, "cancelled");
 }
 
-/* Takes ownership of ctx, fdoc, file and the strings in info (may be NULL) on every path. */
-static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_mobi_info* info, eb_doc** out)
+/* Takes ownership of ctx, fdoc, file, src and the strings in info (all may be NULL) on every path. */
+static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_mobi_info* info, fz_buffer* src, eb_doc** out)
 {
     eb_status st = EB_OK;
     int drm = 0;
     eb_doc* d = calloc(1, sizeof *d);
     if (!d) {
         fz_drop_document(ctx, fdoc);
+        fz_drop_buffer(ctx, src);
         eb_mobi_info_free(info);
         if (file) fclose(file);
         eb_release_ctx(ctx);
@@ -132,6 +134,7 @@ static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_mobi_i
     d->ctx = ctx;
     d->doc = fdoc;
     d->file = file;
+    d->src = src;
     if (info) d->mobi = *info;
     fz_try(ctx)
     {
@@ -252,7 +255,7 @@ eb_status eb_open(const wchar_t* path, eb_doc** out)
         fclose(file);
         file = NULL;
     }
-    if (st == EB_OK) return adopt(ctx, fdoc, file, &info, out);
+    if (st == EB_OK) return adopt(ctx, fdoc, file, &info, NULL, out);
     if (file) fclose(file);
     eb_release_ctx(ctx);
     return st;
@@ -275,7 +278,7 @@ eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_do
     if (!ctx) return eb_take_oom() ? eb_fail_msg(EB_E_NOMEM, "out of memory") : eb_fail_msg(EB_E_ARG, "eb_init not called");
     if (eb_mobi_sniff(data, size)) {
         st = open_mobi_buffer(ctx, data, size, &fdoc, &info);
-        if (st == EB_OK) return adopt(ctx, fdoc, NULL, &info, out);
+        if (st == EB_OK) return adopt(ctx, fdoc, NULL, &info, NULL, out);
         const int fatal = mobi_fatal(st, &info);
         eb_mobi_info_free(&info);
         if (fatal) {
@@ -292,13 +295,10 @@ eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_do
         stm = fz_open_buffer(ctx, buf);
         fdoc = fz_open_document_with_stream(ctx, magic, stm);
     }
-    fz_always(ctx)
-    {
-        fz_drop_stream(ctx, stm);
-        fz_drop_buffer(ctx, buf);
-    }
+    fz_always(ctx) fz_drop_stream(ctx, stm);
     fz_catch(ctx) st = eb_fail(ctx);
-    if (st == EB_OK) return adopt(ctx, fdoc, NULL, NULL, out);
+    if (st == EB_OK) return adopt(ctx, fdoc, NULL, NULL, buf, out);
+    fz_drop_buffer(ctx, buf);
     eb_release_ctx(ctx);
     return st;
 }

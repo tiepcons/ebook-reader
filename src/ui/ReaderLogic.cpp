@@ -1,0 +1,171 @@
+#include "ReaderLogic.h"
+
+#include <windows.h>
+
+#include <algorithm>
+#include <cmath>
+
+namespace eb {
+namespace {
+
+constexpr float kPtPerDip = 0.75F;
+constexpr float kMaxSidePx = 16384.0F;
+constexpr float kMaxBitmapPx = 24.0F * 1024 * 1024;
+constexpr int kEdgeDivisor = 4;
+
+}
+
+float render_scale(unsigned dpi) noexcept
+{
+    return static_cast<float>(dpi) / 72.0F;
+}
+
+LayoutParams reflow_layout(int client_w_px, int client_h_px, unsigned dpi) noexcept
+{
+    const float to_dip = 96.0F / static_cast<float>(std::max(dpi, 1U));
+    const auto content_pt = [&](int px) {
+        const float dip = static_cast<float>(std::max(px, 0)) * to_dip - 2.0F * kReaderMarginDip;
+        return std::max(kMinLayoutPt, dip * kPtPerDip);
+    };
+    return {content_pt(client_w_px), content_pt(client_h_px), kBaseEmPt * static_cast<float>(dpi) / 96.0F};
+}
+
+float clamp_zoom(float pct) noexcept
+{
+    if (!std::isfinite(pct))
+        return 100.0F;
+    return std::clamp(pct, kMinZoomPct, kMaxZoomPct);
+}
+
+float fixed_scale(const ZoomState& z, float page_w_pt, float page_h_pt, int client_w, int client_h, unsigned dpi) noexcept
+{
+    const float actual = render_scale(dpi);
+    if (!(page_w_pt > 0) || !(page_h_pt > 0) || client_w <= 0 || client_h <= 0)
+        return actual;
+    const auto cw = static_cast<float>(client_w), ch = static_cast<float>(client_h);
+    float s = actual * clamp_zoom(z.percent) / 100.0F;
+    if (z.fit == ZoomState::Fit::Page)
+        s = std::min(cw / page_w_pt, ch / page_h_pt);
+    else if (z.fit == ZoomState::Fit::Width)
+        s = cw / page_w_pt;
+    s = std::clamp(s, actual * kMinZoomPct / 100.0F, actual * kMaxZoomPct / 100.0F);
+    s = std::min(s, kMaxSidePx / std::max(page_w_pt, page_h_pt));
+    return std::min(s, std::sqrt(kMaxBitmapPx / (page_w_pt * page_h_pt)));
+}
+
+float zoom_percent_of(float scale, unsigned dpi) noexcept
+{
+    return scale / render_scale(dpi) * 100.0F;
+}
+
+ZoomState zoom_step(float current_scale, unsigned dpi, int direction) noexcept
+{
+    const float pct = clamp_zoom(zoom_percent_of(current_scale, dpi));
+    return {ZoomState::Fit::Custom, clamp_zoom(direction > 0 ? pct * kZoomStep : pct / kZoomStep)};
+}
+
+ZoomState toggle_fit_width(const ZoomState& z) noexcept
+{
+    ZoomState out = z;
+    out.fit = z.fit == ZoomState::Fit::Width ? ZoomState::Fit::Page : ZoomState::Fit::Width;
+    return out;
+}
+
+int clamp_pan(int pan, int content, int viewport) noexcept
+{
+    return std::clamp(pan, 0, std::max(0, content - viewport));
+}
+
+int axis_origin(int viewport, int content, int pan) noexcept
+{
+    return content <= viewport ? (viewport - content) / 2 : -clamp_pan(pan, content, viewport);
+}
+
+std::size_t bitmap_bytes(int width, int height) noexcept
+{
+    return static_cast<std::size_t>(std::max(width, 0)) * static_cast<std::size_t>(std::max(height, 0)) * 4;
+}
+
+NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept
+{
+    if (ctrl) {
+        if (vk == VK_OEM_PLUS || vk == VK_ADD)
+            return NavAction::ZoomIn;
+        if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)
+            return NavAction::ZoomOut;
+        return NavAction::None;
+    }
+    switch (vk) {
+    case VK_LEFT:
+    case VK_PRIOR:
+        return NavAction::Prev;
+    case VK_RIGHT:
+    case VK_NEXT:
+        return NavAction::Next;
+    case VK_SPACE:
+        return shift ? NavAction::Prev : NavAction::Next;
+    case VK_HOME:
+        return NavAction::First;
+    case VK_END:
+        return NavAction::Last;
+    case VK_F11:
+        return NavAction::Fullscreen;
+    case VK_ESCAPE:
+        return NavAction::Close;
+    case 'W':
+        return NavAction::ToggleFitWidth;
+    default:
+        return NavAction::None;
+    }
+}
+
+NavAction nav_for_click(int x, int client_w) noexcept
+{
+    if (client_w <= 0 || x < 0 || x >= client_w)
+        return NavAction::None;
+    if (x < client_w / kEdgeDivisor)
+        return NavAction::Prev;
+    return x >= client_w - client_w / kEdgeDivisor ? NavAction::Next : NavAction::None;
+}
+
+uint64_t RenderQueue::post(RenderWant w)
+{
+    bool abort_now = false;
+    uint64_t gen = 0;
+    {
+        const std::lock_guard lock(mu_);
+        gen = ++gen_;
+        w.generation = gen;
+        pending_ = std::move(w);
+        abort_now = in_flight_;
+    }
+    cv_.notify_one();
+    if (abort_now && abort_)
+        abort_();
+    return gen;
+}
+
+bool RenderQueue::pop(RenderWant& out, std::stop_token st)
+{
+    std::unique_lock lock(mu_);
+    if (!cv_.wait(lock, st, [this] { return pending_.has_value(); }))
+        return false;
+    out = *pending_;
+    pending_.reset();
+    in_flight_ = true;
+    return true;
+}
+
+void RenderQueue::done() noexcept
+{
+    const std::lock_guard lock(mu_);
+    in_flight_ = false;
+}
+
+bool RenderQueue::current(uint64_t generation) const
+{
+    const std::lock_guard lock(mu_);
+    return generation == gen_;
+}
+
+}

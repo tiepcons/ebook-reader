@@ -72,7 +72,7 @@ target_compile_options(eb_libmobi PRIVATE /W0 "/FI${CMAKE_SOURCE_DIR}/libs/eb_mu
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
 add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
-  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c)
+  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
@@ -105,6 +105,10 @@ target_sources(eb_lib PRIVATE src/lib/LibraryModel.cpp)
 target_sources(EbookReader PRIVATE src/ui/MainWndLibrary.cpp src/ui/LibraryView.cpp src/ui/FolderTree.cpp src/ui/Covers.cpp
   src/ui/ScanWorker.cpp src/ui/LibrarySettings.cpp)
 target_include_directories(EbookReader PRIVATE res)
+
+add_library(eb_book STATIC src/lib/Metadata.cpp src/lib/CoverCache.cpp)
+target_link_libraries(eb_book PUBLIC eb_lib eb_doc eb_tts eb_mupdf PRIVATE windowscodecs ole32 oleaut32 uuid)
+target_link_libraries(EbookReader PRIVATE eb_book)
 
 enable_testing()
 add_subdirectory(tests)

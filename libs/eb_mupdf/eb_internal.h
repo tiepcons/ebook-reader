@@ -27,7 +27,9 @@ struct eb_doc {
     int reflowable;
     int laid_out;
     fz_cookie cookie;
-    eb_mobi_info mobi;
+    eb_mobi_info mobi; /* libmobi books fill it at open; EPUB/FB2 lazily via eb_embed_probe */
+    fz_buffer* src;    /* kept bytes of memory-opened documents, for eb_embed.c */
+    int meta_probed, cover_probed;
 };
 
 extern eb_limits eb_g_limits;
@@ -75,5 +77,9 @@ eb_status eb_render_embedded_cover(eb_doc* doc, int32_t max_side, eb_bitmap** ou
 eb_bitmap* eb_new_bitmap(fz_context* ctx, int w, int h);
 fz_pixmap* eb_bitmap_pixmap(fz_context* ctx, eb_bitmap* bmp);
 void eb_make_opaque(fz_pixmap* pix);
+
+/* eb_embed.c: EPUB/FB2 language, fallback title/author and embedded cover, filled into doc->mobi on demand. */
+void eb_embed_probe(eb_doc* doc, int want_cover);
+char* eb_normalize_language(const char* s); /* lowercase primary subtag ("vi"), or NULL; malloc'd */
 
 #endif

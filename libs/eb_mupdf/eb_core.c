@@ -307,26 +307,38 @@ static const char* mobi_value(const eb_mobi_info* info, const char* key)
     return v && *v ? v : NULL;
 }
 
+static eb_status emit_meta(const char* value, char* buf, size_t cap, size_t* needed)
+{
+    *needed = strlen(value) + 1;
+    if (cap > 0) strncpy_s(buf, cap, value, _TRUNCATE);
+    return EB_OK;
+}
+
+/* Order: libmobi values, MuPDF's own keys, then the EPUB/FB2 metadata read by eb_embed.c. */
 eb_status eb_meta(eb_doc* doc, const char* key, char* buf, size_t cap, size_t* needed)
 {
     char tmp[EB_MAX_META_BYTES];
+    const char* value = NULL;
     const char* mk = NULL;
     int n = -1;
-    eb_status st = EB_OK;
     if (!doc || !key || !buf || !needed) return eb_fail_msg(EB_E_ARG, "null argument");
-    mk = mobi_value(&doc->mobi, key);
+    value = mobi_value(&doc->mobi, key);
+    if (value) return emit_meta(value, buf, cap, needed);
+    mk = meta_key(key);
     if (mk) {
-        *needed = strlen(mk) + 1;
-        if (cap > 0) strncpy_s(buf, cap, mk, _TRUNCATE);
+        fz_try(doc->ctx) n = fz_lookup_metadata(doc->ctx, doc->doc, mk, tmp, sizeof tmp);
+        fz_catch(doc->ctx) return eb_fail(doc->ctx);
+    }
+    if (n > 1) {
+        tmp[sizeof tmp - 1] = '\0';
+        *needed = (size_t)n < sizeof tmp ? (size_t)n : sizeof tmp;
+        if (cap > 0) strncpy_s(buf, cap, tmp, _TRUNCATE);
         return EB_OK;
     }
-    mk = meta_key(key);
-    if (!mk) return eb_fail_msg(EB_E_RANGE, "metadata missing");
-    fz_try(doc->ctx) n = fz_lookup_metadata(doc->ctx, doc->doc, mk, tmp, sizeof tmp);
-    fz_catch(doc->ctx) return eb_fail(doc->ctx);
-    if (n <= 1) return eb_fail_msg(EB_E_RANGE, "metadata missing");
-    tmp[sizeof tmp - 1] = '\0';
-    *needed = (size_t)n < sizeof tmp ? (size_t)n : sizeof tmp;
-    if (cap > 0) strncpy_s(buf, cap, tmp, _TRUNCATE);
-    return st;
+    if (!strcmp(key, "title") || !strcmp(key, "author") || !strcmp(key, "language")) {
+        eb_embed_probe(doc, 0);
+        value = mobi_value(&doc->mobi, key);
+        if (value) return emit_meta(value, buf, cap, needed);
+    }
+    return eb_fail_msg(EB_E_RANGE, "metadata missing");
 }

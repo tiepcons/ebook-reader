@@ -1,4 +1,4 @@
-add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp integration/test_eb_bookmark.cpp)
+add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp integration/test_eb_bookmark.cpp integration/test_eb_embed.cpp)
 target_link_libraries(eb_tests PRIVATE eb_hardening eb_warnings eb_sqlite eb_mupdf eb_base)
 target_include_directories(eb_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(eb_tests PRIVATE EB_MUPDF_DLL="$<TARGET_FILE:eb_mupdf>" EB_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus")
@@ -35,3 +35,5 @@ add_test(NAME ui_smoke_library COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:Eboo
   -DDBCOUNT=$<TARGET_FILE:eb_dbcount> -DCORPUS=${CMAKE_SOURCE_DIR}/tests/corpus -DWORK=${CMAKE_BINARY_DIR}/tests
   -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/library.cmake)
 set_tests_properties(ui_smoke_library PROPERTIES TIMEOUT 60)
+target_sources(eb_tests PRIVATE unit/test_lib_meta.cpp unit/test_lib_cover.cpp)
+target_link_libraries(eb_tests PRIVATE eb_book)

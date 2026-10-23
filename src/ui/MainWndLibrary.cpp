@@ -3,6 +3,7 @@
 #include "Kv.h"
 #include "LibrarySettings.h"
 #include "base/Log.h"
+#include "lib/Metadata.h"
 
 #include <commctrl.h>
 
@@ -12,6 +13,7 @@ namespace eb {
 namespace {
 
 constexpr int kMaxSearchChars = 256;
+constexpr size_t kSmokeCovers = 4;
 
 std::wstring with_thousands(size_t n)
 {
@@ -60,6 +62,11 @@ bool MainWnd::on_library_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
     case WM_APP_SCAN_DONE:
         on_scan_done(wp);
         return true;
+    case WM_APP_COVER_READY:
+        lib_.on_cover_ready();
+        if (smoke_scan_ && lib_.covers_idle())
+            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        return true;
     case WM_APP_OPEN_BOOK:
         if (!open_queue_.empty()) {
             log::info("open book {}", open_queue_.front());
@@ -88,7 +95,7 @@ void MainWnd::start_scan()
     job.marker_file = paths_.data / L"pending_scan";
     job.roots = library_roots();
     job.exclude_dirs = {L"data", L"voices", L"libs", L"fonts"};
-    job.meta = stem_meta;
+    job.meta = read_book_meta;
     scan_percent_ = scan_.start(hwnd_, std::move(job)) ? 0 : -1;
     update_status();
     if (scan_percent_ < 0 && smoke_scan_)
@@ -136,8 +143,11 @@ void MainWnd::on_scan_done(WPARAM result)
     } else {
         update_status();
     }
-    if (smoke_scan_)
-        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+    if (smoke_scan_) {
+        lib_.prefetch_covers(kSmokeCovers);
+        if (lib_.covers_idle())
+            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+    }
 }
 
 void MainWnd::refresh_tree()
