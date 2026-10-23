@@ -120,8 +120,43 @@ TEST_CASE("tts segmenter layout line joining")
 TEST_CASE("tts segmenter hyphenated line breaks")
 {
     CHECK(split("An exam-\nple of joining. Done.") == V{"An example of joining.", "Done."});
-    CHECK(split("Một ví dụ, hoàn-\ntoàn bình thường.") == V{"Một ví dụ, hoàntoàn bình thường."});
-    CHECK(split("A well-\nKnown name here.") == V{"A well- Known name here."});
+    CHECK(split("An inter-\nnational trip.") == V{"An international trip."});
+    CHECK(split("Một ví dụ, hoàn-\ntoàn bình thường.") == V{"Một ví dụ, hoàn-toàn bình thường."});
+    CHECK(split("Ở Hà-\nNội nóng.") == V{"Ở Hà-Nội nóng."});
+    CHECK(split("A well-\nKnown name here.") == V{"A well-Known name here."});
+    CHECK(split("The re-\nsult is odd-\nly fine.") == V{"The result is oddly fine."});
+    CHECK(split("A co\xC2\xADoperative plan.") == V{"A cooperative plan."});
+}
+
+TEST_CASE("tts segmenter text ending with terminator and whitespace")
+{
+    CHECK(split("Hello.\n") == V{"Hello."});
+    CHECK(split("Hello. ") == V{"Hello."});
+    CHECK(split("Xin chào!\r\n") == V{"Xin chào!"});
+    CHECK(split("Hello.\n\n\n") == V{"Hello."});
+}
+
+TEST_CASE("tts segmenter compound vietnamese titles")
+{
+    CHECK(split("PGS.TS. Nguyễn Văn A đến. Xong.") == V{"PGS.TS. Nguyễn Văn A đến.", "Xong."});
+    CHECK(split("GS.TS. Lê Hoa nói. Xong.") == V{"GS.TS. Lê Hoa nói.", "Xong."});
+    CHECK(split("ThS.BS. Trần An khám. Xong.") == V{"ThS.BS. Trần An khám.", "Xong."});
+}
+
+TEST_CASE("tts segmenter cjk cut points and combining marks")
+{
+    std::string t;
+    for (int i = 0; i < 300; ++i)
+        t += "字，";
+    for (const auto& x : eb::split_sentences(t))
+        CHECK(x.end - x.begin <= 3 * eb::kMaxSentenceChars);
+    std::string m;
+    for (int i = 0; i < 399; ++i)
+        m += "a";
+    m += "e\xCC\x82 tail";
+    const auto s = eb::split_sentences(m);
+    REQUIRE(s.size() >= 1);
+    CHECK(m.compare(s[0].end - 2, 2, "\xCC\x82") == 0);
 }
 
 TEST_CASE("tts segmenter paragraph break splits")
@@ -177,7 +212,7 @@ TEST_CASE("tts furniture page numbers")
 {
     CHECK(eb::strip_page_furniture("12\nBody text here.\n") == "Body text here.");
     CHECK(eb::strip_page_furniture("Body text here.\n\n  34  \n") == "Body text here.");
-    CHECK(eb::strip_page_furniture("iv\nBody.\nxii") == "Body.");
+    CHECK(eb::strip_page_furniture("IV\nBody.\nXII") == "Body.");
     CHECK(eb::strip_page_furniture("- 7 -\nBody.") == "Body.");
     CHECK(eb::strip_page_furniture("Body.\nPage 9") == "Body.");
     CHECK(eb::strip_page_furniture("Body.\nTrang 10") == "Body.");
@@ -189,6 +224,10 @@ TEST_CASE("tts furniture keeps real content")
     CHECK(eb::strip_page_furniture("CIVIL\nBody.") == "CIVIL\nBody.");
     CHECK(eb::strip_page_furniture("100 Days\nBody.") == "100 Days\nBody.");
     CHECK(eb::strip_page_furniture("Middle\n5\nlines here.") == "Middle\n5\nlines here.");
+    CHECK(eb::strip_page_furniture("mix\nBody.") == "mix\nBody.");
+    CHECK(eb::strip_page_furniture("dim\nBody.") == "dim\nBody.");
+    CHECK(eb::strip_page_furniture("vi\nBody.") == "vi\nBody.");
+    CHECK(eb::strip_page_furniture("Page iv\nBody.") == "Body.");
     CHECK(eb::strip_page_furniture("").empty());
     CHECK(eb::strip_page_furniture("42").empty());
 }

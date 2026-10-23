@@ -102,7 +102,9 @@ bool is_abbreviation(std::string_view t, size_t start, size_t dot)
         return tok[0] != 'I';
     if (is_dotted_initials(tok) || is_list_marker(tok, b, start))
         return true;
-    return std::ranges::find(kWords, lower_ascii(tok)) != kWords.end();
+    const size_t dot_pos = tok.rfind('.');
+    const std::string_view last = tok.substr(dot_pos == kNpos ? 0 : dot_pos + 1);
+    return last.size() <= 4 && std::ranges::find(kWords, lower_ascii(last)) != kWords.end();
 }
 
 void push_chunks(std::vector<Sentence>& out, std::string_view t, size_t b, size_t e)
@@ -117,6 +119,8 @@ void push_chunks(std::vector<Sentence>& out, std::string_view t, size_t b, size_
                 cut = i;
             else if ((c.cp == ',' || c.cp == ';' || c.cp == ':') && i + 1 < e && is_ascii_space(t[i + 1]))
                 cut = i + 1;
+            else if (c.cp == 0xFF0C || c.cp == 0x3001 || c.cp == 0xFF1B || c.cp == 0x3002)
+                cut = i + c.len;
             i += c.len;
             ++count;
         }
@@ -128,6 +132,8 @@ void push_chunks(std::vector<Sentence>& out, std::string_view t, size_t b, size_
             cut = i;
         if (cut == kNpos || trim_end(t, b, cut) <= b)
             cut = i;
+        while (cut < e && u8::is_combining(decode(t, cut).cp))
+            cut += decode(t, cut).len;
         out.push_back({static_cast<uint32_t>(b), static_cast<uint32_t>(trim_end(t, b, cut))});
         b = skip_space(t, cut);
     }
@@ -182,6 +188,11 @@ struct Splitter {
             return j;
         }
         const size_t k = skip_space(t, j);
+        if (k >= t.size()) {
+            emit(j);
+            start = k;
+            return k;
+        }
         if (!wide && (k == j || u8::is_lower(decode(t, k).cp)))
             return j;
         const bool single_dot = t[i] == '.' && !is_terminator(decode(t, i + 1).cp);
@@ -233,17 +244,19 @@ bool is_roman(std::string_view s) noexcept
     return !s.empty() && i == s.size();
 }
 
-bool is_number_token(std::string_view s)
+bool is_number_token(std::string_view s, bool allow_lower)
 {
-    if (s.empty())
+    if (s.empty() || s.size() > 8)
         return false;
     if (s.size() <= 5 && std::ranges::all_of(s, [](char c) { return c >= '0' && c <= '9'; }))
         return true;
+    if (!allow_lower && std::ranges::any_of(s, [](char c) { return c >= 'a' && c <= 'z'; }))
+        return false;
     std::string up(s);
     for (char& c : up)
         if (c >= 'a' && c <= 'z')
             c = static_cast<char>(c - 'a' + 'A');
-    return up.size() <= 8 && is_roman(up);
+    return is_roman(up);
 }
 
 bool is_furniture_line(std::string_view line)
@@ -253,13 +266,15 @@ bool is_furniture_line(std::string_view line)
         line.remove_prefix(1);
     while (!line.empty() && dash(line.back()))
         line.remove_suffix(1);
+    bool prefixed = false;
     for (const std::string_view prefix : {"page ", "trang ", "pg. ", "p. "}) {
         if (line.size() > prefix.size() && lower_ascii(line.substr(0, prefix.size())) == prefix) {
             line.remove_prefix(prefix.size());
+            prefixed = true;
             break;
         }
     }
-    return is_number_token(line);
+    return is_number_token(line, prefixed);
 }
 
 bool line_at(std::string_view t, size_t at, bool from_start, std::string_view& line, size_t& edge)
@@ -299,6 +314,25 @@ std::vector<Sentence> split_sentences(std::string_view utf8) noexcept
     }
 }
 
+namespace {
+
+bool joins_hyphen(const std::string& out, std::string_view next) noexcept
+{
+    if (out.size() < 3 || out.back() != '-' || next.empty() || next[0] < 'a' || next[0] > 'z')
+        return false;
+    size_t n = 0;
+    size_t i = out.size() - 1;
+    while (i > 0 && out[i - 1] != ' ') {
+        --i;
+        if (out[i] < 'a' || out[i] > 'z')
+            return false;
+        ++n;
+    }
+    return n >= 2;
+}
+
+}
+
 std::string sentence_text(std::string_view utf8, Sentence s) noexcept
 {
     if (s.begin > s.end || s.end > utf8.size())
@@ -310,21 +344,22 @@ std::string sentence_text(std::string_view utf8, Sentence s) noexcept
         size_t i = 0;
         while (i < t.size()) {
             const Cp c = decode(t, i);
-            if (!is_space(c.cp)) {
+            if (c.cp == 0xAD) {
+                i += c.len;
+            } else if (!is_space(c.cp)) {
                 out.append(t.substr(i, c.len));
                 i += c.len;
-                continue;
+            } else {
+                const size_t j = skip_space(t, i);
+                const bool newline = t.substr(i, j - i).find('\n') != kNpos;
+                if (newline && !out.empty() && out.back() == '-') {
+                    if (joins_hyphen(out, t.substr(j)))
+                        out.pop_back();
+                } else if (!out.empty() && j < t.size()) {
+                    out.push_back(' ');
+                }
+                i = j;
             }
-            const size_t j = skip_space(t, i);
-            const bool newline = t.substr(i, j - i).find('\n') != kNpos;
-            const bool join = newline && j < t.size() && out.size() >= 2 && out.back() == '-'
-                && (u8::is_alpha(static_cast<unsigned char>(out[out.size() - 2])) || (out[out.size() - 2] & 0x80))
-                && u8::is_lower(decode(t, j).cp);
-            if (join)
-                out.pop_back();
-            else if (!out.empty() && j < t.size())
-                out.push_back(' ');
-            i = j;
         }
         return out;
     } catch (...) {

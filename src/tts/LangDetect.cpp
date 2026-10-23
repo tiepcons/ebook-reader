@@ -22,7 +22,7 @@ bool is_vi_marker(char32_t c) noexcept
     case 0xF2: case 0xF3: case 0xF4: case 0xF5: case 0xF9: case 0xFA: case 0xFD:
     case 0x102: case 0x103: case 0x110: case 0x111: case 0x128: case 0x129: case 0x168: case 0x169:
     case 0x1A0: case 0x1A1: case 0x1AF: case 0x1B0:
-    case 0x300: case 0x301: case 0x303: case 0x309: case 0x31B: case 0x323:
+    case 0x300: case 0x301: case 0x302: case 0x303: case 0x306: case 0x309: case 0x31B: case 0x323:
         return true;
     default:
         return c >= 0x1EA0 && c <= 0x1EF9;
@@ -42,12 +42,14 @@ struct Stats {
     size_t words = 0;
     size_t marked = 0;
     size_t english = 0;
+    size_t capitalised = 0;
 };
 
-void close_word(Stats& st, std::string& ascii, bool marked) noexcept
+void close_word(Stats& st, std::string& ascii, bool marked, bool capital) noexcept
 {
     ++st.words;
     st.marked += marked ? 1 : 0;
+    st.capitalised += (marked && capital) ? 1 : 0;
     st.english += (!marked && is_english_stopword(ascii)) ? 1 : 0;
     ascii.clear();
 }
@@ -58,22 +60,24 @@ Stats scan_words(std::string_view s)
     std::string ascii;
     bool in_word = false;
     bool marked = false;
+    bool capital = false;
     size_t i = 0;
     while (i < s.size() && st.words < kMaxWords) {
         const u8::Cp c = u8::decode(s, i);
         i += c.len;
         if (u8::is_alpha(c.cp)) {
+            capital = in_word ? capital : u8::is_upper(c.cp);
             in_word = true;
             marked = marked || is_vi_marker(c.cp);
             if (c.cp < 0x80 && ascii.size() < 16)
                 ascii.push_back(static_cast<char>(c.cp >= 'A' && c.cp <= 'Z' ? c.cp - 'A' + 'a' : c.cp));
         } else if (in_word) {
-            close_word(st, ascii, marked);
+            close_word(st, ascii, marked, capital);
             in_word = marked = false;
         }
     }
     if (in_word)
-        close_word(st, ascii, marked);
+        close_word(st, ascii, marked, capital);
     return st;
 }
 
@@ -83,7 +87,9 @@ Lang classify(const Stats& st, Lang book_default) noexcept
         return book_default;
     if (st.marked == 0)
         return (st.english > 0 || st.words >= 3) ? Lang::En : book_default;
-    if (st.english >= 2 && st.english > st.marked)
+    if (st.english >= 2 && st.english * 2 >= st.marked)
+        return Lang::En;
+    if (st.english >= 1 && st.words >= 3 && st.capitalised == st.marked)
         return Lang::En;
     if (st.marked == 1 && st.words >= 3)
         return st.english > 0 ? Lang::En : book_default;

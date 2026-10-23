@@ -21,6 +21,18 @@ TEST_CASE("tts lang decomposed vietnamese")
     CHECK(eb::detect_sentence("Nguye\xCC\x82\xCC\x83n Van", Lang::En) == Lang::Vi);
 }
 
+TEST_CASE("tts lang nfd breve and circumflex")
+{
+    CHECK(eb::detect_sentence("a\xCC\x86n ca\xCC\x82n te\xCC\x82n", Lang::En) == Lang::Vi);
+}
+
+TEST_CASE("tts lang english with vietnamese full name")
+{
+    CHECK(eb::detect_sentence("Nguyễn Văn Thiệu said that the war ended", Lang::En) == Lang::En);
+    CHECK(eb::detect_sentence("Nguyễn Văn Thiệu said that the war ended", Lang::Vi) == Lang::En);
+    CHECK(eb::detect_sentence("We visited Hà Nội and then went to Huế.", Lang::Vi) == Lang::En);
+}
+
 TEST_CASE("tts lang english")
 {
     CHECK(eb::detect_sentence("The quick brown fox jumps over the lazy dog.", Lang::Vi) == Lang::En);
