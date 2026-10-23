@@ -1,5 +1,8 @@
 #pragma once
+#include <array>
 #include <atomic>
+#include <cstring>
+#include <optional>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -33,5 +36,19 @@ std::wstring wide(std::string_view s);
 std::wstring ext_of(std::wstring_view name);
 std::string key_of(std::wstring_view w);
 std::string dir_prefix(std::wstring_view dir);
+
+using Id = std::array<uint8_t, 32>;
+
+struct IdHash {
+    size_t operator()(const Id& id) const noexcept
+    {
+        size_t h = 0;
+        std::memcpy(&h, id.data(), sizeof h);
+        return h;
+    }
+};
+
+std::optional<Id> id_from_hex(std::string_view s);
+std::string id_to_hex(const Id& id);
 
 }

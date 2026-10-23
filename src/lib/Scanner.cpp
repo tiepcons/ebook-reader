@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <cstring>
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
@@ -25,47 +24,6 @@ using Clock = std::chrono::steady_clock;
 constexpr size_t kBatch = 200;
 constexpr auto kFlushAfter = std::chrono::milliseconds(250);
 constexpr size_t kLongPath = 240;
-
-using Id = std::array<uint8_t, 32>;
-
-struct IdHash {
-    size_t operator()(const Id& id) const noexcept
-    {
-        size_t h = 0;
-        std::memcpy(&h, id.data(), sizeof h);
-        return h;
-    }
-};
-
-std::optional<Id> id_from_hex(std::string_view s)
-{
-    if (s.size() != 64)
-        return std::nullopt;
-    Id id{};
-    for (size_t i = 0; i < 32; ++i) {
-        int v = 0;
-        for (const char c : s.substr(i * 2, 2)) {
-            const int d = (c >= '0' && c <= '9') ? c - '0' : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : -1;
-            if (d < 0)
-                return std::nullopt;
-            v = v * 16 + d;
-        }
-        id[i] = static_cast<uint8_t>(v);
-    }
-    return id;
-}
-
-std::string id_to_hex(const Id& id)
-{
-    static constexpr char kDigits[] = "0123456789abcdef";
-    std::string s;
-    s.reserve(64);
-    for (const uint8_t b : id) {
-        s.push_back(kDigits[b >> 4]);
-        s.push_back(kDigits[b & 15]);
-    }
-    return s;
-}
 
 struct Row {
     Id id{};
