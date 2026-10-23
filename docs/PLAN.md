@@ -27,7 +27,7 @@ Phần mềm đọc ebook **mã nguồn mở (AGPL-3.0)**, viết bằng **C++20
 | # | Quyết định | Lý do |
 |---|---|---|
 | D1 | **AGPL-3.0, mở mã nguồn** | Dùng được MuPDF miễn phí |
-| D2 | **C++20, MSVC 2022 (và clang-cl để fuzz), CMake + Ninja**. **Không dùng vcpkg**: các thư viện ngoài được vendor (git submodule hoặc file amalgamation) | Ít công cụ, build lặp lại được, không phải chờ build Qt |
+| D2 | **C++23 (dùng `std::expected`), MSVC 2022 (và clang-cl để fuzz), CMake + Ninja**. **Không dùng vcpkg**: các thư viện ngoài được vendor (git submodule hoặc file amalgamation) | Ít công cụ, build lặp lại được, không phải chờ build Qt |
 | D3 | **Giao diện: Win32 thuần + Direct2D/DirectWrite + Common Controls v6.** Không dùng Qt, không dùng WTL. Tự viết vài lớp RAII nhỏ | Nhẹ nhất: exe khoảng 2 MB, RAM khoảng 10 MB |
 | D4 | **MuPDF** là engine duy nhất cho mọi định dạng. **TXT cũng được chuyển thành HTML rồi đưa cho MuPDF** | Chỉ có 1 đường render, nên theme, font, vị trí đọc và TTS dùng chung cho mọi định dạng |
 | D5 | **SQLite amalgamation** biên dịch thẳng vào exe. Không dùng FTS5: tìm kiếm bằng `LIKE` trên cột đã bỏ dấu | Vài nghìn sách thì `LIKE` vẫn chạy dưới 10 ms |
@@ -40,6 +40,10 @@ Phần mềm đọc ebook **mã nguồn mở (AGPL-3.0)**, viết bằng **C++20
 | D12 | **Không hỗ trợ DRM** | Bẻ DRM là vi phạm pháp luật |
 | D13 | **Phát hành bằng bản zip portable.** Bộ cài để sang backlog | Gọn nhất |
 | D14 | Thư viện ngoài cho phép dùng: **MuPDF, SQLite, Piper + onnxruntime + espeak-ng (tùy chọn), doctest (chỉ dùng cho test)**. Muốn thêm thư viện khác thì PO phải duyệt | Chống phình |
+| D15 | MuPDF build với **`TOFU_CJK` + `TOFU_NOTO`**, tắt JS/OCR/barcode/Office/XPS/IMG/MD. Tiếng Việt và Latin hiển thị bằng Charis SIL có sẵn, cộng font kèm theo. Chữ khác (Ả Rập, Hindi…) thì thả font vào `fonts\` | `eb_mupdf.dll` giảm từ 16 MB xuống 7,9 MB, ít bề mặt tấn công |
+| D16 | **MuPDF không đọc được AZW3/KF8 và MOBI nén HUFF/CDIC** (spike T0.6). Hỗ trợ đầy đủ cần libmobi (T1.9). **Chờ PO quyết định** | |
+| D17 | `eb_mupdf` tự mở file (`CreateFileW` + kiểm tra là file trên đĩa), không đưa thư mục cho MuPDF, giới hạn heap 1 GiB, có `eb_abort` để hủy | Kết quả review bảo mật T1.6 |
+| D18 | Ngôn ngữ và ảnh bìa nhúng của EPUB/FB2/MOBI: MuPDF không cung cấp, nên phải tự đọc OPF/EXTH (T2.3–T2.4) | Kết quả spike T0.6 |
 
 ---
 
@@ -182,17 +186,17 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T0.1 | Cài **VS 2022 Community** (workload *Desktop development with C++*, tick thêm *C++ Clang tools*, đã kèm CMake và Ninja) và **Git** | **PO** | — | 0,3 | `cl`, `cmake`, `ninja`, `clang-cl` đều chạy được | ⬜ |
-| T0.2 | Cài giọng tiếng Việt cho Windows: Settings → Time & Language → Language → Vietnamese → tick Speech | **PO** | — | 0,1 | Thấy giọng "Microsoft An" | ⬜ |
-| T0.3 | `git init`, `.gitignore`, `.clang-format`, `.clang-tidy`, `.editorconfig`, LICENSE AGPL-3.0, README | DEV | — | 0,2 | Có commit đầu | ⬜ |
-| T0.4 | CMake + Presets `debug`/`release`/`asan`/`fuzz`. Các cờ ở mục 4. Manifest có PerMonitorV2, longPathAware, ComCtl v6 | DEV | T0.1 | 0,4 | Cửa sổ Win32 trống build sạch. Exe Release ≤ 200 KB | ⬜ |
-| T0.5 | Vendor MuPDF (submodule, ghim tag), build **`eb_mupdf.dll`** với `/MT` và **không có font CJK** (`TOFU_CJK`) | DEV | T0.4 | 0,8 | DLL ≤ 10 MB | ⬜ |
-| T0.6 | **Spike định dạng**: mở EPUB, PDF, MOBI, **AZW3**, FB2, CBZ, và TXT→HTML qua MuPDF | DEV | T0.5 | 0,4 | Có báo cáo. Nếu AZW3 không được thì kích hoạt T1.9 | ⬜ |
-| T0.7 | Vendor SQLite amalgamation và doctest | DEV | T0.4 | 0,1 | | ⬜ |
+| T0.1 | Cài **VS 2022 Community** (workload *Desktop development with C++*, tick thêm *C++ Clang tools*, đã kèm CMake và Ninja) và **Git** | **PO** | — | 0,3 | `cl`, `cmake`, `ninja`, `clang-cl` đều chạy được | ✅ |
+| T0.2 | Cài giọng tiếng Việt cho Windows: Settings → Time & Language → Language → Vietnamese → tick Speech | **PO** | — | 0,1 | Thấy giọng "Microsoft An" | ✅ |
+| T0.3 | `git init`, `.gitignore`, `.clang-format`, `.clang-tidy`, `.editorconfig`, LICENSE AGPL-3.0, README | DEV | — | 0,2 | Có commit đầu | ✅ |
+| T0.4 | CMake + Presets `debug`/`release`/`asan`/`fuzz`. Các cờ ở mục 4. Manifest có PerMonitorV2, longPathAware, ComCtl v6 | DEV | T0.1 | 0,4 | Cửa sổ Win32 trống build sạch. Exe Release ≤ 200 KB | ✅ 101 KB (preset fuzz chuyển sang T8.3) |
+| T0.5 | Vendor MuPDF (submodule, ghim tag), build **`eb_mupdf.dll`** với `/MT` và **không có font CJK** (`TOFU_CJK`) | DEV | T0.4 | 0,8 | DLL ≤ 10 MB | ✅ 7,9 MB |
+| T0.6 | **Spike định dạng**: mở EPUB, PDF, MOBI, **AZW3**, FB2, CBZ, và TXT→HTML qua MuPDF | DEV | T0.5 | 0,4 | Có báo cáo. Nếu AZW3 không được thì kích hoạt T1.9 | ✅ (AZW3 ✗, xem D16) |
+| T0.7 | Vendor SQLite amalgamation và doctest | DEV | T0.4 | 0,1 | | ✅ |
 | T0.8 | **Spike Piper**: onnxruntime (bản prebuilt từ GitHub release) + espeak-ng, đọc thử `vi_VN` và `en_US` | DEV | T0.4 | 0,5 | Ra được file wav tiếng Việt | ⬜ |
-| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV → CI | T0.5 | 0,4 | Pipeline xanh | ⬜ |
-| T0.10 | Corpus test: Project Gutenberg, Standard Ebooks, truyện tiếng Việt public domain. Mỗi định dạng ít nhất 3 file, cộng 5 file cố tình làm hỏng | RUN + **PO** | — | 0,3 | Có `tests/corpus/` | ⬜ |
-| T0.11 | Script **im lặng** `tools/build.ps1` và `tools/test.ps1` (tham số preset): chỉ in lỗi đầu tiên của mỗi file, số test pass/fail và kích thước exe/DLL | LEAD | T0.4 | 0,2 | Build thành công chỉ in 1 dòng | ⬜ |
+| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV → CI | T0.5 | 0,4 | Pipeline xanh | ⛔ cần PO đồng ý tạo repo GitHub |
+| T0.10 | Corpus test: Project Gutenberg, Standard Ebooks, truyện tiếng Việt public domain. Mỗi định dạng ít nhất 3 file, cộng 5 file cố tình làm hỏng | RUN + **PO** | — | 0,3 | Có `tests/corpus/` | ✅ 8 MB |
+| T0.11 | Script **im lặng** `tools/build.ps1` và `tools/test.ps1` (tham số preset): chỉ in lỗi đầu tiên của mỗi file, số test pass/fail và kích thước exe/DLL | LEAD | T0.4 | 0,2 | Build thành công chỉ in 1 dòng | ✅ |
 
 ### PHASE 1: Nền tảng và engine đọc (4 ngày)
 
