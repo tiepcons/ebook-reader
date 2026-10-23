@@ -203,15 +203,15 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T1.1 | `base/`: `Result`, `Log` (khoảng 80 dòng), `Handle` RAII, `Text` (chuyển UTF-8/16, **bỏ dấu tiếng Việt** để tìm kiếm) | DEV | T0.4 | 0,5 | Có unit test | ⬜ |
-| T1.2 | `Paths` (portable, có fallback), `AtomicFile`, `Hash` (BCrypt) | DEV | T1.1 | 0,4 | Test thư mục chỉ đọc, đổi tên file thì hash không đổi | ⬜ |
-| T1.3 | `CrashGuard`: minidump và crash-loop guard (file marker `data\pending`) | DEV | T1.2 | 0,4 | Test: giả lập crash thì lần sau bỏ qua file đó | ⬜ |
-| T1.4 | `DllLoader` an toàn và kiểm tra `eb_abi_version` | DEV + SEC | T1.1 | 0,3 | Thiếu DLL hoặc sai phiên bản thì báo lỗi rõ ràng, không crash | ⬜ |
-| T1.5 | **C ABI `eb_mupdf.h`**: open (path hoặc buffer + magic), close, layout(w, h, em, user_css), page_count, render_bgra(scale, tint), page_text (kèm vị trí ký tự), toc, meta, cover, location↔page. Có thêm hàm free | DEV | T0.6 | 0,6 | Header được REV duyệt | ⬜ |
-| T1.6 | Viết phần cài đặt `eb_mupdf.c`: mỗi thread một context (`fz_clone_context` + lock), **bọc `fz_try` 100%**, giới hạn tài nguyên | DEV | T1.5 | 1,2 | Mở 100% file tốt trong corpus, 0 crash với file hỏng | ⬜ |
-| T1.7 | `TxtToHtml`: tự đoán encoding (UTF-8 có/không BOM, UTF-16, Windows-1258), escape ký tự, tách đoạn thành `<p>`, tách chương theo tiêu đề kiểu "Chương N" | DEV | T1.6 | 0,4 | TXT tiếng Việt hiển thị đúng dấu, có mục lục | ⬜ |
-| T1.8 | REV + SEC review Phase 1 | REV, SEC | T1.1–T1.7 | 0,2 | Không còn lỗi HIGH | ⬜ |
-| T1.9 | *(Chỉ khi cần)* Chuyển AZW3 sang EPUB bằng libmobi (LGPL), cần PO duyệt thêm thư viện | DEV | T0.6 | 1 | | ⬜ |
+| T1.1 | `base/`: `Result`, `Log` (khoảng 80 dòng), `Handle` RAII, `Text` (chuyển UTF-8/16, **bỏ dấu tiếng Việt** để tìm kiếm) | DEV | T0.4 | 0,5 | Có unit test | ✅ |
+| T1.2 | `Paths` (portable, có fallback), `AtomicFile`, `Hash` (BCrypt) | DEV | T1.1 | 0,4 | Test thư mục chỉ đọc, đổi tên file thì hash không đổi | ✅ |
+| T1.3 | `CrashGuard`: minidump và crash-loop guard (file marker `data\pending`) | DEV | T1.2 | 0,4 | Test: giả lập crash thì lần sau bỏ qua file đó | ✅ |
+| T1.4 | `DllLoader` an toàn và kiểm tra `eb_abi_version` | DEV + SEC | T1.1 | 0,3 | Thiếu DLL hoặc sai phiên bản thì báo lỗi rõ ràng, không crash | ✅ |
+| T1.5 | **C ABI `eb_mupdf.h`**: open (path hoặc buffer + magic), close, layout(w, h, em, user_css), page_count, render_bgra(scale, tint), page_text (kèm vị trí ký tự), toc, meta, cover, location↔page. Có thêm hàm free | DEV | T0.6 | 0,6 | Header được REV duyệt | ✅ |
+| T1.6 | Viết phần cài đặt `eb_mupdf.c`: mỗi thread một context (`fz_clone_context` + lock), **bọc `fz_try` 100%**, giới hạn tài nguyên | DEV | T1.5 | 1,2 | Mở 100% file tốt trong corpus, 0 crash với file hỏng | ✅ |
+| T1.7 | `TxtToFb2` (đổi thiết kế: TXT → FB2 trong bộ nhớ, vì HTML handler đã tắt): tự đoán encoding (UTF-8 có/không BOM, UTF-16, Windows-1258), escape ký tự, tách đoạn thành `<p>`, tách chương theo tiêu đề kiểu "Chương N" | DEV | T1.6 | 0,4 | TXT tiếng Việt hiển thị đúng dấu, có mục lục | ✅ |
+| T1.8 | REV + SEC review Phase 1 | REV, SEC | T1.1–T1.7 | 0,2 | Không còn lỗi HIGH | ✅ |
+| T1.9 | *(Chỉ khi cần)* Chuyển AZW3 sang EPUB bằng libmobi (LGPL), cần PO duyệt thêm thư viện | DEV | T0.6 | 1 | | ✅ |
 
 ### PHASE 2: Thư viện và ảnh bìa (3–4 ngày)
 
