@@ -62,22 +62,35 @@ static eb_status check_fdst(const MOBIData* m, size_t file_size)
     return EB_OK;
 }
 
-static eb_status check_indx(const MOBIData* m, const uint32_t* index, size_t file_size)
+/* libmobi re-reads TAGX and the totals from any record while the total is still zero, so every record is checked. */
+static eb_status check_indx_record(const MOBIPdbRecord* r, size_t file_size)
 {
-    const MOBIPdbRecord* r = NULL;
     uint32_t header_len = 0, entries = 0, total = 0;
-    if (!index || *index == MOBI_NOTSET) return EB_OK;
-    r = record_at(m, (uint64_t)*index + kf8_offset(m));
-    if (!r || r->size < 56 || memcmp(r->data, "INDX", 4) != 0) return EB_OK;
+    if (r->size < 56 || memcmp(r->data, "INDX", 4) != 0) return EB_OK;
     header_len = be32(r->data + 4);
     entries = be32(r->data + 24);
     total = be32(r->data + 36);
+    if (header_len > r->size || r->size - header_len < 12 || memcmp(r->data + header_len, "TAGX", 4) != 0) return EB_OK;
+    if (total == 0) return reject("precheck: index without entries");
     if ((uint64_t)total > (uint64_t)entries * INDX_ENTRIES_PER_RECORD || total > file_size / 2)
         return reject("precheck: index entry count too large");
-    if (header_len <= r->size && r->size - header_len >= 12 && memcmp(r->data + header_len, "TAGX", 4) == 0 &&
-        be32(r->data + header_len + 8) > TAGX_CONTROL_BYTES_MAX)
-        return reject("precheck: index tag table too large");
+    if (be32(r->data + header_len + 8) > TAGX_CONTROL_BYTES_MAX) return reject("precheck: index tag table too large");
     return EB_OK;
+}
+
+static eb_status check_indx(const MOBIData* m, const uint32_t* index, size_t file_size)
+{
+    const MOBIPdbRecord* r = NULL;
+    uint32_t left = 0;
+    eb_status st = EB_OK;
+    if (!index || *index == MOBI_NOTSET) return EB_OK;
+    r = record_at(m, (uint64_t)*index + kf8_offset(m));
+    if (!r) return EB_OK;
+    st = check_indx_record(r, file_size);
+    if (r->size >= 28) left = be32(r->data + 24);
+    for (r = r->next; st == EB_OK && r && left > 0 && left <= INDX_ENTRIES_PER_RECORD; r = r->next, --left)
+        st = check_indx_record(r, file_size);
+    return st;
 }
 
 static eb_status check_indices(const MOBIData* m, size_t file_size)

@@ -24,9 +24,20 @@ inline constexpr size_t kMaxScanFiles = 200'000;
 
 // Runs on the caller's thread. Never follows reparse points. Rows are never deleted.
 // Directories named in exclude_dirs (case-insensitive) are skipped at any depth.
+// Books are marked missing only under roots that were fully enumerated.
 Result<ScanStats> scan_library(Db& db, std::span<const std::filesystem::path> roots, const MetaFn& meta,
     CrashLoopGuard& guard, const std::atomic<bool>& cancel,
     const std::function<void(int done, int total)>& progress = {},
     std::span<const std::wstring> exclude_dirs = {}) noexcept;
+
+namespace scan_path {
+
+// "\\?\C:\x" -> "C:\x", "\\?\UNC\h\s" -> "\\h\s".
+std::wstring strip_long_prefix(std::wstring_view p);
+// Directory + wildcard for FindFirstFileEx; keeps a drive root's trailing backslash.
+std::wstring pattern(std::wstring_view dir);
+std::wstring join(std::wstring_view dir, std::wstring_view name);
+
+}
 
 }

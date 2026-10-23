@@ -3,6 +3,7 @@
  * 1. Memory: malloc/calloc/realloc/free/strdup go to a per-conversion arena with a byte budget (eb_mobi.c). When the
  *    budget is exceeded the arena longjmps out of libmobi, so a failed allocation can never reach libmobi's
  *    unchecked dereferences, and everything libmobi still holds is released in one sweep.
+ *    libmobi may only be called between arena_begin and arena_end in eb_mobi_convert; anything else is a bug.
  * 2. Input: fread/fseek/ftell read from an in-memory buffer. The FILE* given to mobi_load_file is really an
  *    eb_mobi memfile; mobi_load_filename and any real FILE* path must never be called.
  */

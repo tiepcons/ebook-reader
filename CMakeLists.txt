@@ -37,8 +37,12 @@ endif()
 add_library(eb_sqlite STATIC third_party/sqlite/sqlite3.c)
 target_include_directories(eb_sqlite SYSTEM PUBLIC third_party/sqlite)
 target_link_libraries(eb_sqlite PRIVATE eb_hardening)
-target_compile_options(eb_sqlite PRIVATE /W0)
-target_compile_definitions(eb_sqlite PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION)
+target_compile_options(eb_sqlite PRIVATE /W0 $<$<CONFIG:Release>:/O1>)
+target_compile_definitions(eb_sqlite PRIVATE SQLITE_THREADSAFE=2 SQLITE_DEFAULT_MEMSTATUS=0 SQLITE_DQS=0
+  SQLITE_LIKE_DOESNT_MATCH_BLOBS SQLITE_MAX_EXPR_DEPTH=0 SQLITE_DEFAULT_WAL_SYNCHRONOUS=1 SQLITE_OMIT_DEPRECATED
+  SQLITE_OMIT_LOAD_EXTENSION SQLITE_OMIT_SHARED_CACHE SQLITE_OMIT_PROGRESS_CALLBACK SQLITE_OMIT_JSON SQLITE_OMIT_UTF16
+  SQLITE_OMIT_AUTHORIZATION SQLITE_OMIT_COMPLETE SQLITE_OMIT_GET_TABLE SQLITE_OMIT_TCL_VARIABLE SQLITE_OMIT_DECLTYPE
+  SQLITE_OMIT_COMPILEOPTION_DIAGS SQLITE_OMIT_TRACE SQLITE_USE_ALLOCA)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(EB_MU_CFG Release)
@@ -63,7 +67,7 @@ list(TRANSFORM EB_MOBI_SRC APPEND ".c")
 add_library(eb_libmobi STATIC ${EB_MOBI_SRC})
 target_include_directories(eb_libmobi SYSTEM PUBLIC "${EB_MOBI_DIR}")
 target_compile_definitions(eb_libmobi PRIVATE USE_XMLWRITER USE_MINIZ MOBI_INLINE=__inline
-  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES _CRT_SECURE_NO_WARNINGS)
 target_compile_options(eb_libmobi PRIVATE /W0 "/FI${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_mobi_shim.h")
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
@@ -82,15 +86,19 @@ add_library(eb_base STATIC src/base/Log.cpp src/base/Text.cpp src/base/Paths.cpp
 target_include_directories(eb_base PUBLIC src)
 target_link_libraries(eb_base PUBLIC eb_hardening eb_warnings PRIVATE bcrypt normaliz dbghelp)
 
-add_library(eb_lib STATIC src/lib/Db.cpp src/lib/Schema.cpp)
+add_library(eb_lib STATIC src/lib/Db.cpp src/lib/Schema.cpp src/lib/Scanner.cpp src/lib/ScanWalk.cpp)
 target_link_libraries(eb_lib PUBLIC eb_base eb_sqlite)
 
 add_library(eb_doc STATIC src/doc/TxtToFb2.cpp src/doc/TxtDecode.cpp)
 target_link_libraries(eb_doc PUBLIC eb_base)
 
-add_executable(EbookReader WIN32 src/ui/main.cpp res/app.rc)
-target_link_libraries(EbookReader PRIVATE eb_hardening eb_warnings)
-target_link_options(EbookReader PRIVATE /MANIFEST:NO)
+add_library(eb_tts STATIC src/tts/Segmenter.cpp src/tts/LangDetect.cpp src/tts/Utf8.cpp)
+target_link_libraries(eb_tts PUBLIC eb_base)
+
+add_executable(EbookReader WIN32 src/ui/main.cpp src/ui/App.cpp src/ui/MainWnd.cpp src/ui/Kv.cpp res/app.rc)
+target_include_directories(EbookReader PRIVATE src/ui)
+target_link_libraries(EbookReader PRIVATE eb_hardening eb_warnings eb_base eb_lib eb_mupdf comctl32 ole32 shell32 delayimp)
+target_link_options(EbookReader PRIVATE /MANIFEST:NO /DELAYLOAD:eb_mupdf.dll)
 
 enable_testing()
 add_subdirectory(tests)

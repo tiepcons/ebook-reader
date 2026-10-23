@@ -1,5 +1,6 @@
 #include "Scanner.h"
 
+#include "ScanWalk.h"
 #include "base/Hash.h"
 #include "base/Log.h"
 #include "base/Text.h"
@@ -9,162 +10,78 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <optional>
+#include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace eb {
 namespace {
 
-constexpr int kBatch = 200;
+using namespace scan_detail;
+using Clock = std::chrono::steady_clock;
+
+constexpr size_t kBatch = 200;
+constexpr auto kFlushAfter = std::chrono::milliseconds(250);
 constexpr size_t kLongPath = 240;
-constexpr std::array<std::wstring_view, 9> kExts = {
-    L"epub", L"pdf", L"mobi", L"azw3", L"azw", L"prc", L"fb2", L"cbz", L"txt"};
 
-struct Entry {
-    std::filesystem::path path;
-    std::string path8;
-    int64_t size = 0;
-    int64_t mtime = 0;
+using Id = std::array<uint8_t, 32>;
+
+struct IdHash {
+    size_t operator()(const Id& id) const noexcept
+    {
+        size_t h = 0;
+        std::memcpy(&h, id.data(), sizeof h);
+        return h;
+    }
 };
 
-struct Row {
-    std::string id;
-    int64_t size = 0;
-    int64_t mtime = 0;
-    int status = 0;
-};
-
-std::wstring lower(std::wstring s)
+std::optional<Id> id_from_hex(std::string_view s)
 {
-    std::ranges::transform(s, s.begin(), [](wchar_t c) { return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + 32) : c; });
+    if (s.size() != 64)
+        return std::nullopt;
+    Id id{};
+    for (size_t i = 0; i < 32; ++i) {
+        int v = 0;
+        for (const char c : s.substr(i * 2, 2)) {
+            const int d = (c >= '0' && c <= '9') ? c - '0' : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : -1;
+            if (d < 0)
+                return std::nullopt;
+            v = v * 16 + d;
+        }
+        id[i] = static_cast<uint8_t>(v);
+    }
+    return id;
+}
+
+std::string id_to_hex(const Id& id)
+{
+    static constexpr char kDigits[] = "0123456789abcdef";
+    std::string s;
+    s.reserve(64);
+    for (const uint8_t b : id) {
+        s.push_back(kDigits[b >> 4]);
+        s.push_back(kDigits[b & 15]);
+    }
     return s;
 }
 
-std::wstring ext_of(const std::wstring& name)
-{
-    const auto dot = name.rfind(L'.');
-    return dot == std::wstring::npos ? std::wstring() : lower(name.substr(dot + 1));
-}
+struct Row {
+    Id id{};
+    int64_t size = 0;
+    int64_t mtime = 0;
+    int status = 0;
+    bool seen = false;
+};
 
-bool wanted_ext(const std::wstring& name)
-{
-    return std::ranges::find(kExts, ext_of(name)) != kExts.end();
-}
+enum class Kind : unsigned char { Insert, Touch, Move, Status, Redo, Retire };
 
-std::wstring prefixed(const std::wstring& p)
-{
-    if (p.starts_with(L"\\\\?\\"))
-        return p;
-    if (p.starts_with(L"\\\\"))
-        return L"\\\\?\\UNC\\" + p.substr(2);
-    return L"\\\\?\\" + p;
-}
-
-std::string u8(std::wstring_view w)
-{
-    auto r = wide_to_utf8(w);
-    return r ? std::move(*r) : std::string();
-}
-
-int64_t ticks(const FILETIME& ft)
-{
-    return static_cast<int64_t>((static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
-}
-
-bool excluded(const std::wstring& name, std::span<const std::wstring> ex)
-{
-    return std::ranges::any_of(ex, [&](const std::wstring& e) { return lower(e) == lower(name); });
-}
-
-class Walker {
-public:
-    Walker(std::span<const std::wstring> ex, const std::atomic<bool>& cancel, std::vector<Entry>& out)
-        : ex_(ex), cancel_(cancel), out_(out) {}
-
-    // Returns true when the walk saw everything.
-    bool run(std::span<const std::filesystem::path> roots)
-    {
-        for (const auto& r : roots) {
-            std::error_code ec;
-            std::wstring dir = std::filesystem::absolute(r, ec).lexically_normal().wstring();
-            while (dir.size() > 1 && dir.back() == L'\\')
-                dir.pop_back();
-            const DWORD a = ec ? INVALID_FILE_ATTRIBUTES : GetFileAttributesW(prefixed(dir).c_str());
-            if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_DIRECTORY) || (a & FILE_ATTRIBUTE_REPARSE_POINT)) {
-                log::info("scan: root skipped");
-                continue;
-            }
-            if (!walk(dir))
-                return false;
-        }
-        return true;
-    }
-
-private:
-    bool walk(const std::wstring& root)
-    {
-        std::vector<std::wstring> stack{root};
-        while (!stack.empty()) {
-            if (cancel_.load(std::memory_order_relaxed))
-                return false;
-            const std::wstring dir = std::move(stack.back());
-            stack.pop_back();
-            if (!list(dir, stack))
-                return false;
-        }
-        return true;
-    }
-
-    bool list(const std::wstring& dir, std::vector<std::wstring>& stack)
-    {
-        WIN32_FIND_DATAW fd{};
-        HANDLE h = FindFirstFileExW((prefixed(dir) + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
-            FIND_FIRST_EX_LARGE_FETCH);
-        if (h == INVALID_HANDLE_VALUE) {
-            log::info("scan: directory unreadable");
-            return true;
-        }
-        bool ok = true;
-        do {
-            ok = take(dir, fd, stack);
-        } while (ok && FindNextFileW(h, &fd));
-        FindClose(h);
-        return ok;
-    }
-
-    bool take(const std::wstring& dir, const WIN32_FIND_DATAW& fd, std::vector<std::wstring>& stack)
-    {
-        const std::wstring name = fd.cFileName;
-        if (name == L"." || name == L"..")
-            return true;
-        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_REPARSE_POINT))
-            return true;
-        std::wstring full = dir + L"\\" + name;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if (!excluded(name, ex_))
-                stack.push_back(std::move(full));
-            return true;
-        }
-        if (!wanted_ext(name))
-            return true;
-        if (out_.size() >= kMaxScanFiles) {
-            log::error("scan: file cap reached");
-            return false;
-        }
-        std::string p8 = u8(full);
-        if (p8.empty())
-            return true;
-        const int64_t size = static_cast<int64_t>((static_cast<uint64_t>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow);
-        out_.push_back({std::filesystem::path(full.size() >= kLongPath ? prefixed(full) : full), std::move(p8), size,
-            ticks(fd.ftLastWriteTime)});
-        return true;
-    }
-
-    std::span<const std::wstring> ex_;
-    const std::atomic<bool>& cancel_;
-    std::vector<Entry>& out_;
+struct Op {
+    Kind kind = Kind::Touch;
+    std::string id, id2, path, folder, title, author, title_nd, author_nd, lang, fmt;
+    int64_t size = 0, mtime = 0, added = 0;
+    int status = 0;
 };
 
 struct Resolved {
@@ -197,11 +114,36 @@ Result<void> run_stmt(Stmt& st)
     return r;
 }
 
-std::string folder_of(const Entry& e)
+std::string folder_of(const std::string& path8)
 {
-    const std::wstring p = e.path.wstring();
-    const auto cut = p.rfind(L'\\');
-    return u8(cut == std::wstring::npos ? p : p.substr(0, cut));
+    const auto cut = path8.rfind('\\');
+    if (cut == std::string::npos)
+        return path8;
+    std::string f = path8.substr(0, cut);
+    if (f.size() == 2 && f[1] == ':')
+        f.push_back('\\');
+    return f;
+}
+
+std::filesystem::path open_path(const std::string& path8)
+{
+    const std::wstring w = wide(path8);
+    return std::filesystem::path(w.size() >= kLongPath ? prefixed(w) : w);
+}
+
+bool on_disk(const std::string& path8)
+{
+    return GetFileAttributesW(prefixed(wide(path8)).c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+Result<Id> hash_id(const std::filesystem::path& p)
+{
+    auto h = book_id(p);
+    if (!h)
+        return std::unexpected(std::move(h.error()));
+    if (auto id = id_from_hex(*h))
+        return *id;
+    return fail(ErrorCode::Internal, L"bad book id");
 }
 
 class Pass {
@@ -211,15 +153,18 @@ public:
 
     Result<void> prepare()
     {
-        constexpr std::array<const char*, 5> sqls = {
+        constexpr std::array<const char*, 8> sqls = {
             "INSERT INTO books(id,path,folder,title,author,title_nd,author_nd,lang,fmt,size,mtime,added_at,status)"
             " VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
             "UPDATE books SET size=?2,mtime=?3,status=?4 WHERE id=?1",
             "UPDATE books SET path=?2,folder=?3,size=?4,mtime=?5,status=?6 WHERE id=?1",
             "UPDATE books SET status=?2 WHERE id=?1",
             "UPDATE books SET id=?2,title=?3,author=?4,title_nd=?5,author_nd=?6,lang=?7,fmt=?8,size=?9,mtime=?10,status=?11"
-            " WHERE id=?1"};
-        const std::array<Stmt*, 5> dst = {&ins_, &touch_, &move_, &status_, &redo_};
+            " WHERE id=?1",
+            "UPDATE books SET path=?2,status=1 WHERE id=?1",
+            "UPDATE progress SET book_id=?2 WHERE book_id=?1",
+            "UPDATE bookmarks SET book_id=?2 WHERE book_id=?1"};
+        const std::array<Stmt*, 8> dst = {&ins_, &touch_, &move_, &status_, &redo_, &retire_, &kids_p_, &kids_b_};
         for (size_t i = 0; i < sqls.size(); ++i) {
             auto st = db_.prepare(sqls[i]);
             if (!st)
@@ -229,15 +174,17 @@ public:
         return load();
     }
 
-    Result<ScanStats> run(const std::vector<Entry>& files, bool complete, const std::atomic<bool>& cancel,
+    Result<ScanStats> run(const WalkResult& walk, const std::atomic<bool>& cancel,
         const std::function<void(int, int)>& progress)
     {
-        for (const auto& e : files)
-            seen_.insert(e.path8);
-        const int total = static_cast<int>(files.size());
+        for (const auto& e : walk.files) {
+            if (const auto it = rows_.find(key_of(wide(e.path8))); it != rows_.end())
+                it->second.seen = true;
+        }
+        const int total = static_cast<int>(walk.files.size());
         int done = 0;
-        bool full = complete;
-        for (const auto& e : files) {
+        bool full = walk.complete;
+        for (const auto& e : walk.files) {
             if (cancel.load(std::memory_order_relaxed)) {
                 full = false;
                 break;
@@ -248,7 +195,7 @@ public:
                 progress(++done, total);
         }
         if (full) {
-            if (auto r = mark_missing(); !r)
+            if (auto r = mark_missing(walk); !r)
                 return std::unexpected(std::move(r.error()));
         }
         if (auto r = flush(); !r)
@@ -268,59 +215,115 @@ private:
                 return std::unexpected(std::move(s.error()));
             if (*s == Step::Done)
                 return {};
-            std::string path(st->column_text(1));
-            Row row{std::string(st->column_text(0)), st->column_int(2), st->column_int(3), static_cast<int>(st->column_int(4))};
-            byId_[row.id] = path;
-            rows_[std::move(path)] = std::move(row);
+            const auto id = id_from_hex(st->column_text(0));
+            if (!id)
+                continue;
+            const auto [it, fresh_key] = rows_.try_emplace(key_of(wide(st->column_text(1))));
+            if (!fresh_key)
+                continue;
+            Row& row = it->second;
+            row = Row{*id, st->column_int(2), st->column_int(3), static_cast<int>(st->column_int(4)), false};
+            by_id_[*id] = &row;
         }
     }
 
-    Result<void> write_begin()
+    Result<void> queue(Op op)
     {
-        if (tx_)
-            return {};
-        auto t = Tx::begin(db_);
-        if (!t)
-            return std::unexpected(std::move(t.error()));
-        tx_.emplace(std::move(*t));
+        if (ops_.empty())
+            first_ = Clock::now();
+        ops_.push_back(std::move(op));
+        if (ops_.size() >= kBatch || Clock::now() - first_ >= kFlushAfter)
+            return flush();
         return {};
     }
 
     Result<void> flush()
     {
-        pending_ = 0;
-        if (!tx_)
+        if (ops_.empty())
             return {};
-        auto r = tx_->commit();
-        tx_.reset();
-        return r;
+        auto tx = Tx::begin(db_);
+        if (!tx)
+            return std::unexpected(std::move(tx.error()));
+        for (const Op& op : ops_) {
+            if (auto r = apply(op); !r)
+                return r;
+        }
+        ops_.clear();
+        return tx->commit();
     }
 
-    Result<void> after_write()
+    Result<void> apply(const Op& o)
     {
-        return ++pending_ >= kBatch ? flush() : Result<void>{};
+        switch (o.kind) {
+        case Kind::Insert:
+            if (auto b = bind_all(ins_, o.id, o.path, o.folder, o.title, o.author, o.title_nd, o.author_nd, o.lang, o.fmt,
+                    o.size, o.mtime, o.added, o.status);
+                !b)
+                return b;
+            return run_stmt(ins_);
+        case Kind::Touch:
+            if (auto b = bind_all(touch_, o.id, o.size, o.mtime, o.status); !b)
+                return b;
+            return run_stmt(touch_);
+        case Kind::Move:
+            if (auto b = bind_all(move_, o.id, o.path, o.folder, o.size, o.mtime, o.status); !b)
+                return b;
+            return run_stmt(move_);
+        case Kind::Status:
+            if (auto b = bind_all(status_, o.id, o.status); !b)
+                return b;
+            return run_stmt(status_);
+        case Kind::Retire:
+            if (auto b = bind_all(retire_, o.id, o.path); !b)
+                return b;
+            return run_stmt(retire_);
+        case Kind::Redo:
+            return apply_redo(o);
+        }
+        return {};
     }
 
-    Resolved resolve(const Entry& e, const std::string& id)
+    Result<void> apply_redo(const Op& o)
+    {
+        if (o.id != o.id2) {
+            if (auto d = db_.exec("PRAGMA defer_foreign_keys=ON"); !d)
+                return d;
+            for (Stmt* k : {&kids_p_, &kids_b_}) {
+                if (auto b = bind_all(*k, o.id, o.id2); !b)
+                    return b;
+                if (auto r = run_stmt(*k); !r)
+                    return r;
+            }
+        }
+        if (auto b = bind_all(redo_, o.id, o.id2, o.title, o.author, o.title_nd, o.author_nd, o.lang, o.fmt, o.size, o.mtime,
+                o.status);
+            !b)
+            return b;
+        return run_stmt(redo_);
+    }
+
+    Resolved resolve(const std::filesystem::path& p, const std::string& hex, std::wstring_view stem)
     {
         Resolved r;
         BookMeta m;
-        if (suspect_ && *suspect_ == id) {
+        if (suspect_ && *suspect_ == hex) {
             r.status = 2;
         } else {
-            if (!guard_.begin("scan", id))
-                log::error("scan: crash marker write failed");
-            auto res = meta_(e.path);
-            guard_.end();
-            if (res)
-                m = std::move(*res);
-            else
+            try {
+                const CrashLoopGuard::Scope scope(guard_, "scan", hex);
+                auto res = meta_(p);
+                if (res)
+                    m = std::move(*res);
+                else
+                    r.status = 2;
+            } catch (...) {
                 r.status = 2;
+            }
         }
         if (m.title.empty())
-            m.title = e.path.stem().wstring();
+            m.title = stem;
         if (m.fmt.empty())
-            m.fmt = ext_of(e.path.filename().wstring());
+            m.fmt = ext_of(p.filename().wstring());
         r.title = u8(m.title);
         r.author = u8(m.author);
         r.title_nd = u8(fold_for_search(m.title));
@@ -330,15 +333,38 @@ private:
         return r;
     }
 
+    Op full_op(Kind kind, const Entry& e, const std::string& hex, const std::string& hex2)
+    {
+        const auto p = open_path(e.path8);
+        const Resolved r = resolve(p, hex2, p.stem().wstring());
+        Op op;
+        op.kind = kind;
+        op.id = hex;
+        op.id2 = hex2;
+        op.path = e.path8;
+        op.folder = folder_of(e.path8);
+        op.title = r.title;
+        op.author = r.author;
+        op.title_nd = r.title_nd;
+        op.author_nd = r.author_nd;
+        op.lang = r.lang;
+        op.fmt = r.fmt;
+        op.size = e.size;
+        op.mtime = e.mtime;
+        op.status = r.status;
+        return op;
+    }
+
     Result<void> process(const Entry& e)
     {
-        if (auto it = rows_.find(e.path8); it != rows_.end()) {
+        const std::string key = key_of(wide(e.path8));
+        if (auto it = rows_.find(key); it != rows_.end()) {
             Row& row = it->second;
             if (row.size == e.size && row.mtime == e.mtime)
                 return unchanged(row);
             return changed(e, row);
         }
-        return fresh(e);
+        return fresh(e, key);
     }
 
     Result<void> unchanged(Row& row)
@@ -347,151 +373,179 @@ private:
         if (row.status != 1)
             return {};
         row.status = 0;
-        return set_status(row.id, 0);
+        Op op;
+        op.kind = Kind::Status;
+        op.id = id_to_hex(row.id);
+        return queue(std::move(op));
     }
 
-    Result<void> exec_write(Stmt& st)
+    Result<void> touch(Row& row, int status)
     {
-        if (auto s = run_stmt(st); !s)
-            return s;
-        return after_write();
-    }
-
-    Result<void> set_status(const std::string& id, int status)
-    {
-        if (auto r = write_begin(); !r)
-            return r;
-        if (auto r = bind_all(status_, id, status); !r)
-            return r;
-        return exec_write(status_);
+        Op op;
+        op.kind = Kind::Touch;
+        op.id = id_to_hex(row.id);
+        op.size = row.size;
+        op.mtime = row.mtime;
+        op.status = status;
+        row.status = status;
+        return queue(std::move(op));
     }
 
     Result<void> changed(const Entry& e, Row& row)
     {
-        auto id = book_id(e.path);
+        auto id = hash_id(open_path(e.path8));
         if (!id) {
             ++stats_.bad;
             return {};
         }
-        if (*id != row.id && byId_.contains(*id)) {
-            ++stats_.unchanged;
-            return {};
-        }
+        row.size = e.size;
+        row.mtime = e.mtime;
         if (*id == row.id && row.status != 2) {
-            row.size = e.size;
-            row.mtime = e.mtime;
-            row.status = 0;
             ++stats_.updated;
-            if (auto r = write_begin(); !r)
-                return r;
-            if (auto b = bind_all(touch_, row.id, row.size, row.mtime, row.status); !b)
-                return b;
-            return exec_write(touch_);
+            return touch(row, 0);
         }
+        if (*id == row.id)
+            return redo(e, row, *id);
+        if (const auto o = by_id_.find(*id); o != by_id_.end())
+            return duplicate_content(e, row, *o->second, *id);
         return redo(e, row, *id);
     }
 
-    Result<void> redo(const Entry& e, Row& row, const std::string& id)
+    Result<void> redo(const Entry& e, Row& row, const Id& id)
     {
-        const Resolved r = resolve(e, id);
-        if (auto t = write_begin(); !t)
-            return t;
-        if (id != row.id) {
-            if (auto d = db_.exec("PRAGMA defer_foreign_keys=ON"); !d)
-                return d;
-            if (auto m = move_children(row.id, id); !m)
-                return m;
-        }
-        if (auto b = bind_all(redo_, row.id, id, r.title, r.author, r.title_nd, r.author_nd, r.lang, r.fmt, e.size, e.mtime,
-                r.status);
-            !b)
-            return b;
-        if (auto s = exec_write(redo_); !s)
-            return s;
-        byId_.erase(row.id);
-        row = Row{id, e.size, e.mtime, r.status};
-        byId_[id] = e.path8;
+        Op op = full_op(Kind::Redo, e, id_to_hex(row.id), id_to_hex(id));
+        by_id_.erase(row.id);
+        row.id = id;
+        row.size = e.size;
+        row.mtime = e.mtime;
+        row.status = op.status;
+        by_id_[id] = &row;
         ++stats_.updated;
-        return {};
+        return queue(std::move(op));
     }
 
-    Result<void> move_children(const std::string& from, const std::string& to)
+    Result<void> duplicate_content(const Entry& e, Row& row, Row& other, const Id& id)
     {
-        for (const char* sql : {"UPDATE progress SET book_id=?2 WHERE book_id=?1",
-                 "UPDATE bookmarks SET book_id=?2 WHERE book_id=?1"}) {
-            auto st = db_.prepare(sql);
-            if (!st)
-                return std::unexpected(std::move(st.error()));
-            if (auto b = bind_all(*st, from, to); !b)
-                return b;
-            if (auto s = st->step(); !s)
-                return std::unexpected(std::move(s.error()));
+        auto gone = vanished_path(other);
+        if (!gone)
+            return std::unexpected(std::move(gone.error()));
+        if (!*gone) {
+            ++stats_.bad;
+            return touch(row, 2);
         }
-        return {};
+        if (auto r = retire(e, row); !r)
+            return r;
+        return relocate(e, other, id, **gone);
     }
 
-    Result<void> fresh(const Entry& e)
+    Result<void> retire(const Entry& e, Row& row)
     {
-        auto id = book_id(e.path);
+        Op op;
+        op.kind = Kind::Retire;
+        op.id = id_to_hex(row.id);
+        op.path = e.path8 + '\x1f' + op.id;
+        auto node = rows_.extract(key_of(wide(e.path8)));
+        row.status = 1;
+        node.key() = key_of(wide(op.path));
+        rows_.insert(std::move(node));
+        return queue(std::move(op));
+    }
+
+    // nullopt: the other copy still exists (or was seen). Otherwise its stored path.
+    Result<std::optional<std::string>> vanished_path(const Row& other)
+    {
+        if (other.seen)
+            return std::optional<std::string>();
+        if (auto f = flush(); !f)
+            return std::unexpected(std::move(f.error()));
+        auto st = db_.prepare("SELECT path FROM books WHERE id=?1");
+        if (!st)
+            return std::unexpected(std::move(st.error()));
+        if (auto b = bind_all(*st, id_to_hex(other.id)); !b)
+            return std::unexpected(std::move(b.error()));
+        auto s = st->step();
+        if (!s)
+            return std::unexpected(std::move(s.error()));
+        if (*s == Step::Done)
+            return fail(ErrorCode::Internal, L"book row vanished");
+        std::string path(st->column_text(0));
+        if (on_disk(path))
+            return std::optional<std::string>();
+        return std::optional<std::string>(std::move(path));
+    }
+
+    Result<void> fresh(const Entry& e, const std::string& key)
+    {
+        auto id = hash_id(open_path(e.path8));
         if (!id) {
             ++stats_.bad;
             return {};
         }
-        if (auto o = byId_.find(*id); o != byId_.end()) {
-            if (seen_.contains(o->second)) {
+        if (const auto o = by_id_.find(*id); o != by_id_.end()) {
+            auto gone = vanished_path(*o->second);
+            if (!gone)
+                return std::unexpected(std::move(gone.error()));
+            if (!*gone) {
                 ++stats_.unchanged;
                 return {};
             }
-            return relocate(e, *id, o->second);
+            return relocate(e, *o->second, *id, **gone);
         }
-        return insert(e, *id);
+        return insert(e, key, *id);
     }
 
-    Result<void> relocate(const Entry& e, const std::string& id, const std::string& old_path)
+    Result<void> relocate(const Entry& e, Row& other, const Id& id, const std::string& old_path)
     {
-        auto node = rows_.extract(old_path);
-        Row& row = node.mapped();
-        row.size = e.size;
-        row.mtime = e.mtime;
-        if (row.status != 2)
-            row.status = 0;
-        const int status = row.status;
-        node.key() = e.path8;
+        auto node = rows_.extract(key_of(wide(old_path)));
+        if (node.empty())
+            return fail(ErrorCode::Internal, L"relocate: row not found");
+        other.size = e.size;
+        other.mtime = e.mtime;
+        other.seen = true;
+        if (other.status != 2)
+            other.status = 0;
+        node.key() = key_of(wide(e.path8));
         rows_.insert(std::move(node));
-        byId_[id] = e.path8;
-        if (auto t = write_begin(); !t)
-            return t;
-        if (auto b = bind_all(move_, id, e.path8, folder_of(e), e.size, e.mtime, status); !b)
-            return b;
+        Op op;
+        op.kind = Kind::Move;
+        op.id = id_to_hex(id);
+        op.path = e.path8;
+        op.folder = folder_of(e.path8);
+        op.size = e.size;
+        op.mtime = e.mtime;
+        op.status = other.status;
         ++stats_.moved;
-        return exec_write(move_);
+        return queue(std::move(op));
     }
 
-    Result<void> insert(const Entry& e, const std::string& id)
+    Result<void> insert(const Entry& e, const std::string& key, const Id& id)
     {
-        const Resolved r = resolve(e, id);
-        if (auto t = write_begin(); !t)
-            return t;
-        const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        if (auto b = bind_all(ins_, id, e.path8, folder_of(e), r.title, r.author, r.title_nd, r.author_nd, r.lang, r.fmt,
-                e.size, e.mtime, now, r.status);
-            !b)
-            return b;
-        rows_[e.path8] = Row{id, e.size, e.mtime, r.status};
-        byId_[id] = e.path8;
-        ++(r.status == 2 ? stats_.bad : stats_.added);
-        return exec_write(ins_);
+        Op op = full_op(Kind::Insert, e, id_to_hex(id), id_to_hex(id));
+        op.added = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        Row& row = rows_[key];
+        row = Row{id, e.size, e.mtime, op.status, true};
+        by_id_[id] = &row;
+        ++(op.status == 2 ? stats_.bad : stats_.added);
+        return queue(std::move(op));
     }
 
-    Result<void> mark_missing()
+    static bool starts_with_any(const std::string& key, const std::vector<std::string>& prefixes)
     {
-        for (auto& [path, row] : rows_) {
-            if (row.status != 0 || seen_.contains(path))
+        return std::ranges::any_of(prefixes, [&](const std::string& p) { return key.starts_with(p); });
+    }
+
+    Result<void> mark_missing(const WalkResult& walk)
+    {
+        for (auto& [key, row] : rows_) {
+            if (row.status != 0 || row.seen || !starts_with_any(key, walk.roots) || starts_with_any(key, walk.holes))
                 continue;
             row.status = 1;
             ++stats_.missing;
-            if (auto r = set_status(row.id, 1); !r)
+            Op op;
+            op.kind = Kind::Status;
+            op.id = id_to_hex(row.id);
+            op.status = 1;
+            if (auto r = queue(std::move(op)); !r)
                 return r;
         }
         return {};
@@ -501,12 +555,12 @@ private:
     const MetaFn& meta_;
     CrashLoopGuard& guard_;
     std::optional<std::string> suspect_;
-    Stmt ins_{nullptr}, touch_{nullptr}, move_{nullptr}, status_{nullptr}, redo_{nullptr};
+    Stmt ins_{nullptr}, touch_{nullptr}, move_{nullptr}, status_{nullptr}, redo_{nullptr}, retire_{nullptr},
+        kids_p_{nullptr}, kids_b_{nullptr};
     std::unordered_map<std::string, Row> rows_;
-    std::unordered_map<std::string, std::string> byId_;
-    std::unordered_set<std::string> seen_;
-    std::optional<Tx> tx_;
-    int pending_ = 0;
+    std::unordered_map<Id, Row*, IdHash> by_id_;
+    std::vector<Op> ops_;
+    Clock::time_point first_;
     ScanStats stats_;
 };
 
@@ -517,12 +571,11 @@ Result<ScanStats> scan_library(Db& db, std::span<const std::filesystem::path> ro
     std::span<const std::wstring> exclude_dirs) noexcept
 {
     try {
-        std::vector<Entry> files;
-        const bool complete = Walker(exclude_dirs, cancel, files).run(roots);
+        const WalkResult walk = walk_roots(roots, exclude_dirs, cancel);
         Pass pass(db, meta, guard);
         if (auto r = pass.prepare(); !r)
             return std::unexpected(std::move(r.error()));
-        return pass.run(files, complete, cancel, progress);
+        return pass.run(walk, cancel, progress);
     } catch (...) {
         return fail(ErrorCode::Internal, L"scan failed");
     }

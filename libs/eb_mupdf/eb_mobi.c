@@ -2,6 +2,7 @@
  * The EPUB assembly is adapted from create_epub() in libmobi's tools/mobitool.c (Bartek Fabiszewski, LGPL). */
 #include "eb_internal.h"
 
+#include <assert.h>
 #include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,8 +41,11 @@ static __declspec(thread) struct {
     jmp_buf* env;
 } t_arena;
 
+/* libmobi may only run between arena_begin and arena_end (eb_mobi_convert). Allocating outside that window is a
+ * programming error: there is no jump target, so abort() (keeping the crash dump) rather than return NULL. */
 static void arena_bail(void)
 {
+    assert(t_arena.env != NULL && "libmobi called outside eb_mobi_convert");
     if (t_arena.env) longjmp(*t_arena.env, 1);
     abort();
 }

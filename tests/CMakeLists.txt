@@ -1,4 +1,4 @@
-add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp)
+add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp)
 target_link_libraries(eb_tests PRIVATE eb_hardening eb_warnings eb_sqlite eb_mupdf eb_base)
 target_include_directories(eb_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(eb_tests PRIVATE EB_MUPDF_DLL="$<TARGET_FILE:eb_mupdf>" EB_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus")
@@ -10,3 +10,17 @@ target_sources(eb_tests PRIVATE unit/test_crash.cpp unit/test_lib_db.cpp)
 target_link_libraries(eb_tests PRIVATE eb_lib)
 target_sources(eb_tests PRIVATE unit/test_doc_txt.cpp)
 target_link_libraries(eb_tests PRIVATE eb_doc ole32 oleaut32 uuid)
+target_sources(eb_tests PRIVATE unit/test_lib_scanner.cpp)
+
+add_test(NAME ui_smoke COMMAND EbookReader --smoke)
+set_tests_properties(ui_smoke PROPERTIES TIMEOUT 10)
+
+add_library(eb_badlib SHARED ui/badlib.c)
+target_link_libraries(eb_badlib PRIVATE eb_hardening)
+set_target_properties(eb_badlib PROPERTIES OUTPUT_NAME eb_badlib RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+add_dependencies(eb_tests eb_badlib EbookReader)
+add_test(NAME ui_badlib COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_badlib>
+  -DWORK=${CMAKE_BINARY_DIR}/tests -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/badlib.cmake)
+set_tests_properties(ui_badlib PROPERTIES TIMEOUT 15)
+target_sources(eb_tests PRIVATE unit/test_tts_segmenter.cpp unit/test_tts_lang.cpp)
+target_link_libraries(eb_tests PRIVATE eb_tts)

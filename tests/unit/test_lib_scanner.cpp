@@ -8,6 +8,8 @@
 
 #include <chrono>
 #include <fstream>
+#include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -37,6 +39,13 @@ struct Fixture {
     {
         const fs::path roots[] = {root.path()};
         auto r = eb::scan_library(db, roots, meta, guard, cancel, {}, ex);
+        REQUIRE(r.has_value());
+        return *r;
+    }
+
+    eb::ScanStats scan_roots(std::vector<fs::path> roots)
+    {
+        auto r = eb::scan_library(db, roots, meta, guard, cancel);
         REQUIRE(r.has_value());
         return *r;
     }
@@ -270,6 +279,110 @@ TEST_CASE("scanner: changed content gets a new id and keeps progress")
     CHECK(f.count("1=1") == 1);
     CHECK(f.text("SELECT id FROM books") != old);
     CHECK(f.text("SELECT COUNT(*) FROM progress p JOIN books b ON b.id=p.book_id") == "1");
+}
+
+TEST_CASE("scanner: no write transaction is held while meta runs")
+{
+    Fixture f;
+    for (int i = 0; i < 8; ++i)
+        make(f.root.path() / (L"s" + std::to_wstring(i) + L".epub"), "slow" + std::to_string(i));
+    bool wrote = false;
+    f.meta = [&](const fs::path& p) -> eb::Result<eb::BookMeta> {
+        Sleep(50);
+        if (++f.calls == 5) {
+            auto other = eb::Db::open(f.data.path() / L"lib.db");
+            wrote = other.has_value() && other->exec("INSERT INTO kv(key,value) VALUES('k','v')").has_value();
+        }
+        return eb::BookMeta{p.stem().wstring(), {}, {}, {}};
+    };
+    CHECK(f.scan().added == 8);
+    CHECK(wrote);
+}
+
+TEST_CASE("scanner: other roots and offline roots are left alone")
+{
+    Fixture f;
+    ebtest::TempDir b;
+    const auto pa = make(f.root.path() / L"a.epub", "aaa");
+    make(b.path() / L"b.epub", "bbb");
+    CHECK(f.scan_roots({f.root.path(), b.path()}).added == 2);
+    CHECK(f.scan_roots({f.root.path()}).missing == 0);
+    CHECK(f.count("status=0") == 2);
+    fs::remove(pa);
+    CHECK(f.scan_roots({f.root.path()}).missing == 1);
+    const fs::path gone = f.data.path() / L"offline";
+    fs::rename(b.path(), gone);
+    CHECK(f.scan_roots({f.root.path(), b.path()}).missing == 0);
+    CHECK(f.count("status=1") == 1);
+    fs::rename(gone, b.path());
+}
+
+TEST_CASE("scanner: root casing does not cause rehash")
+{
+    Fixture f;
+    make(f.root.path() / L"Sub" / L"a.epub", "aaa");
+    f.scan();
+    std::wstring up = f.root.path().wstring();
+    for (auto& c : up)
+        c = static_cast<wchar_t>(towupper(c));
+    f.calls = 0;
+    const auto s = f.scan_roots({fs::path(up)});
+    CHECK(s.unchanged == 1);
+    CHECK(s.updated == 0);
+    CHECK(s.added == 0);
+    CHECK(f.calls == 0);
+    CHECK(f.count("1=1") == 1);
+}
+
+TEST_CASE("scanner: changed file equal to a vanished book relocates that book")
+{
+    Fixture f;
+    const auto a = make(f.root.path() / L"a.txt", "content-one");
+    const auto b = make(f.root.path() / L"b.txt", "content-two");
+    f.scan();
+    const std::string idb = f.text("SELECT id FROM books WHERE path LIKE '%b.txt'");
+    fs::remove(b);
+    make(a, "content-two");
+    bump_mtime(a);
+    const auto s = f.scan();
+    CHECK(s.moved == 1);
+    CHECK(f.count("1=1") == 2);
+    CHECK(f.text("SELECT path FROM books WHERE id='" + idb + "'").ends_with("a.txt"));
+    CHECK(f.count("status=0") == 1);
+}
+
+TEST_CASE("scanner: changed file equal to a live book becomes a duplicate and is not rehashed")
+{
+    Fixture f;
+    const auto a = make(f.root.path() / L"a.txt", "content-one");
+    make(f.root.path() / L"b.txt", "content-two");
+    f.scan();
+    make(a, "content-two");
+    bump_mtime(a);
+    auto s = f.scan();
+    CHECK(s.bad == 1);
+    CHECK(f.count("status=2") == 1);
+    s = f.scan();
+    CHECK(s.bad == 0);
+    CHECK(s.unchanged == 2);
+}
+
+TEST_CASE("scanner: throwing meta marks the book bad")
+{
+    Fixture f;
+    make(f.root.path() / L"a.epub", "aaa");
+    f.meta = [](const fs::path&) -> eb::Result<eb::BookMeta> { throw std::runtime_error("boom"); };
+    CHECK(f.scan().bad == 1);
+    CHECK(f.count("status=2") == 1);
+}
+
+TEST_CASE("scanner: path helpers keep drive roots intact")
+{
+    CHECK(eb::scan_path::pattern(L"D:\\") == L"D:\\*");
+    CHECK(eb::scan_path::pattern(L"D:\\books") == L"D:\\books\\*");
+    CHECK(eb::scan_path::join(L"D:\\", L"a.epub") == L"D:\\a.epub");
+    CHECK(eb::scan_path::strip_long_prefix(L"\\\\?\\C:\\x") == L"C:\\x");
+    CHECK(eb::scan_path::strip_long_prefix(L"\\\\?\\UNC\\h\\s\\x") == L"\\\\h\\s\\x");
 }
 
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
