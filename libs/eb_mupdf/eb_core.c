@@ -235,10 +235,43 @@ eb_status eb_bookmark_of_page(eb_doc* doc, int32_t page, eb_bookmark* out)
     fz_try(doc->ctx)
     {
         fz_location loc = fz_location_from_page_number(doc->ctx, doc->doc, page);
-        *out = (eb_bookmark)fz_make_bookmark(doc->ctx, doc->doc, loc);
+        *out = eb_encode_bookmark(doc, loc);
     }
     fz_catch(doc->ctx) st = eb_fail(doc->ctx);
     return st;
+}
+
+#define EB_BM_FRAC_SCALE 4294967296.0
+#define EB_BM_CHAPTER_MASK 0x7FFFFFFFu
+
+/* Must run inside fz_try. Reflowable: chapter and fraction of the chapter survive layout changes and restarts;
+ * fixed layout: exact page index. Bit 63 stays clear so signed ordering follows reading order. */
+uint64_t eb_encode_bookmark(eb_doc* doc, fz_location loc)
+{
+    fz_context* ctx = doc->ctx;
+    double frac = 0.0;
+    int count = 0;
+    if (!doc->reflowable) return (uint64_t)(uint32_t)fz_page_number_from_location(ctx, doc->doc, loc);
+    if (loc.chapter < 0 || loc.page < 0) fz_throw(ctx, FZ_ERROR_ARGUMENT, "unresolved location");
+    count = fz_count_chapter_pages(ctx, doc->doc, loc.chapter);
+    if (count > 0) frac = floor((double)loc.page / (double)count * EB_BM_FRAC_SCALE + 0.5);
+    if (frac > EB_BM_FRAC_SCALE - 1.0) frac = EB_BM_FRAC_SCALE - 1.0;
+    return ((uint64_t)((uint32_t)loc.chapter & EB_BM_CHAPTER_MASK) << 32) | (uint64_t)frac;
+}
+
+static int decode_bookmark(eb_doc* doc, eb_bookmark mark)
+{
+    fz_context* ctx = doc->ctx;
+    int chapter = 0, count = 0, in_chapter = 0;
+    if (!doc->reflowable) return (int)(uint32_t)(mark & 0xFFFFFFFFu);
+    chapter = (int)((uint32_t)(mark >> 32) & EB_BM_CHAPTER_MASK);
+    if (chapter >= fz_count_chapters(ctx, doc->doc)) chapter = fz_count_chapters(ctx, doc->doc) - 1;
+    if (chapter < 0) return -1;
+    count = fz_count_chapter_pages(ctx, doc->doc, chapter);
+    if (count <= 0) return -1;
+    in_chapter = (int)floor((double)(uint32_t)(mark & 0xFFFFFFFFu) / EB_BM_FRAC_SCALE * (double)count + 0.5);
+    if (in_chapter > count - 1) in_chapter = count - 1;
+    return fz_page_number_from_location(ctx, doc->doc, (fz_location){chapter, in_chapter});
 }
 
 eb_status eb_page_of_bookmark(eb_doc* doc, eb_bookmark mark, int32_t* page)
@@ -249,11 +282,7 @@ eb_status eb_page_of_bookmark(eb_doc* doc, eb_bookmark mark, int32_t* page)
     if (!doc || !page) return eb_fail_msg(EB_E_ARG, "null argument");
     st = eb_count_pages(doc, &count);
     if (st != EB_OK) return st;
-    fz_try(doc->ctx)
-    {
-        fz_location loc = fz_lookup_bookmark(doc->ctx, doc->doc, (fz_bookmark)mark);
-        n = fz_page_number_from_location(doc->ctx, doc->doc, loc);
-    }
+    fz_try(doc->ctx) n = decode_bookmark(doc, mark);
     fz_catch(doc->ctx) return eb_fail(doc->ctx);
     if (n < 0 || n >= count) return eb_fail_msg(EB_E_RANGE, "bookmark does not resolve to a page");
     *page = n;

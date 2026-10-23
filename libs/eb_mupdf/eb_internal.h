@@ -36,6 +36,9 @@ extern eb_limits eb_g_limits;
 eb_status eb_fail(fz_context* ctx);
 eb_status eb_fail_msg(eb_status s, const char* msg);
 
+/* Bookmark encoding (see eb_mupdf.h); call inside fz_try. */
+uint64_t eb_encode_bookmark(eb_doc* doc, fz_location loc);
+
 /* Page access helpers: reflowable documents must have been laid out first (EB_E_ARG otherwise). */
 eb_status eb_require_layout(eb_doc* doc);
 eb_status eb_count_pages(eb_doc* doc, int32_t* out);

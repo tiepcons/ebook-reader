@@ -42,7 +42,7 @@ typedef enum eb_status {
 } eb_status;
 
 typedef struct eb_doc eb_doc;
-typedef uint64_t eb_bookmark; /* layout-independent position inside a document */
+typedef uint64_t eb_bookmark; /* layout-independent position: (chapter<<32 | fraction-of-chapter) for reflowable docs, page index for fixed-layout; bit 63 is always 0; values are monotonic in reading order */
 
 typedef struct eb_limits {
     uint64_t max_file_bytes;   /* reject larger files (default 2 GiB) */

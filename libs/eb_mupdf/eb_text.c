@@ -139,7 +139,7 @@ static void resolve(eb_doc* d, const fz_outline* o, eb_toc_item* it)
     {
         fz_location loc = o->uri ? fz_resolve_link(ctx, d->doc, o->uri, NULL, NULL) : o->page;
         if (loc.chapter >= 0 && loc.page >= 0) {
-            it->target = (eb_bookmark)fz_make_bookmark(ctx, d->doc, loc);
+            it->target = eb_encode_bookmark(d, loc);
             it->page = fz_page_number_from_location(ctx, d->doc, loc);
         }
     }

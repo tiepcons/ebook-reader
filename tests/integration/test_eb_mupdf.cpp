@@ -185,7 +185,7 @@ TEST_CASE("eb_mupdf enforces limits and argument checks")
     size_t needed = 0;
     CHECK(eb_meta(cbz.get(), "language", buf, sizeof buf, &needed) == EB_E_RANGE);
     int32_t unused = 0;
-    CHECK(eb_page_of_bookmark(d.get(), 0x7FFFFFF00000, &unused) != EB_OK);
+    CHECK(eb_page_of_bookmark(cbz.get(), 99999, &unused) == EB_E_RANGE);
 }
 
 TEST_CASE("eb_mupdf tint changes the rendered pixels")
