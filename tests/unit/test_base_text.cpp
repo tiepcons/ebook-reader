@@ -29,3 +29,13 @@ TEST_CASE("fold_for_search strips Vietnamese diacritics")
     CHECK(eb::fold_for_search(L"Truy\u1ec7n Ki\u1ec1u \u2013 \u0110\u00c0 L\u1ea0T") == L"truyen kieu \u2013 da lat");
     CHECK(eb::fold_for_search(L"").empty());
 }
+
+TEST_CASE("fold_for_search tolerates lone surrogates")
+{
+    std::wstring in = L"Tiếng ";
+    in.push_back(static_cast<wchar_t>(0xD800));
+    in += L" Việt";
+    const std::wstring out = eb::fold_for_search(in);
+    CHECK(out.starts_with(L"tieng "));
+    CHECK(out.ends_with(L" viet"));
+}

@@ -14,11 +14,15 @@ namespace {
 
 Result<fs::path> default_local_root()
 {
-    std::array<wchar_t, MAX_PATH> buf{};
-    const DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf.data(), static_cast<DWORD>(buf.size()));
-    if (n == 0 || n >= buf.size())
+    const DWORD need = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+    if (need == 0 || need > 32768)
         return fail(ErrorCode::NotFound, L"LOCALAPPDATA not set");
-    return fs::path(std::wstring(buf.data(), n)) / L"EbookReader";
+    std::wstring buf(need, L'\0');
+    const DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf.data(), need);
+    if (n == 0 || n >= need)
+        return fail(ErrorCode::NotFound, L"LOCALAPPDATA not set");
+    buf.resize(n);
+    return fs::path(buf) / L"EbookReader";
 }
 
 bool make_dir(const fs::path& p) noexcept
@@ -62,7 +66,8 @@ Result<AppPaths> resolve_paths(const fs::path& exe_dir, const fs::path& local_ro
         p.ebooks = exe_dir / L"ebooks";
         p.libs = exe_dir / L"libs";
         p.fonts = exe_dir / L"fonts";
-        p.data = probe(exe_dir) ? exe_dir / L"data" : local_root;
+        const fs::path portable = exe_dir / L"data";
+        p.data = (make_dir(portable) && probe(portable)) ? portable : local_root;
         p.covers = p.data / L"covers";
         p.tts_cache = p.data / L"tts";
         p.crash = p.data / L"crash";

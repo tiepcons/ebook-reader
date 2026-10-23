@@ -14,6 +14,16 @@ bool is_combining(wchar_t c) noexcept
     return c >= 0x0300 && c <= 0x036F;
 }
 
+bool is_high_surrogate(wchar_t c) noexcept
+{
+    return c >= 0xD800 && c <= 0xDBFF;
+}
+
+bool is_low_surrogate(wchar_t c) noexcept
+{
+    return c >= 0xDC00 && c <= 0xDFFF;
+}
+
 std::wstring map_lower(const std::wstring& s)
 {
     if (s.empty() || s.size() > kMaxChars)
@@ -86,9 +96,14 @@ std::wstring fold_for_search(std::wstring_view s) noexcept
 {
     try {
         std::wstring in(s);
-        for (wchar_t& c : in) {
+        for (size_t i = 0; i < in.size(); ++i) {
+            wchar_t& c = in[i];
             if (c == 0x0111 || c == 0x0110)
                 c = L'd';
+            else if (is_high_surrogate(c) && i + 1 < in.size() && is_low_surrogate(in[i + 1]))
+                ++i;
+            else if (is_high_surrogate(c) || is_low_surrogate(c))
+                c = 0xFFFD;
         }
         std::wstring out;
         out.reserve(in.size());

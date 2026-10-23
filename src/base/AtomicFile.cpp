@@ -18,6 +18,8 @@ Result<void> write_all(HANDLE h, std::span<const std::byte> data)
         DWORD got = 0;
         if (!WriteFile(h, data.data(), want, &got, nullptr))
             return fail_win32(GetLastError(), L"WriteFile");
+        if (got == 0)
+            return fail(ErrorCode::Io, L"WriteFile wrote 0 bytes");
         data = data.subspan(got);
     }
     return {};
