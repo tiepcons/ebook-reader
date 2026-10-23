@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(EbookReader LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -56,7 +56,7 @@ foreach(lib IN LISTS EB_MU_LIBS)
 endforeach()
 target_link_libraries(eb_mupdf_engine INTERFACE user32 gdi32 advapi32 shell32)
 
-add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c)
+add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
@@ -64,6 +64,11 @@ target_include_directories(eb_mupdf PRIVATE libs/eb_mupdf)
 target_include_directories(eb_mupdf SYSTEM INTERFACE libs/eb_mupdf)
 target_include_directories(eb_mupdf SYSTEM PRIVATE third_party/mupdf/include)
 target_link_libraries(eb_mupdf PRIVATE eb_hardening eb_warnings eb_mupdf_engine)
+
+add_library(eb_base STATIC src/base/Log.cpp src/base/Text.cpp src/base/Paths.cpp src/base/AtomicFile.cpp
+  src/base/Hash.cpp src/base/DllLoader.cpp)
+target_include_directories(eb_base PUBLIC src)
+target_link_libraries(eb_base PUBLIC eb_hardening eb_warnings PRIVATE bcrypt normaliz)
 
 add_executable(EbookReader WIN32 src/ui/main.cpp res/app.rc)
 target_link_libraries(EbookReader PRIVATE eb_hardening eb_warnings)
