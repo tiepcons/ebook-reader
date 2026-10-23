@@ -133,7 +133,7 @@ TEST_CASE("log keeps the size bound when rotation cannot move the file")
     const ebtest::TempDir t;
     const fs::path log = t.path() / L"app.log";
     { const std::ofstream touch(log); }
-    const HANDLE holder = CreateFileW(log.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+    HANDLE const holder = CreateFileW(log.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     REQUIRE(holder != INVALID_HANDLE_VALUE);
     eb::log::init(log);

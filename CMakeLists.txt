@@ -63,14 +63,12 @@ list(TRANSFORM EB_MOBI_SRC APPEND ".c")
 add_library(eb_libmobi STATIC ${EB_MOBI_SRC})
 target_include_directories(eb_libmobi SYSTEM PUBLIC "${EB_MOBI_DIR}")
 target_compile_definitions(eb_libmobi PRIVATE USE_XMLWRITER USE_MINIZ MOBI_INLINE=__inline
-  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES _CRT_SECURE_NO_WARNINGS)
-target_compile_options(eb_libmobi PRIVATE /W0 /wd4146 /wd4703 /wd4996)
-set_source_files_properties("${EB_MOBI_DIR}/read.c" PROPERTIES
-  COMPILE_OPTIONS "/FI${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_mobi_io.h")
+  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+target_compile_options(eb_libmobi PRIVATE /W0 "/FI${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_mobi_shim.h")
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
 add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
-  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_cover.c)
+  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
@@ -87,7 +85,7 @@ target_link_libraries(eb_base PUBLIC eb_hardening eb_warnings PRIVATE bcrypt nor
 add_library(eb_lib STATIC src/lib/Db.cpp src/lib/Schema.cpp)
 target_link_libraries(eb_lib PUBLIC eb_base eb_sqlite)
 
-add_library(eb_doc STATIC src/doc/TxtToFb2.cpp)
+add_library(eb_doc STATIC src/doc/TxtToFb2.cpp src/doc/TxtDecode.cpp)
 target_link_libraries(eb_doc PUBLIC eb_base)
 
 add_executable(EbookReader WIN32 src/ui/main.cpp res/app.rc)

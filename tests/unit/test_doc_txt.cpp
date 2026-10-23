@@ -5,7 +5,9 @@
 #include <windows.h>
 
 #include <msxml6.h>
+#include <psapi.h>
 
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -88,8 +90,12 @@ TEST_CASE("truyen kieu encodings decode to the same text")
     CHECK(ref.find("Tr\xC4\x83m n\xC4\x83m trong c\xC3\xB5i ng\xC6\xB0\xE1\xBB\x9Di ta,") != std::string::npos);
     CHECK(convert(corpus_txt("truyen-kieu-utf8bom.txt")) == ref);
     CHECK(convert(corpus_txt("truyen-kieu-utf16le.txt")) == ref);
-    // cp1258 can only encode Vietnamese via combining marks, so NFC must restore the same text.
-    CHECK(convert(corpus_txt("truyen-kieu-cp1258.txt")) == ref);
+    // The cp1258 corpus file is lossy (unencodable letters were stored as '?'), so only the
+    // leading text before the first lossy letter and the paragraph structure can be compared.
+    const std::string cp = convert(corpus_txt("truyen-kieu-cp1258.txt"));
+    CHECK(cp.find("Tr\xC4\x83m n\xC4\x83m trong c") != std::string::npos);
+    CHECK(count_of(cp, "<p>") == count_of(ref, "<p>"));
+    CHECK(cp.find("<lang>vi</lang>") != std::string::npos);
 }
 
 TEST_CASE("utf16 without BOM and utf16be")
@@ -182,4 +188,80 @@ TEST_CASE("size limit is enforced")
     CHECK(r.error().code == eb::ErrorCode::Limit);
     const std::vector<std::byte> ok(eb::kMaxTxtBytes, std::byte{'a'});
     CHECK(eb::txt_to_fb2(ok, L"x").has_value());
+}
+
+TEST_CASE("roman numerals and number words are validated")
+{
+    for (const char* bad : {"Part did not matter", "Part I think so", "Book mix", "DID", "MILD", "CIVIL", "MIX",
+             "H\xE1\xBB\x93i \xC4\x91\xC3\xB3.", "H\xE1\xBB\x93i n\xC3\xA3y.", "Ph\xE1\xBA\xA7n \xC4\x91\xC3\xB4ng.",
+             "Ph\xE1\xBA\xA7n l\xE1\xBB\x9Bn ng\xC6\xB0\xE1\xBB\x9Di d\xC3\xA2n \xE1\xBB\x9F \xC4\x91\xC3\xA2y."}) {
+        CAPTURE(bad);
+        CHECK(count_of(convert(std::string(bad) + "\n"), "<title><p>1</p></title>") == 1);
+    }
+    for (const char* good : {"H\xE1\xBB\x93i th\xE1\xBB\xA9 nh\xE1\xBA\xA5t", "Ch\xC6\xB0\xC6\xA1ng m\xE1\xBB\x99t",
+             "Ch\xC6\xB0\xC6\xA1ng 12. Tr\xE1\xBB\x9F v\xE1\xBB\x81", "Chapter XIV. The End", "XLII", "7."}) {
+        CAPTURE(good);
+        CHECK(count_of(convert(std::string(good) + "\n"), "<title><p>1</p></title>") == 0);
+    }
+}
+
+TEST_CASE("book title needs a following blank line or heading")
+{
+    CHECK(convert("Hello\nworld\n").find("<book-title>Fallback</book-title>") != std::string::npos);
+    CHECK(convert("Hello\n\nworld\n").find("<book-title>Hello</book-title>") != std::string::npos);
+    CHECK(convert("Hello\nChapter 1\nworld\n").find("<book-title>Hello</book-title>") != std::string::npos);
+}
+
+TEST_CASE("fallback title is sanitized and capped")
+{
+    std::wstring t = L"a\nb\x01";
+    t.push_back(static_cast<wchar_t>(0xD800));
+    CHECK(convert("x\nworld\n", t).find("<book-title>a b\xEF\xBF\xBD</book-title>") != std::string::npos);
+    const std::string capped = convert("x\nworld\n", std::wstring(300, L'z'));
+    CHECK(capped.find("<book-title>" + std::string(200, 'z') + "</book-title>") != std::string::npos);
+}
+
+TEST_CASE("cp1258 combining marks are composed to NFC")
+{
+    CHECK(convert(std::string("a\xCC")).find("<p>\xC3\xA0</p>") != std::string::npos);
+    CHECK(convert(std::string("\xF5\xEC")).find("<p>\xE1\xBB\x9B</p>") != std::string::npos);
+}
+
+TEST_CASE("long paragraphs and sections are split")
+{
+    std::string one_line;
+    for (int i = 0; i < 5000; ++i) {
+        one_line += "word ";
+    }
+    CHECK(count_of(convert(one_line + "\n"), "<p>") >= 3);
+    std::string big = "Chapter 1\n\n";
+    for (int i = 0; i < 100; ++i) {
+        big += std::string(5000, 'a') + "\n\n";
+    }
+    CHECK(count_of(convert(big), "<section>") >= 3);
+}
+
+TEST_CASE("32 MiB of short lines stays within the time and memory budget")
+{
+    std::string raw;
+    raw.reserve(std::size_t{32} << 20);
+    while (raw.size() < (std::size_t{32} << 20)) {
+        raw += "a\n";
+    }
+    PROCESS_MEMORY_COUNTERS before{};
+    GetProcessMemoryInfo(GetCurrentProcess(), &before, sizeof(before));
+    const auto t0 = std::chrono::steady_clock::now();
+    auto r = eb::txt_to_fb2(bytes_of(raw), L"x");
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    REQUIRE(r.has_value());
+    PROCESS_MEMORY_COUNTERS after{};
+    GetProcessMemoryInfo(GetCurrentProcess(), &after, sizeof(after));
+#ifdef NDEBUG
+    CHECK(ms < 5000);
+#else
+    CHECK(ms < 60000);
+#endif
+#ifndef __SANITIZE_ADDRESS__
+    CHECK(after.PeakWorkingSetSize - before.PeakWorkingSetSize < 4 * raw.size());
+#endif
 }
