@@ -6,3 +6,7 @@ add_test(NAME eb_tests COMMAND eb_tests)
 set_tests_properties(eb_tests PROPERTIES
   ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:eb_mupdf>")
 target_sources(eb_tests PRIVATE unit/test_base_text.cpp unit/test_base_io.cpp unit/test_base_dll.cpp)
+target_sources(eb_tests PRIVATE unit/test_crash.cpp unit/test_lib_db.cpp)
+target_link_libraries(eb_tests PRIVATE eb_lib)
+target_sources(eb_tests PRIVATE unit/test_doc_txt.cpp)
+target_link_libraries(eb_tests PRIVATE eb_doc ole32 oleaut32 uuid)

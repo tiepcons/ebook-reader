@@ -56,19 +56,39 @@ foreach(lib IN LISTS EB_MU_LIBS)
 endforeach()
 target_link_libraries(eb_mupdf_engine INTERFACE user32 gdi32 advapi32 shell32)
 
-add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c)
+set(EB_MOBI_DIR "${CMAKE_SOURCE_DIR}/third_party/libmobi/src")
+set(EB_MOBI_SRC buffer compression debug index memory meta parse_rawml read structure util write xmlwriter opf miniz)
+list(TRANSFORM EB_MOBI_SRC PREPEND "${EB_MOBI_DIR}/")
+list(TRANSFORM EB_MOBI_SRC APPEND ".c")
+add_library(eb_libmobi STATIC ${EB_MOBI_SRC})
+target_include_directories(eb_libmobi SYSTEM PUBLIC "${EB_MOBI_DIR}")
+target_compile_definitions(eb_libmobi PRIVATE USE_XMLWRITER USE_MINIZ MOBI_INLINE=__inline
+  MINIZ_NO_STDIO MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+target_compile_options(eb_libmobi PRIVATE /W0 /wd4146 /wd4703)
+set_source_files_properties("${EB_MOBI_DIR}/read.c" PROPERTIES
+  COMPILE_OPTIONS "/FI${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_mobi_io.h")
+target_link_libraries(eb_libmobi PRIVATE eb_hardening)
+
+add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
+  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_cover.c)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
 target_include_directories(eb_mupdf PRIVATE libs/eb_mupdf)
 target_include_directories(eb_mupdf SYSTEM INTERFACE libs/eb_mupdf)
 target_include_directories(eb_mupdf SYSTEM PRIVATE third_party/mupdf/include)
-target_link_libraries(eb_mupdf PRIVATE eb_hardening eb_warnings eb_mupdf_engine)
+target_link_libraries(eb_mupdf PRIVATE eb_hardening eb_warnings eb_libmobi eb_mupdf_engine)
 
 add_library(eb_base STATIC src/base/Log.cpp src/base/Text.cpp src/base/Paths.cpp src/base/AtomicFile.cpp
-  src/base/Hash.cpp src/base/DllLoader.cpp)
+  src/base/Hash.cpp src/base/DllLoader.cpp src/base/CrashGuard.cpp)
 target_include_directories(eb_base PUBLIC src)
-target_link_libraries(eb_base PUBLIC eb_hardening eb_warnings PRIVATE bcrypt normaliz)
+target_link_libraries(eb_base PUBLIC eb_hardening eb_warnings PRIVATE bcrypt normaliz dbghelp)
+
+add_library(eb_lib STATIC src/lib/Db.cpp src/lib/Schema.cpp)
+target_link_libraries(eb_lib PUBLIC eb_base eb_sqlite)
+
+add_library(eb_doc STATIC src/doc/TxtToFb2.cpp)
+target_link_libraries(eb_doc PUBLIC eb_base)
 
 add_executable(EbookReader WIN32 src/ui/main.cpp res/app.rc)
 target_link_libraries(EbookReader PRIVATE eb_hardening eb_warnings)
