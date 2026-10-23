@@ -289,6 +289,33 @@ TEST_CASE("eb_mobi structural pre-checks reject hostile books")
         expect_rejected(s, "precheck: index tag table");
     }
     {
+        // Meta record without TAGX and total=0; a later record carries the bad TAGX (libmobi re-reads it).
+        MobiSpec s;
+        s.mobi32[228] = 3;
+        std::string meta = simple_record("INDX", 64);
+        put32(meta, 4, 56);
+        put32(meta, 24, 1);
+        std::string later = simple_record("INDX", 80);
+        put32(later, 4, 56);
+        put32(later, 24, 1);
+        put32(later, 36, 1);
+        std::memcpy(&later[56], "TAGX", 4);
+        put32(later, 64, 99);
+        s.extra = {meta, later};
+        expect_rejected(s, "precheck: index tag table");
+    }
+    {
+        MobiSpec s;
+        s.mobi32[228] = 3;
+        std::string indx = simple_record("INDX", 80);
+        put32(indx, 4, 56);
+        put32(indx, 24, 1);
+        std::memcpy(&indx[56], "TAGX", 4);
+        put32(indx, 64, 1);
+        s.extra = {indx};
+        expect_rejected(s, "precheck: index without entries");
+    }
+    {
         MobiSpec s;
         s.compression = 17480;
         s.mobi32[96] = 3;

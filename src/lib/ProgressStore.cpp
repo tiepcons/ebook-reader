@@ -35,7 +35,7 @@ bool is_control(wchar_t c) noexcept
 std::wstring sanitize(std::wstring_view in)
 {
     std::wstring out;
-    for (wchar_t c : in) {
+    for (const wchar_t c : in) {
         if (out.size() >= kMaxBookmarkLabel)
             break;
         if (!is_control(c))

@@ -1,9 +1,10 @@
 #pragma once
+#include <cstdint>
 #include <string_view>
 
 namespace eb {
 
-enum class Lang { En, Vi };
+enum class Lang : std::uint8_t { En, Vi };
 
 Lang detect_sentence(std::string_view utf8, Lang book_default) noexcept;
 
