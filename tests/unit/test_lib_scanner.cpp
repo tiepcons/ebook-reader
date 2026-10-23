@@ -182,7 +182,7 @@ TEST_CASE("scanner: duplicate copy gets no second row")
 TEST_CASE("scanner: junction is not followed")
 {
     Fixture f;
-    ebtest::TempDir outside;
+    const ebtest::TempDir outside;
     make(outside.path() / L"x.epub", "outside");
     make(f.root.path() / L"in.epub", "inside");
     if (!make_junction(f.root.path() / L"jn", outside.path())) {

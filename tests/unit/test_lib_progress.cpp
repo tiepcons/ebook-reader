@@ -45,15 +45,15 @@ TEST_CASE("progress save and load round-trip with UPSERT and last_opened")
     REQUIRE(store.save("a", {0xFFFFFFFF00000001ULL, 0.25, 7, 100}).has_value());
     auto p = store.load("a").value();
     REQUIRE(p.has_value());
-    CHECK(p->mark == 0xFFFFFFFF00000001ULL);
-    CHECK(p->percent == doctest::Approx(0.25));
-    CHECK(p->tts_char == 7);
-    CHECK(p->updated_at == 100);
+    CHECK(p.value().mark == 0xFFFFFFFF00000001ULL);
+    CHECK(p.value().percent == doctest::Approx(0.25));
+    CHECK(p.value().tts_char == 7);
+    CHECK(p.value().updated_at == 100);
     CHECK(scalar(db, "SELECT last_opened FROM books WHERE id='a'") == 100);
 
     REQUIRE(store.save("a", {5, 0.5, -1, 200}).has_value());
     CHECK(scalar(db, "SELECT count(*) FROM progress") == 1);
-    CHECK(store.load("a").value()->mark == 5);
+    CHECK(store.load("a").value().value().mark == 5);
     CHECK(scalar(db, "SELECT last_opened FROM books WHERE id='a'") == 200);
 }
 
@@ -99,13 +99,13 @@ TEST_CASE("progress saver coalesces updates and flush writes immediately")
     saver.tick(1000);
     auto p = store.load("a").value();
     REQUIRE(p.has_value());
-    CHECK(p->mark == 49);
+    CHECK(p.value().mark == 49);
 
     saver.update({77, 0.9, -1, 2000});
     saver.tick(1100);
-    CHECK(store.load("a").value()->mark == 49);
+    CHECK(store.load("a").value().value().mark == 49);
     saver.flush();
-    CHECK(store.load("a").value()->mark == 77);
+    CHECK(store.load("a").value().value().mark == 77);
 }
 
 TEST_CASE("progress saver keeps a failed save pending and retries")
@@ -121,7 +121,7 @@ TEST_CASE("progress saver keeps a failed save pending and retries")
     saver.flush();
     auto p = store.load("a").value();
     REQUIRE(p.has_value());
-    CHECK(p->mark == 3);
+    CHECK(p.value().mark == 3);
 }
 
 TEST_CASE("progress persists to a second connection without a clean close")
@@ -134,7 +134,7 @@ TEST_CASE("progress persists to a second connection without a clean close")
     auto other = eb::Db::open(t.path() / L"lib.db");
     REQUIRE(other.has_value());
     eb::ProgressStore store2(*other);
-    CHECK(store2.load("a").value()->mark == 9);
+    CHECK(store2.load("a").value().value().mark == 9);
 }
 
 TEST_CASE("bookmark CRUD, ordering, sanitising and cascade")

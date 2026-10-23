@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "base/AtomicFile.h"
+#include "base/Handle.h"
 #include "base/Hash.h"
 #include "base/Log.h"
 #include "base/Paths.h"
@@ -133,15 +134,14 @@ TEST_CASE("log keeps the size bound when rotation cannot move the file")
     const ebtest::TempDir t;
     const fs::path log = t.path() / L"app.log";
     { const std::ofstream touch(log); }
-    HANDLE const holder = CreateFileW(log.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    REQUIRE(holder != INVALID_HANDLE_VALUE);
+    const eb::UniqueHandle holder{CreateFileW(log.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    REQUIRE(holder.get() != INVALID_HANDLE_VALUE);
     eb::log::init(log);
     const std::string line(1000, 'x');
     for (int i = 0; i < 2500; ++i)
         eb::log::info("line {} {}", i, line);
     eb::log::shutdown();
-    CloseHandle(holder);
     CHECK(size_of(log) <= 1024 * 1024);
     CHECK_FALSE(fs::exists(t.path() / L"app.1.log"));
 }

@@ -3,6 +3,8 @@ Checks: >
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   clang-analyzer-*,
+  # False positive inside MSVC <xfilesystem_abi.h> (std::filesystem bit-flag enum cast).
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
   cppcoreguidelines-init-variables,
   cppcoreguidelines-pro-type-member-init,
   cppcoreguidelines-slicing,
