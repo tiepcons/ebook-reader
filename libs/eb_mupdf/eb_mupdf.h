@@ -5,6 +5,7 @@
  * - Memory returned by the DLL is freed only by the matching eb_*_free function (separate static CRTs).
  * - Strings are UTF-8 unless the parameter is wchar_t (paths are UTF-16).
  * - An eb_doc may be used by one thread at a time; different eb_docs may be used concurrently.
+ *   Exception: eb_abort may be called from any thread to cancel the doc's running render/text call.
  * - Positions that must survive re-layout (reading progress, bookmarks, TOC targets) are eb_bookmark values;
  *   page numbers are only valid until the next eb_layout call.
  */
@@ -36,6 +37,7 @@ typedef enum eb_status {
     EB_E_LIMIT,    /* exceeds a configured limit */
     EB_E_NOMEM,
     EB_E_RANGE,    /* page / index out of range */
+    EB_E_ABORTED,  /* cancelled by eb_abort */
     EB_E_INTERNAL
 } eb_status;
 
@@ -47,6 +49,7 @@ typedef struct eb_limits {
     uint32_t max_pages;        /* reject documents with more pages (default 100000) */
     uint32_t max_bitmap_px;    /* max width*height of one rendered bitmap (default 64 Mpx) */
     size_t store_bytes;        /* MuPDF resource cache size (default 128 MiB) */
+    uint64_t max_heap_bytes;   /* hard cap on all engine allocations (default 1 GiB) -> EB_E_NOMEM */
 } eb_limits;
 
 typedef struct eb_bitmap {
@@ -92,6 +95,8 @@ EB_API const char* eb_last_error(void); /* detail of the last failure on the cal
 EB_API eb_status eb_open(const wchar_t* path, eb_doc** out);
 EB_API eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_doc** out); /* copies data */
 EB_API void eb_close(eb_doc* doc);
+/* Thread-safe. Makes the doc's current or next render/text call return EB_E_ABORTED; reset on the next call. */
+EB_API void eb_abort(eb_doc* doc);
 EB_API int32_t eb_is_reflowable(eb_doc* doc);
 EB_API eb_status eb_layout(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css);
 EB_API eb_status eb_page_count(eb_doc* doc, int32_t* out);
