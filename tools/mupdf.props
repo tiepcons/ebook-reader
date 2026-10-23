@@ -15,9 +15,14 @@
     <ClCompile>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <BrowseInformation>false</BrowseInformation>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <SDLCheck>true</SDLCheck>
+      <DisableSpecificWarnings>4146;4703;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <RuntimeLibrary Condition="'$(EbCfg)'=='Release'">MultiThreaded</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(EbCfg)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);TOFU_CJK;TOFU_NOTO;FZ_ENABLE_JS=0;FZ_ENABLE_OCR_OUTPUT=0;FZ_ENABLE_DOCX_OUTPUT=0;FZ_ENABLE_ODT_OUTPUT=0;FZ_ENABLE_BARCODE=0;FZ_ENABLE_OFFICE=0</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);TOFU_CJK;TOFU_NOTO;FZ_ENABLE_JS=0;FZ_ENABLE_OCR_OUTPUT=0;FZ_ENABLE_DOCX_OUTPUT=0;FZ_ENABLE_ODT_OUTPUT=0;FZ_ENABLE_BARCODE=0;FZ_ENABLE_OFFICE=0;FZ_ENABLE_XPS=0;FZ_ENABLE_IMG=0;FZ_ENABLE_MD=0;FZ_ENABLE_HTML=0</PreprocessorDefinitions>
       <UndefinePreprocessorDefinitions>HAVE_TESSERACT;HAVE_LEPTONICA;%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
     </ClCompile>
     <bin2coff__ttf_><CommandLineTemplate>"$(EbMuRoot)\tools\bin2coff.exe" "%(FullPath)" "$(IntDir)%(Filename)_ttf.obj" _binary_%(Filename)_ttf $(Platform)</CommandLineTemplate></bin2coff__ttf_>

@@ -3,6 +3,7 @@
 #include <math.h>
 
 #define EB_MAX_COVER_SIDE 8192
+#define EB_MAX_SIDE_PX 32767.0
 #define EB_PIXEL_OFFSET (((sizeof(eb_bitmap) + 15) / 16) * 16)
 
 typedef struct render_req {
@@ -26,8 +27,8 @@ static void dims_of(fz_rect b, float scale, int32_t max_side, int* w, int* h, fl
         dh = fmin(dh, (double)max_side);
     }
     *used = (float)s;
-    *w = dw < 2147483647.0 ? (int)dw : -1;
-    *h = dh < 2147483647.0 ? (int)dh : -1;
+    *w = dw <= EB_MAX_SIDE_PX ? (int)dw : -1;
+    *h = dh <= EB_MAX_SIDE_PX ? (int)dh : -1;
 }
 
 static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, const render_req* rq)
@@ -40,8 +41,9 @@ static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, con
     fz_try(ctx)
     {
         dev = fz_new_draw_device(ctx, m, pix);
-        fz_run_page(ctx, pg, dev, fz_identity, NULL);
+        fz_run_page(ctx, pg, dev, fz_identity, &d->cookie);
         fz_close_device(ctx, dev);
+        eb_check_abort(d);
     }
     fz_always(ctx) fz_drop_device(ctx, dev);
     fz_catch(ctx) fz_rethrow(ctx);
@@ -57,6 +59,7 @@ static eb_status render_impl(eb_doc* d, int32_t page, const render_req* rq, eb_b
     eb_bitmap* bmp = NULL;
     eb_status st = eb_check_page(d, page);
     if (st != EB_OK) return st;
+    eb_begin_call(d);
     fz_var(pg);
     fz_var(pix);
     fz_var(bmp);
@@ -70,10 +73,10 @@ static eb_status render_impl(eb_doc* d, int32_t page, const render_req* rq, eb_b
         if (w < 0 || h < 0 || (double)w * (double)h > (double)eb_g_limits.max_bitmap_px)
             fz_throw(ctx, FZ_ERROR_LIMIT, "bitmap exceeds max_bitmap_px");
         bmp = malloc(EB_PIXEL_OFFSET + (size_t)w * (size_t)h * 4u);
-        if (!bmp) fz_throw(ctx, FZ_ERROR_SYSTEM, "out of memory");
+        if (!bmp) eb_throw_oom(ctx);
         bmp->width = w;
         bmp->height = h;
-        bmp->stride = w * 4;
+        bmp->stride = (int32_t)((size_t)w * 4u);
         bmp->bgra = (uint8_t*)bmp + EB_PIXEL_OFFSET;
         pix = fz_new_pixmap_with_bbox_and_data(ctx, fz_device_bgr(ctx), (fz_irect){0, 0, w, h}, NULL, 1, bmp->bgra);
         draw(d, pg, b, s, pix, rq);

@@ -66,7 +66,7 @@ static void alloc_text(fz_context* ctx, eb_text* t, const sink* count)
     t->utf8 = malloc(count->bytes + 1);
     t->utf8_offset = malloc((n ? n : 1) * sizeof *t->utf8_offset);
     t->box = malloc((n ? n : 1) * sizeof *t->box);
-    if (!t->utf8 || !t->utf8_offset || !t->box) fz_throw(ctx, FZ_ERROR_SYSTEM, "out of memory");
+    if (!t->utf8 || !t->utf8_offset || !t->box) eb_throw_oom(ctx);
 }
 
 static void extract(fz_context* ctx, const fz_stext_page* st, eb_text* t)
@@ -99,6 +99,7 @@ eb_status eb_page_text(eb_doc* doc, int32_t page, eb_text** out)
     if (status != EB_OK) return status;
     t = calloc(1, sizeof *t);
     if (!t) return eb_fail_msg(EB_E_NOMEM, "out of memory");
+    eb_begin_call(doc);
     fz_var(pg);
     fz_var(st);
     fz_try(doc->ctx)
@@ -106,7 +107,8 @@ eb_status eb_page_text(eb_doc* doc, int32_t page, eb_text** out)
         fz_stext_options opts;
         fz_init_stext_options(doc->ctx, &opts);
         pg = fz_load_page(doc->ctx, doc->doc, page);
-        st = fz_new_stext_page_from_page(doc->ctx, pg, &opts);
+        st = fz_new_stext_page_from_page_with_cookie(doc->ctx, pg, &opts, &doc->cookie);
+        eb_check_abort(doc);
         extract(doc->ctx, st, t);
     }
     fz_always(doc->ctx)
@@ -176,6 +178,8 @@ eb_status eb_toc(eb_doc* doc, eb_toc_item** items, int32_t* count)
     if (!doc || !items || !count) return eb_fail_msg(EB_E_ARG, "null argument");
     *items = NULL;
     *count = 0;
+    st = eb_require_layout(doc);
+    if (st != EB_OK) return st;
     fz_var(ol);
     fz_var(arr);
     fz_var(n);
@@ -184,9 +188,9 @@ eb_status eb_toc(eb_doc* doc, eb_toc_item** items, int32_t* count)
         ol = fz_load_outline(doc->ctx, doc->doc);
         n = count_items(ol, 0);
         arr = n ? calloc((size_t)n, sizeof *arr) : NULL;
-        if (n && !arr) fz_throw(doc->ctx, FZ_ERROR_SYSTEM, "out of memory");
+        if (n && !arr) eb_throw_oom(doc->ctx);
         cur = arr;
-        if (n && !fill_items(doc, ol, 0, &cur, arr + n)) fz_throw(doc->ctx, FZ_ERROR_SYSTEM, "out of memory");
+        if (n && !fill_items(doc, ol, 0, &cur, arr + n)) eb_throw_oom(doc->ctx);
     }
     fz_always(doc->ctx) fz_drop_outline(doc->ctx, ol);
     fz_catch(doc->ctx) st = eb_fail(doc->ctx);
