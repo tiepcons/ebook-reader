@@ -9,6 +9,8 @@ Set-Location $root
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $bdir = "$root/build/$Preset"
 $out = @()
+$mu = & "$PSScriptRoot/build_mupdf.ps1" -Config $(if ($Preset -eq 'release') { 'Release' } else { 'Debug' })
+if (-not ($mu | Where-Object { $_ -match '^MUPDF OK' })) { $mu | Select-Object -Last 20; Write-Output "BUILD FAIL $Preset"; exit 1 }
 $ok = $true
 $cache = Get-Item "$bdir/CMakeCache.txt" -ErrorAction SilentlyContinue
 $inputs = @(Get-Item "$root/CMakePresets.json") + @(Get-ChildItem $root -Recurse -Filter CMakeLists.txt |
