@@ -43,6 +43,7 @@ Phần mềm đọc ebook **mã nguồn mở (AGPL-3.0)**, viết bằng **C++20
 | D15 | MuPDF build với **`TOFU_CJK` + `TOFU_NOTO`**, tắt JS/OCR/barcode/Office/XPS/IMG/MD. Tiếng Việt và Latin hiển thị bằng Charis SIL có sẵn, cộng font kèm theo. Chữ khác (Ả Rập, Hindi…) thì thả font vào `fonts\` | `eb_mupdf.dll` giảm từ 16 MB xuống 7,9 MB, ít bề mặt tấn công |
 | D16 | **MuPDF không đọc được AZW3/KF8 và MOBI nén HUFF/CDIC** (spike T0.6). **PO đã duyệt libmobi (LGPL-3.0)** (2026-10-23). Nhúng vào `eb_mupdf.dll`: AZW3/KF8/HUFF-CDIC được chuyển sang EPUB trong bộ nhớ rồi mở bằng MuPDF, ABI không đổi (T1.9) | Hỗ trợ đầy đủ định dạng Kindle không DRM |
 | D17 | `eb_mupdf` tự mở file (`CreateFileW` + kiểm tra là file trên đĩa), không đưa thư mục cho MuPDF, giới hạn heap 1 GiB, có `eb_abort` để hủy | Kết quả review bảo mật T1.6 |
+| D19 | **Piper (spike T0.8)**: bản rhasspy/piper 2023.11.14-2 (MIT, onnxruntime 1.14), RTF khoảng 0,1, gói khoảng 38 MB + khoảng 62 MB mỗi giọng. **Không đóng gói giọng sẵn**: người dùng tải khi cần. Giọng mặc định: VI `vi_VN-vais1000-medium` (CC BY 4.0, ghi công). EN dùng giọng có dataset rõ license (ưu tiên `en_US-ljspeech`, dataset public domain). **Không dùng** `vi_VN-25hours_single` (license "Unknown"). `lessac` chỉ dùng khi người dùng tự chọn, kèm thông báo license | Giọng hay, chạy offline, không vướng license |
 | D18 | Ngôn ngữ và ảnh bìa nhúng của EPUB/FB2/MOBI: MuPDF không cung cấp, nên phải tự đọc OPF/EXTH (T2.3–T2.4) | Kết quả spike T0.6 |
 
 ---
@@ -193,7 +194,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T0.5 | Vendor MuPDF (submodule, ghim tag), build **`eb_mupdf.dll`** với `/MT` và **không có font CJK** (`TOFU_CJK`) | DEV | T0.4 | 0,8 | DLL ≤ 10 MB | ✅ 7,9 MB |
 | T0.6 | **Spike định dạng**: mở EPUB, PDF, MOBI, **AZW3**, FB2, CBZ, và TXT→HTML qua MuPDF | DEV | T0.5 | 0,4 | Có báo cáo. Nếu AZW3 không được thì kích hoạt T1.9 | ✅ (AZW3 ✗, xem D16) |
 | T0.7 | Vendor SQLite amalgamation và doctest | DEV | T0.4 | 0,1 | | ✅ |
-| T0.8 | **Spike Piper**: onnxruntime (bản prebuilt từ GitHub release) + espeak-ng, đọc thử `vi_VN` và `en_US` | DEV | T0.4 | 0,5 | Ra được file wav tiếng Việt | ⬜ |
+| T0.8 | **Spike Piper**: onnxruntime (bản prebuilt từ GitHub release) + espeak-ng, đọc thử `vi_VN` và `en_US` | DEV | T0.4 | 0,5 | Ra được file wav tiếng Việt | ✅ RTF ~0,1 (D19) |
 | T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV | T0.5 | 0,4 | **CI chạy local** (`tools/ci.ps1`: debug, asan, lint, release, kiểm tra kích thước), theo yêu cầu của PO, không dùng GitHub Actions | ⬜ |
 | T0.10 | Corpus test: Project Gutenberg, Standard Ebooks, truyện tiếng Việt public domain. Mỗi định dạng ít nhất 3 file, cộng 5 file cố tình làm hỏng | RUN + **PO** | — | 0,3 | Có `tests/corpus/` | ✅ 8 MB |
 | T0.11 | Script **im lặng** `tools/build.ps1` và `tools/test.ps1` (tham số preset): chỉ in lỗi đầu tiên của mỗi file, số test pass/fail và kích thước exe/DLL | LEAD | T0.4 | 0,2 | Build thành công chỉ in 1 dòng | ✅ |
