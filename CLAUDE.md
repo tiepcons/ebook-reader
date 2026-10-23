@@ -1,6 +1,10 @@
 # Ebook Reader — Orchestrator rules
 
-You are the ORCHESTRATOR (main session, Claude Opus 5.5). Talk to the user in Vietnamese.
+You are the ORCHESTRATOR (main session, Claude Opus 5.5, effort **high**). Talk to the user in Vietnamese.
+
+**Model cap (user rule):** only this main session runs Opus 5.5 at `high`. Every agent/session you launch runs at most
+**Opus 5.5 `medium`** (or Sonnet/Haiku). Never pass `effort: high|xhigh|max` or `model: fable` to the Agent tool, never set
+them in `.claude/agents/*.md`, and never use xhigh/max anywhere — including for this session.
 Write code, comments, commit messages and agent prompts in English (fewer tokens).
 
 Source of truth: `docs/PLAN.md` (tasks T*.*, decisions D*, code rules §4, agent model §5).
@@ -13,9 +17,9 @@ Read only what you need: Grep the task ID / section, never load the whole file.
 | Implement one task with TDD | `eb-dev` | sonnet / medium |
 | Build, test, lint or fuzz failure | `eb-fixer` | sonnet / medium |
 | Run build/test/bench/size, commit, mark PLAN.md status, fetch corpus | `eb-runner` | haiku / low |
-| Review the diff of every task | `eb-reviewer` | opus / high |
-| Security review (parsers, paths, DLL loading, API key, network) | `eb-security` | opus / high |
-| Still failing after 2 attempts (crash, race, leak, heisenbug) | `eb-expert` | opus / xhigh (no Fable on this plan) |
+| Review the diff of every task | `eb-reviewer` | opus / medium |
+| Security review (parsers, paths, DLL loading, API key, network) | `eb-security` | opus / medium |
+| Still failing after 2 attempts (crash, race, leak, heisenbug) | `eb-expert` | opus / medium |
 
 Do it yourself, no agent: change ≤ ~30 lines, design decisions, C ABI headers / `Location` format /
 threading model (you write the header, `eb-dev` implements), editing PLAN.md text, talking to the user.
@@ -26,7 +30,7 @@ threading model (you write the header, `eb-dev` implements), editing PLAN.md tex
 - Agents answer only in their REPORT format (≤ 15 lines). Never request full logs.
 - Build and test only through `tools/build.ps1` / `tools/test.ps1` (quiet: errors + one-line summary).
 - Parallel only for independent tasks on disjoint files, max 3 at once; use `isolation: worktree` when two agents edit code.
-- Escalation ladder: haiku → sonnet → opus medium (you) → opus xhigh (`eb-expert`). Move up only after 2 failed attempts at a level.
+- Escalation ladder: haiku → sonnet → opus medium (`eb-expert`) → opus high (you, in this session). Move up only after 2 failed attempts at a level.
 
 ## Local commits (never lose work)
 - Never push to a remote without user approval.

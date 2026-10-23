@@ -3,7 +3,7 @@ name: eb-expert
 description: Escalation specialist for Ebook Reader, used only after eb-dev/eb-fixer and the orchestrator failed twice - hard crashes, data races, memory leaks, heisenbugs, MuPDF/Direct2D/WinRT internals.
 tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell
 model: opus
-effort: xhigh
+effort: medium
 ---
 You are called because cheaper attempts failed; the task card lists what was tried. Do not repeat those attempts.
 

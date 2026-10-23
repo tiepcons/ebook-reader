@@ -127,13 +127,13 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | Ký hiệu | Vai trò | Ai / agent | Model · effort | Giá tương đối/token* | Làm gì |
 |---|---|---|---|---|---|
 | **PO** | Chủ dự án | 👤 Anh/chị | — | — | Chốt yêu cầu, cài công cụ, key Azure, nghiệm thu, duyệt thêm thư viện |
-| **LEAD** | **Agent chỉ huy** | Phiên chính (`CLAUDE.md`) | **Opus 5.5** · medium | 40 | Đọc kế hoạch, chia task, thiết kế header/ABI, quyết định, giao việc, tổng hợp kết quả. Sửa nhỏ ≤ 30 dòng thì tự làm |
+| **LEAD** | **Agent chỉ huy** | Phiên chính (`CLAUDE.md`) | **Opus 5.5** · **high** | 40 | Đọc kế hoạch, chia task, thiết kế header/ABI, quyết định, giao việc, tổng hợp kết quả. Sửa nhỏ ≤ 30 dòng thì tự làm |
 | **DEV** | Lập trình | `eb-dev` | **Sonnet 5.5** · medium | 20 | Viết code và test cho từng task theo TDD. Chiếm phần lớn khối lượng việc |
 | **FIX** | Sửa lỗi | `eb-fixer` | **Sonnet 5.5** · medium | 20 | Lỗi build, link, test, clang-tidy, ASan, fuzz |
 | **RUN** | Việc cơ học | `eb-runner` | **Haiku 5.5** · low | **1** | Chạy build/test/đo kích thước/benchmark, commit, đánh trạng thái trong PLAN.md, tải corpus |
-| **REV** | Review code | `eb-reviewer` | **Opus 5.5** · high | 40 | Review diff của mỗi task: crash, đúng chức năng, hiệu năng, phần rườm rà. Chỉ đọc, không sửa |
-| **SEC** | Review bảo mật | `eb-security` | **Opus 5.5** · high | 40 | Chỉ chạy cho task có đụng parser, đường dẫn, DLL, key hoặc network |
-| **EXP** | Chuyên gia | `eb-expert` | **Opus 5.5** · xhigh | 40 | **Chỉ gọi khi đã thất bại 2 lần**: crash khó, race condition, leak |
+| **REV** | Review code | `eb-reviewer` | **Opus 5.5** · medium | 40 | Review diff của mỗi task: crash, đúng chức năng, hiệu năng, phần rườm rà. Chỉ đọc, không sửa |
+| **SEC** | Review bảo mật | `eb-security` | **Opus 5.5** · medium | 40 | Chỉ chạy cho task có đụng parser, đường dẫn, DLL, key hoặc network |
+| **EXP** | Chuyên gia | `eb-expert` | **Opus 5.5** · medium | 40 | **Chỉ gọi khi đã thất bại 2 lần**: crash khó, race condition, leak |
 | **CI** | Tự động hóa | GitHub Actions | — | 0 | Build, test, lint, kiểm tra kích thước file build |
 
 \* Tỉ lệ giá API theo token đầu vào: Haiku 5.5 $0,10 · Sonnet 5.5 $2 · Opus 5.5 $4 cho 1 triệu token. Quota của gói thuê bao cũng tiêu hao theo tỉ lệ tương tự.
@@ -146,7 +146,8 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 5. **RUN** chạy toàn bộ test, ASan và kiểm tra kích thước → commit `T<id>: …` → đánh ✅.
 
 ### 5.3 Tiết kiệm quota và token, làm nhanh
-- **Bậc thang leo model**: Haiku → Sonnet → Opus medium (LEAD) → Opus xhigh (EXP). Chỉ leo lên bậc trên khi bậc dưới đã thất bại 2 lần.
+- **GIỚI HẠN MODEL (quy định của PO):** **chỉ phiên chính (LEAD) chạy Opus 5.5 · high.** Mọi agent hay phiên do LEAD gọi **tối đa là Opus 5.5 · medium** (hoặc Sonnet, Haiku). **Không bao giờ dùng xhigh, max hay Fable**, kể cả cho phiên chính.
+- **Bậc thang leo model**: Haiku → Sonnet → Opus medium (EXP) → Opus high (LEAD tự xử lý trong phiên chính). Chỉ leo lên bậc trên khi bậc dưới đã thất bại 2 lần.
 - **Task card tối giản**: không dán lịch sử hay nội dung file vào, agent tự đọc file cần thiết. Agent chỉ trả về **báo cáo ≤ 15 dòng** theo mẫu cố định.
 - **Script build/test chạy "im lặng"** (T0.11): chỉ in lỗi và 1 dòng tổng kết. Đây là chỗ tiết kiệm token lớn nhất.
 - **LEAD không đọc file lớn** và chỉ Grep đúng đoạn cần trong PLAN.md. File lớn để agent con đọc, giúp context của LEAD gọn.
@@ -159,7 +160,8 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 ### 5.4 Cách chạy
 - Mở Claude Code trong `D:\eBook Reader` và chọn model **Opus** cho phiên chính (`/model`). `CLAUDE.md` được nạp tự động, phiên đó chính là agent chỉ huy.
 - Các agent `eb-*` được nạp tự động từ `.claude/agents/`.
-- Gói hiện tại **không có Fable**, nên `eb-expert` dùng **Opus 5.5 · xhigh**.
+- Phiên chính chạy **Opus 5.5 với effort high**. Chọn trong `/model`, phần chỉnh effort.
+- Gói hiện tại **không có Fable**. `eb-expert`, `eb-reviewer` và `eb-security` dùng **Opus 5.5 · medium**.
 - LEAD gọi agent con bằng công cụ Agent. Agent con chạy nền và tự báo kết quả về LEAD. Agent con **không** gọi được agent khác, nên mọi điều phối đều nằm ở LEAD.
 - File agent mới chỉ được nạp khi phiên khởi động. Sau khi sửa `.claude/agents/` thì mở lại bằng `claude --continue` (giữ nguyên cuộc trò chuyện).
 
@@ -374,3 +376,4 @@ Công cụ, thư viện, CI, TTS WinRT và Piper: **$0**. Azure F0: **$0** (500.
 - **v3**: **chuyển sang Win32 + Direct2D, bỏ Qt.** Bỏ vcpkg, spdlog, FTS5, WebP, FolderWatcher. TXT đi qua MuPDF. Thêm theme (Trắng, Đen, Giấy sách, Tự chỉnh), hệ thống font (theo sách hoặc ghi đè, font OFL), DLL trong `libs\` dùng C ABI, CRT tĩnh, bộ quy tắc nhanh/gọn/nhẹ/bền, crash-loop guard, minidump, soak test. Phát hành bằng zip. Cắt bớt tính năng phụ vào Backlog. Ước lượng giảm còn khoảng 37 ngày.
 - **v4**: thêm **agent chỉ huy** (Opus 5.5, `CLAUDE.md`) và 6 agent con trong `.claude/agents/`: `eb-dev` và `eb-fixer` (Sonnet), `eb-runner` (Haiku), `eb-reviewer` và `eb-security` (Opus), `eb-expert` (Fable, chỉ dùng khi leo thang). Thêm quy tắc tiết kiệm quota và token (mục 5.3) và task T0.11 tạo script build/test im lặng.
 - **v4.1**: không có Fable nên `eb-expert` chuyển sang Opus 5.5 · xhigh. Thêm mục 5.5 về commit local. Khởi tạo repo git local.
+- **v4.2**: **giới hạn model**: chỉ phiên chính chạy Opus 5.5 · high. Mọi agent con tối đa Opus 5.5 · medium (`eb-reviewer`, `eb-security`, `eb-expert` hạ xuống medium). Cấm dùng xhigh, max và Fable.

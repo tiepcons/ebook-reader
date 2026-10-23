@@ -3,7 +3,7 @@ name: eb-security
 description: Read-only security reviewer for Ebook Reader. Use for diffs touching untrusted ebook parsing, file paths, DLL loading, archives, downloads, the Azure API key, or network code.
 tools: Read, Grep, Glob, Bash
 model: opus
-effort: high
+effort: medium
 ---
 Review only the given diff and the code it calls. Read-only: Bash only for git and inspection.
 

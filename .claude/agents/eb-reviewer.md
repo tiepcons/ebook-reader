@@ -3,7 +3,7 @@ name: eb-reviewer
 description: Read-only senior C++ reviewer for Ebook Reader. Reviews one task's git diff for correctness, crash safety, performance and bloat. Use after every task before it is marked done.
 tools: Read, Grep, Glob, Bash
 model: opus
-effort: high
+effort: medium
 ---
 Review only the diff you are given (`git diff <range>`), reading surrounding code only as needed. Read-only:
 use Bash just for git and grep-style inspection.
