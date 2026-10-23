@@ -1,7 +1,9 @@
 #include "MainWnd.h"
 
 #include "Kv.h"
+#include "LibrarySettings.h"
 #include "base/Log.h"
+#include "resource.h"
 
 #include <commctrl.h>
 #include <shellapi.h>
@@ -124,6 +126,8 @@ bool MainWnd::create(int show) noexcept
         return false;
     restore_placement(show);
     UpdateWindow(hwnd_);
+    if (smoke_scan_) // a hidden launch never paints, so do not wait for the first paint
+        PostMessageW(hwnd_, kMsgRescan, 0, 0);
     return true;
 }
 
@@ -175,15 +179,12 @@ bool MainWnd::create_children()
     for (const wchar_t* s : {L"Tên", L"Tác giả", L"Mới thêm", L"Đọc gần đây"})
         SendMessageW(sort_, CB_ADDSTRING, 0, to_lp(s));
     SendMessageW(sort_, CB_SETCURSEL, 0, 0);
-    TVINSERTSTRUCTW ins{};
-    ins.hParent = TVI_ROOT;
-    ins.hInsertAfter = TVI_LAST;
-    ins.item.mask = TVIF_TEXT;
-    ins.item.pszText = const_cast<wchar_t*>(L"Tất cả sách");
-    if (HTREEITEM root = TreeView_InsertItem(tree_, &ins))
-        TreeView_SelectItem(tree_, root);
-    ListView_SetItemCountEx(list_, 0, LVSICF_NOINVALIDATEALL);
     dpi_ = GetDpiForWindow(hwnd_);
+    ftree_.attach(tree_);
+    ftree_.rebuild({});
+    if (!lib_.attach(list_, dpi_))
+        return false;
+    SetMenu(hwnd_, LoadMenuW(inst_, MAKEINTRESOURCEW(IDR_MAINMENU)));
     update_font();
     return true;
 }
@@ -200,6 +201,7 @@ void MainWnd::update_font()
     for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
     font_ = std::move(nf);
+    lib_.set_dpi(dpi_);
 }
 
 void MainWnd::layout()
@@ -255,12 +257,16 @@ void MainWnd::open_ebooks_folder()
 
 void MainWnd::on_command(WPARAM wp)
 {
-    if (HIWORD(wp) != BN_CLICKED)
-        return;
-    if (LOWORD(wp) == IdRescan)
-        PostMessageW(hwnd_, kMsgRescan, 0, 0);
-    else if (LOWORD(wp) == IdOpen)
+    const WORD id = LOWORD(wp), code = HIWORD(wp);
+    if (id == IdSearch && code == EN_CHANGE) {
+        SetTimer(hwnd_, kSearchTimer, kSearchDebounceMs, nullptr);
+    } else if (id == IdSort && code == CBN_SELCHANGE) {
+        refresh_list();
+    } else if (id == IdOpen && code == BN_CLICKED) {
         open_ebooks_folder();
+    } else if ((id == IdRescan && code == BN_CLICKED) || (id == IDM_SETTINGS_LIBRARY && show_library_settings(inst_, hwnd_, db_))) {
+        PostMessageW(hwnd_, kMsgRescan, 0, 0);
+    }
 }
 
 void MainWnd::on_paint()
@@ -273,8 +279,7 @@ void MainWnd::on_paint()
     painted_ = true;
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_);
     log::info("first-paint {} ms", ms.count());
-    if (smoke_)
-        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+    on_first_paint();
 }
 
 bool MainWnd::on_splitter_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
@@ -325,7 +330,7 @@ void MainWnd::on_dpi_changed(WPARAM wp, LPARAM lp)
 LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
 {
     LRESULT res = 0;
-    if (on_splitter_msg(msg, wp, lp, res))
+    if (on_splitter_msg(msg, wp, lp, res) || on_library_msg(msg, wp, lp, res))
         return res;
     switch (msg) {
     case WM_CREATE:
@@ -346,9 +351,6 @@ LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
     case WM_COMMAND:
         on_command(wp);
         return 0;
-    case kMsgRescan:
-        log::info("rescan requested");
-        return 0;
     case WM_PAINT:
         on_paint();
         return 0;
@@ -358,6 +360,8 @@ LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
         DestroyWindow(hwnd_);
         return 0;
     case WM_DESTROY:
+        KillTimer(hwnd_, kSearchTimer);
+        scan_.stop();
         PostQuitMessage(0);
         return 0;
     default:

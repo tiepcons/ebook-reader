@@ -86,7 +86,7 @@ add_library(eb_base STATIC src/base/Log.cpp src/base/Text.cpp src/base/Paths.cpp
 target_include_directories(eb_base PUBLIC src)
 target_link_libraries(eb_base PUBLIC eb_hardening eb_warnings PRIVATE bcrypt normaliz dbghelp)
 
-add_library(eb_lib STATIC src/lib/Db.cpp src/lib/Schema.cpp src/lib/Scanner.cpp src/lib/ScanWalk.cpp)
+add_library(eb_lib STATIC src/lib/Db.cpp src/lib/Schema.cpp src/lib/Scanner.cpp src/lib/ScanWalk.cpp src/lib/ProgressStore.cpp)
 target_link_libraries(eb_lib PUBLIC eb_base eb_sqlite)
 
 add_library(eb_doc STATIC src/doc/TxtToFb2.cpp src/doc/TxtDecode.cpp)
@@ -99,6 +99,12 @@ add_executable(EbookReader WIN32 src/ui/main.cpp src/ui/App.cpp src/ui/MainWnd.c
 target_include_directories(EbookReader PRIVATE src/ui)
 target_link_libraries(EbookReader PRIVATE eb_hardening eb_warnings eb_base eb_lib eb_mupdf comctl32 ole32 shell32 delayimp)
 target_link_options(EbookReader PRIVATE /MANIFEST:NO /DELAYLOAD:eb_mupdf.dll)
+
+target_sources(eb_lib PRIVATE src/lib/LibraryModel.cpp)
+
+target_sources(EbookReader PRIVATE src/ui/MainWndLibrary.cpp src/ui/LibraryView.cpp src/ui/FolderTree.cpp src/ui/Covers.cpp
+  src/ui/ScanWorker.cpp src/ui/LibrarySettings.cpp)
+target_include_directories(EbookReader PRIVATE res)
 
 enable_testing()
 add_subdirectory(tests)

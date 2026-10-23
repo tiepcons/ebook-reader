@@ -1,0 +1,10 @@
+#pragma once
+
+#define IDR_MAINMENU 300
+#define IDM_SETTINGS_LIBRARY 301
+
+#define IDD_LIBRARY 200
+#define IDC_ROOT_LIST 201
+#define IDC_ROOT_ADD 202
+#define IDC_ROOT_REMOVE 203
+#define IDC_SCAN_ON_START 204

@@ -154,7 +154,7 @@ int run(HINSTANCE inst, int show)
     const CrashLoopGuard guard(paths->data / L"pending");
     if (const auto s = guard.previous_suspect())
         log::error("previous run crashed during: {}", *s);
-    MainWnd wnd(inst, *db, *paths, smoke, start);
+    MainWnd wnd(inst, *db, *paths, smoke, smoke && has_flag(L"--smoke-scan"), start);
     if (!wnd.create(show))
         return fatal(L"Không tạo được cửa sổ chính.");
     const int code = run_loop();

@@ -1,4 +1,8 @@
 #pragma once
+#include "FolderTree.h"
+#include "LibraryView.h"
+#include "ScanWorker.h"
+#include "UiMessages.h"
 #include "base/Handle.h"
 #include "base/Paths.h"
 #include "lib/Db.h"
@@ -6,6 +10,9 @@
 #include <windows.h>
 
 #include <chrono>
+#include <filesystem>
+#include <string>
+#include <vector>
 
 namespace eb {
 
@@ -16,13 +23,11 @@ struct FontTraits {
 };
 using UniqueFont = Unique<FontTraits>;
 
-inline constexpr UINT kMsgRescan = WM_APP + 1;
-
 class MainWnd {
 public:
-    MainWnd(HINSTANCE inst, Db& db, const AppPaths& paths, bool smoke,
+    MainWnd(HINSTANCE inst, Db& db, const AppPaths& paths, bool smoke, bool smoke_scan,
         std::chrono::steady_clock::time_point start) noexcept
-        : inst_(inst), db_(db), paths_(paths), smoke_(smoke), start_(start)
+        : inst_(inst), db_(db), paths_(paths), smoke_(smoke), smoke_scan_(smoke_scan), start_(start), lib_(db)
     {
     }
     MainWnd(const MainWnd&) = delete;
@@ -49,10 +54,25 @@ private:
     void splitter_drag(int x_client);
     void open_ebooks_folder();
 
+    bool on_library_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res);
+    void start_scan();
+    void on_first_paint();
+    void on_scan_progress(WPARAM done, LPARAM total);
+    void on_scan_done(bool ok);
+    void on_notify(NMHDR& hdr, LRESULT& result);
+    void on_context_menu(LPARAM lp);
+    void request_open(const std::string& id);
+    [[nodiscard]] std::vector<std::filesystem::path> library_roots();
+    void refresh_tree();
+    void refresh_list();
+    void update_status();
+    [[nodiscard]] Query current_query() const;
+
     HINSTANCE inst_;
     Db& db_;
     const AppPaths& paths_;
     bool smoke_;
+    bool smoke_scan_;
     std::chrono::steady_clock::time_point start_;
     bool painted_ = false;
     bool dragging_ = false;
@@ -63,6 +83,12 @@ private:
     UINT dpi_ = 96;
     int split_dip_ = 220;
     UniqueFont font_;
+    LibraryView lib_;
+    FolderTree ftree_;
+    ScanWorker scan_;
+    std::chrono::steady_clock::time_point last_scan_{};
+    int scan_percent_ = -1;
+    std::vector<std::string> open_queue_;
 };
 
 }
