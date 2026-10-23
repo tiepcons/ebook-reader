@@ -111,7 +111,7 @@ ebook-reader/
 ### 4.3 Bền và ít crash
 - **Không để exception vượt ranh giới**: WndProc, hàm thread, callback C và hàm export của DLL đều là `noexcept`, bọc try/catch ở biên. Lỗi trong app được trả về qua `Result<T>` (`std::expected`).
 - **Mọi lời gọi MuPDF đều bọc `fz_try`/`fz_catch`** bên trong `eb_mupdf.dll`. Ra ngoài DLL chỉ còn mã lỗi.
-- **Chặn crash lặp lại (crash-loop guard)**: trước khi mở hoặc quét một file, ghi marker `pending=<hash>` vào DB. Mở xong thì xóa. Nếu lần chạy trước crash giữa chừng thì lần sau **bỏ qua file đó và đánh dấu "lỗi"**, không tự mở lại. App không bao giờ kẹt trong vòng crash.
+- **Chặn crash lặp lại (crash-loop guard)**: trước khi mở hoặc quét một file, ghi file marker `data\pending` (ghi nguyên tử, nội dung `thao tác<TAB>hash`). Mở xong thì xóa. Không phụ thuộc DB, nên vẫn chạy được kể cả khi DB hỏng. Nếu lần chạy trước crash giữa chừng thì lần sau **bỏ qua file đó và đánh dấu "lỗi"**, không tự mở lại. App không bao giờ kẹt trong vòng crash.
 - **Ghi minidump** qua `SetUnhandledExceptionFilter` + `MiniDumpWriteDump` vào `data\crash\` để debug.
 - **Giới hạn mọi đầu vào**: kích thước file, số trang, kích thước ảnh render, độ dài text mỗi trang, giải nén CBZ (chống zip bomb).
 - **Ghi file nguyên tử**: ghi ra file tạm rồi dùng `MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH)`. SQLite chạy WAL, `synchronous=NORMAL`, `busy_timeout`.
@@ -204,7 +204,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 |---|---|---|---|---|---|---|
 | T1.1 | `base/`: `Result`, `Log` (khoảng 80 dòng), `Handle` RAII, `Text` (chuyển UTF-8/16, **bỏ dấu tiếng Việt** để tìm kiếm) | DEV | T0.4 | 0,5 | Có unit test | ⬜ |
 | T1.2 | `Paths` (portable, có fallback), `AtomicFile`, `Hash` (BCrypt) | DEV | T1.1 | 0,4 | Test thư mục chỉ đọc, đổi tên file thì hash không đổi | ⬜ |
-| T1.3 | `CrashGuard`: minidump và crash-loop guard (marker `pending`) | DEV | T1.2 | 0,4 | Test: giả lập crash thì lần sau bỏ qua file đó | ⬜ |
+| T1.3 | `CrashGuard`: minidump và crash-loop guard (file marker `data\pending`) | DEV | T1.2 | 0,4 | Test: giả lập crash thì lần sau bỏ qua file đó | ⬜ |
 | T1.4 | `DllLoader` an toàn và kiểm tra `eb_abi_version` | DEV + SEC | T1.1 | 0,3 | Thiếu DLL hoặc sai phiên bản thì báo lỗi rõ ràng, không crash | ⬜ |
 | T1.5 | **C ABI `eb_mupdf.h`**: open (path hoặc buffer + magic), close, layout(w, h, em, user_css), page_count, render_bgra(scale, tint), page_text (kèm vị trí ký tự), toc, meta, cover, location↔page. Có thêm hàm free | DEV | T0.6 | 0,6 | Header được REV duyệt | ⬜ |
 | T1.6 | Viết phần cài đặt `eb_mupdf.c`: mỗi thread một context (`fz_clone_context` + lock), **bọc `fz_try` 100%**, giới hạn tài nguyên | DEV | T1.5 | 1,2 | Mở 100% file tốt trong corpus, 0 crash với file hỏng | ⬜ |
@@ -216,7 +216,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T2.1 | Schema và migration: `books` (hash, path, folder, title, author, title_nd/author_nd đã bỏ dấu, lang, fmt, size, mtime, status), `progress`, `bookmarks`, `tts_usage`, `kv` (cài đặt), `pending` | DEV | T1.2 | 0,5 | Có test migration | ⬜ |
+| T2.1 | Schema và migration: `books` (id = hash nội dung theo D8, path, folder, title, author, title_nd/author_nd đã bỏ dấu, lang, fmt, size, mtime, status), `progress`, `bookmarks`, `tts_usage`, `kv` (cài đặt). Không có bảng `pending` (dùng file marker, xem T1.3) | DEV | T1.2 | 0,5 | Có test migration | ⬜ |
 | T2.2 | `Scanner`: quét **đệ quy**, lọc phần mở rộng, chạy trên thread ưu tiên thấp, **quét tăng dần** (so mtime và size), khớp file di chuyển qua hash, file mất thì đặt `missing` | DEV | T2.1, T1.3 | 1 | Quét 1000 sách lần đầu ≤ 20 giây, quét lại ≤ 1 giây, UI không đơ | ⬜ |
 | T2.3 | `Metadata`: lấy tên sách, tác giả, ngôn ngữ qua `eb_mupdf`. Không có thì lấy theo tên file | DEV | T1.6 | 0,4 | Test từng định dạng | ⬜ |
 | T2.4 | `CoverCache`: lấy ảnh bìa nhúng trong sách hoặc render trang 1, thu nhỏ còn 240px, mã hóa JPEG bằng **WIC**. TXT thì dùng bìa mặc định | DEV | T2.3 | 0,6 | 100% sách trong corpus có ảnh bìa | ⬜ |
