@@ -13,3 +13,6 @@
 *.otf binary
 *.onnx binary
 *.zip binary
+
+# Test corpus: keep exact bytes (encoding / corruption tests)
+tests/corpus/** binary
