@@ -39,9 +39,9 @@ Phần mềm đọc ebook **mã nguồn mở (AGPL-3.0)**, viết bằng **C++20
 | D11 | **Theme chỉ áp dụng cho vùng đọc.** Menu và control giữ màu hệ thống. Thanh tiêu đề chuyển tối bằng `DwmSetWindowAttribute` | Không phải dùng hack dark mode của Win32 |
 | D12 | **Không hỗ trợ DRM** | Bẻ DRM là vi phạm pháp luật |
 | D13 | **Phát hành bằng bản zip portable.** Bộ cài để sang backlog | Gọn nhất |
-| D14 | Thư viện ngoài cho phép dùng: **MuPDF, SQLite, Piper + onnxruntime + espeak-ng (tùy chọn), doctest (chỉ dùng cho test)**. Muốn thêm thư viện khác thì PO phải duyệt | Chống phình |
+| D14 | Thư viện ngoài cho phép dùng: **MuPDF, libmobi, SQLite, Piper + onnxruntime + espeak-ng (tùy chọn), doctest (chỉ dùng cho test)**. Muốn thêm thư viện khác thì PO phải duyệt | Chống phình |
 | D15 | MuPDF build với **`TOFU_CJK` + `TOFU_NOTO`**, tắt JS/OCR/barcode/Office/XPS/IMG/MD. Tiếng Việt và Latin hiển thị bằng Charis SIL có sẵn, cộng font kèm theo. Chữ khác (Ả Rập, Hindi…) thì thả font vào `fonts\` | `eb_mupdf.dll` giảm từ 16 MB xuống 7,9 MB, ít bề mặt tấn công |
-| D16 | **MuPDF không đọc được AZW3/KF8 và MOBI nén HUFF/CDIC** (spike T0.6). Hỗ trợ đầy đủ cần libmobi (T1.9). **Chờ PO quyết định** | |
+| D16 | **MuPDF không đọc được AZW3/KF8 và MOBI nén HUFF/CDIC** (spike T0.6). **PO đã duyệt libmobi (LGPL-3.0)** (2026-10-23). Nhúng vào `eb_mupdf.dll`: AZW3/KF8/HUFF-CDIC được chuyển sang EPUB trong bộ nhớ rồi mở bằng MuPDF, ABI không đổi (T1.9) | Hỗ trợ đầy đủ định dạng Kindle không DRM |
 | D17 | `eb_mupdf` tự mở file (`CreateFileW` + kiểm tra là file trên đĩa), không đưa thư mục cho MuPDF, giới hạn heap 1 GiB, có `eb_abort` để hủy | Kết quả review bảo mật T1.6 |
 | D18 | Ngôn ngữ và ảnh bìa nhúng của EPUB/FB2/MOBI: MuPDF không cung cấp, nên phải tự đọc OPF/EXTH (T2.3–T2.4) | Kết quả spike T0.6 |
 
