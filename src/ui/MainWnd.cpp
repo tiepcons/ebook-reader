@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdlib>
+#include <cstdlib>
 #include <format>
 #include <string>
 
@@ -18,6 +20,8 @@ namespace {
 constexpr wchar_t kClassName[] = L"EbookReaderMain";
 constexpr int kMinW = 640, kMinH = 480;
 constexpr int kMargin = 6, kCtlH = 26, kSplitW = 6, kSplitMinDip = 120, kListMinDip = 200, kSplitMaxDip = 2000;
+constexpr int kMinStripW = 100, kMinStripH = 30;
+constexpr int64_t kMaxCoord = 100000;
 
 enum : unsigned char { IdSearch = 101, IdSort, IdRescan, IdOpen, IdTree, IdList, IdStatus };
 
@@ -39,12 +43,42 @@ bool parse_ints(const std::string& s, std::array<int, N>& out) noexcept
     return true;
 }
 
+struct StripProbe {
+    RECT strip;
+    bool ok;
+};
+
+BOOL CALLBACK strip_on_monitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) noexcept
+{
+    auto* probe = reinterpret_cast<StripProbe*>(lp); // NOLINT(performance-no-int-to-ptr): Win32 callback ABI
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    RECT hit{};
+    if (GetMonitorInfoW(mon, &mi) && IntersectRect(&hit, &probe->strip, &mi.rcWork) && hit.right - hit.left >= kMinStripW
+        && hit.bottom - hit.top >= kMinStripH) {
+        probe->ok = true;
+        return FALSE;
+    }
+    return TRUE;
+}
+
 bool placement_valid(const WINDOWPLACEMENT& wp) noexcept
 {
     const RECT& r = wp.rcNormalPosition;
-    if (r.right - r.left < kMinW || r.bottom - r.top < kMinH)
+    for (const LONG v : {r.left, r.top, r.right, r.bottom}) {
+        if (std::abs(static_cast<int64_t>(v)) > kMaxCoord)
+            return false;
+    }
+    if (static_cast<int64_t>(r.right) - r.left < kMinW || static_cast<int64_t>(r.bottom) - r.top < kMinH)
         return false;
-    return MonitorFromRect(&r, MONITOR_DEFAULTTONULL) != nullptr;
+    MONITORINFO prim{};
+    prim.cbSize = sizeof(prim);
+    if (!GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &prim))
+        return false;
+    const LONG dx = prim.rcWork.left - prim.rcMonitor.left, dy = prim.rcWork.top - prim.rcMonitor.top;
+    StripProbe probe{{r.left + dx, r.top + dy, r.right + dx, r.top + dy + kMinStripH}, false};
+    EnumDisplayMonitors(nullptr, nullptr, &strip_on_monitor, reinterpret_cast<LPARAM>(&probe));
+    return probe.ok;
 }
 
 HWND make_child(HWND parent, DWORD ex, const wchar_t* cls, const wchar_t* text, DWORD style, int id) noexcept
@@ -84,7 +118,7 @@ bool MainWnd::create(int show) noexcept
     std::array<int, 1> a{};
     if (const auto v = kv_get(db_, "ui.split"); v && parse_ints(*v, a))
         split_dip_ = std::clamp(a[0], kSplitMinDip, kSplitMaxDip);
-    CreateWindowExW(0, kClassName, L"Ebook Reader", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, px(1000),
+    CreateWindowExW(0, kClassName, L"Ebook Reader", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, px(1000),
         px(700), nullptr, nullptr, inst_, this);
     if (hwnd_ == nullptr)
         return false;
@@ -178,9 +212,16 @@ void MainWnd::layout()
     RECT sr{};
     GetWindowRect(status_, &sr);
     const int sh = sr.bottom - sr.top;
+    HDWP dwp = BeginDeferWindowPos(6);
+    if (dwp == nullptr)
+        return;
     int x = m;
+    const auto move = [&](HWND c, int cx, int cy, int cw, int chh) {
+        dwp = DeferWindowPos(dwp, c, nullptr, cx, cy, cw, chh, SWP_NOZORDER | SWP_NOACTIVATE);
+        return dwp != nullptr;
+    };
     const auto put = [&](HWND c, int cw, int chh) {
-        MoveWindow(c, x, m, cw, chh, TRUE);
+        move(c, x, m, cw, chh);
         x += cw + m;
     };
     put(search_, px(260), ch);
@@ -190,9 +231,12 @@ void MainWnd::layout()
     const int top = ch + 2 * m;
     const int body = std::max(0, h - top - sh);
     const int sx = std::clamp(px(split_dip_), px(kSplitMinDip), std::max(px(kSplitMinDip), w - px(kListMinDip)));
-    MoveWindow(tree_, 0, top, sx, body, TRUE);
     const int lx = sx + px(kSplitW);
-    MoveWindow(list_, lx, top, std::max(0, w - lx), body, TRUE);
+    split_rc_ = {sx, top, lx, top + body};
+    move(tree_, 0, top, sx, body);
+    move(list_, lx, top, std::max(0, w - lx), body);
+    if (dwp != nullptr)
+        EndDeferWindowPos(dwp);
 }
 
 void MainWnd::splitter_drag(int x_client)
@@ -233,23 +277,23 @@ void MainWnd::on_paint()
         PostMessageW(hwnd_, WM_CLOSE, 0, 0);
 }
 
-bool MainWnd::on_splitter_msg(UINT msg, LPARAM lp, LRESULT& res)
+bool MainWnd::on_splitter_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
 {
-    const int sx = px(split_dip_), sw = px(kSplitW);
+    const int sw = px(kSplitW);
     res = 0;
     switch (msg) {
     case WM_SETCURSOR: {
         POINT pt{};
         GetCursorPos(&pt);
         ScreenToClient(hwnd_, &pt);
-        if (LOWORD(lp) != HTCLIENT || pt.x < sx || pt.x >= sx + sw)
+        if (LOWORD(lp) != HTCLIENT || wp != reinterpret_cast<WPARAM>(hwnd_) || !PtInRect(&split_rc_, pt))
             return false;
         SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
         res = TRUE;
         return true;
     }
     case WM_LBUTTONDOWN:
-        if (const int x = static_cast<short>(LOWORD(lp)); x >= sx && x < sx + sw) {
+        if (const POINT pt{static_cast<short>(LOWORD(lp)), static_cast<short>(HIWORD(lp))}; PtInRect(&split_rc_, pt)) {
             dragging_ = true;
             SetCapture(hwnd_);
         }
@@ -274,15 +318,14 @@ void MainWnd::on_dpi_changed(WPARAM wp, LPARAM lp)
 {
     dpi_ = HIWORD(wp);
     const RECT* r = reinterpret_cast<const RECT*>(lp); // NOLINT(performance-no-int-to-ptr): Win32 message ABI
-    SetWindowPos(hwnd_, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
     update_font();
-    layout();
+    SetWindowPos(hwnd_, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
 {
     LRESULT res = 0;
-    if (on_splitter_msg(msg, lp, res))
+    if (on_splitter_msg(msg, wp, lp, res))
         return res;
     switch (msg) {
     case WM_CREATE:
@@ -339,7 +382,7 @@ LRESULT CALLBACK MainWnd::wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) no
         res = self->handle(msg, wp, lp);
     } catch (...) {
         log::error("exception in wnd_proc msg {}", msg);
-        res = DefWindowProcW(hwnd, msg, wp, lp);
+        res = msg == WM_CREATE ? -1 : DefWindowProcW(hwnd, msg, wp, lp);
     }
     if (msg == WM_NCDESTROY) {
         self->hwnd_ = nullptr;

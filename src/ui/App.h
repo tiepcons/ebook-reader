@@ -3,6 +3,6 @@
 
 namespace eb {
 
-int run_app(HINSTANCE inst, const wchar_t* cmdline, int show) noexcept;
+int run_app(HINSTANCE inst, int show) noexcept;
 
 }

@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdline, int show)
+int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show)
 {
-    return eb::run_app(inst, cmdline, show);
+    return eb::run_app(inst, show);
 }

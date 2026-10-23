@@ -44,7 +44,7 @@ private:
     void save_state();
     void on_command(WPARAM wp);
     void on_paint();
-    bool on_splitter_msg(UINT msg, LPARAM lp, LRESULT& res);
+    bool on_splitter_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res);
     void on_dpi_changed(WPARAM wp, LPARAM lp);
     void splitter_drag(int x_client);
     void open_ebooks_folder();
@@ -59,6 +59,7 @@ private:
     HWND hwnd_ = nullptr;
     HWND search_ = nullptr, sort_ = nullptr, rescan_ = nullptr, open_ = nullptr;
     HWND tree_ = nullptr, list_ = nullptr, status_ = nullptr;
+    RECT split_rc_{};
     UINT dpi_ = 96;
     int split_dip_ = 220;
     UniqueFont font_;
