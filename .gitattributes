@@ -1,0 +1,15 @@
+* text=auto eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.epub binary
+*.pdf binary
+*.mobi binary
+*.azw3 binary
+*.cbz binary
+*.fb2 binary
+*.ttf binary
+*.otf binary
+*.onnx binary
+*.zip binary
