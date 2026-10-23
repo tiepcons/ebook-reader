@@ -194,7 +194,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T0.6 | **Spike định dạng**: mở EPUB, PDF, MOBI, **AZW3**, FB2, CBZ, và TXT→HTML qua MuPDF | DEV | T0.5 | 0,4 | Có báo cáo. Nếu AZW3 không được thì kích hoạt T1.9 | ✅ (AZW3 ✗, xem D16) |
 | T0.7 | Vendor SQLite amalgamation và doctest | DEV | T0.4 | 0,1 | | ✅ |
 | T0.8 | **Spike Piper**: onnxruntime (bản prebuilt từ GitHub release) + espeak-ng, đọc thử `vi_VN` và `en_US` | DEV | T0.4 | 0,5 | Ra được file wav tiếng Việt | ⬜ |
-| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV → CI | T0.5 | 0,4 | Pipeline xanh | ⛔ cần PO đồng ý tạo repo GitHub |
+| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV → CI | T0.5 | 0,4 | Pipeline xanh | ⬜ repo public đã tạo: github.com/tiepcons/ebook-reader |
 | T0.10 | Corpus test: Project Gutenberg, Standard Ebooks, truyện tiếng Việt public domain. Mỗi định dạng ít nhất 3 file, cộng 5 file cố tình làm hỏng | RUN + **PO** | — | 0,3 | Có `tests/corpus/` | ✅ 8 MB |
 | T0.11 | Script **im lặng** `tools/build.ps1` và `tools/test.ps1` (tham số preset): chỉ in lỗi đầu tiên của mỗi file, số test pass/fail và kích thước exe/DLL | LEAD | T0.4 | 0,2 | Build thành công chỉ in 1 dòng | ✅ |
 

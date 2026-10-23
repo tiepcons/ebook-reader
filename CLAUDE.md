@@ -33,7 +33,9 @@ threading model (you write the header, `eb-dev` implements), editing PLAN.md tex
 - Escalation ladder: haiku → sonnet → opus medium (`eb-expert`) → opus high (you, in this session). Move up only after 2 failed attempts at a level.
 
 ## Local commits (never lose work)
-- Never push to a remote without user approval.
+- Remote: `origin` = github.com/tiepcons/ebook-reader (PUBLIC, approved by the user 2026-10-23). Push `main` after
+  finished (non-wip) task commits and at session end. Never force-push, never push other branches, never push secrets
+  or non-redistributable books.
 - Checkpoint `wip(T<id>): ...` before dispatching an agent that edits code, before risky operations, and at session end.
 - Exactly one `T<id>: ...` commit per finished task (by `eb-runner`). Parallel tasks: worktree on branch `task/T<id>`, you merge to `main` after review passes.
 - Every commit message ends with the attribution lines from the session's system reminder.
