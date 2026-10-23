@@ -1,0 +1,17 @@
+name: Feature request / Đề xuất tính năng
+description: Suggest an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve? / Giải quyết vấn đề gì?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: markdown
+    attributes:
+      value: "The project favours a small, fast, dependency-light app (see docs/PLAN.md §4 and the Backlog in §10)."

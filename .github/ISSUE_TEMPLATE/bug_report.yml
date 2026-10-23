@@ -1,0 +1,35 @@
+name: Bug report / Báo lỗi
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / Chuyện gì xảy ra?
+      description: Steps to reproduce, what you expected, what you got.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and display scaling (e.g. Windows 11 24H2, 150%)
+  - type: dropdown
+    id: format
+    attributes:
+      label: Book format (if related)
+      options: [N/A, EPUB, PDF, MOBI, AZW3, FB2, CBZ, TXT]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: From `data\logs\app.log`. If the app crashed, mention the file in `data\crash\` (do not upload books you do not have the right to share).
+      render: text
+  - type: markdown
+    attributes:
+      value: "**Security issues** (a file that crashes or hangs the app on purpose) → please use SECURITY.md instead."
