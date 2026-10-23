@@ -1,3 +1,6 @@
 [submodule "third_party/mupdf"]
 	path = third_party/mupdf
 	url = https://github.com/ArtifexSoftware/mupdf.git
+[submodule "third_party/libmobi"]
+	path = third_party/libmobi
+	url = https://github.com/bfabiszewski/libmobi.git
