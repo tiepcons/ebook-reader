@@ -220,7 +220,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T2.1 | Schema và migration: `books` (id = hash nội dung theo D8, path, folder, title, author, title_nd/author_nd đã bỏ dấu, lang, fmt, size, mtime, status), `progress`, `bookmarks`, `tts_usage`, `kv` (cài đặt). Không có bảng `pending` (dùng file marker, xem T1.3) | DEV | T1.2 | 0,5 | Có test migration | ⬜ |
 | T2.2 | `Scanner`: quét **đệ quy**, lọc phần mở rộng, chạy trên thread ưu tiên thấp, **quét tăng dần** (so mtime và size), khớp file di chuyển qua hash, file mất thì đặt `missing` | DEV | T2.1, T1.3 | 1 | Quét 1000 sách lần đầu ≤ 20 giây, quét lại ≤ 1 giây, UI không đơ | ⬜ |
 | T2.3 | `Metadata`: lấy tên sách, tác giả, ngôn ngữ qua `eb_mupdf`. Không có thì lấy theo tên file | DEV | T1.6 | 0,4 | Test từng định dạng | ⬜ |
-| T2.4 | `CoverCache`: lấy ảnh bìa nhúng trong sách hoặc render trang 1, thu nhỏ còn 240px, mã hóa JPEG bằng **WIC**. TXT thì dùng bìa mặc định | DEV | T2.3 | 0,6 | 100% sách trong corpus có ảnh bìa | ⬜ |
+| T2.4 | `CoverCache`: lấy ảnh bìa nhúng trong sách hoặc render trang 1, thu nhỏ còn 320px (cạnh dài), mã hóa JPEG q85 bằng **WIC**. TXT thì dùng bìa mặc định | DEV | T2.3 | 0,6 | 100% sách trong corpus có ảnh bìa | ⬜ |
 | T2.5 | REV + SEC review (path traversal, symlink, zip bomb) | REV, SEC | T2.1–T2.4 | 0,2 | | ⬜ |
 
 ### PHASE 3: Khung Win32 và giao diện thư viện (4–5 ngày)
