@@ -2,6 +2,7 @@
 
 #include "base/Log.h"
 #include "base/Text.h"
+#include "ReaderSettings.h"
 #include "lib/LibraryModel.h"
 
 #include <shellapi.h>
@@ -16,7 +17,7 @@ namespace eb {
 namespace {
 
 constexpr int kBarMargin = 6, kBarH = 26;
-constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80;
+constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80, kAaW = 44;
 constexpr UINT kResumeBarMs = 6000;
 constexpr UINT kReaderTickMs = 500;
 constexpr UINT kSmokeWatchdogMs = 30000;
@@ -44,6 +45,17 @@ std::string smoke_open_name()
     return {};
 }
 
+bool has_arg(std::wstring_view flag)
+{
+    int argc = 0;
+    const std::unique_ptr<wchar_t*, ArgvFree> argv(CommandLineToArgvW(GetCommandLineW(), &argc));
+    for (int i = 1; argv && i < argc; ++i) {
+        if (std::wstring_view(argv.get()[i]) == flag)
+            return true;
+    }
+    return false;
+}
+
 }
 
 bool MainWnd::create_reader_children()
@@ -55,7 +67,8 @@ bool MainWnd::create_reader_children()
     back_ = child(L"BUTTON", L"← Thư viện", BS_PUSHBUTTON | WS_TABSTOP, kIdBack);
     resume_text_ = child(L"STATIC", L"", SS_CENTERIMAGE, kIdResumeText);
     resume_btn_ = child(L"BUTTON", L"Về đầu", BS_PUSHBUTTON | WS_TABSTOP, kIdResumeStart);
-    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && reader_.create(inst_, hwnd_);
+    aa_ = child(L"BUTTON", L"Aa", BS_PUSHBUTTON | WS_TABSTOP, kIdReaderSettings);
+    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && reader_.create(inst_, hwnd_);
 }
 
 void MainWnd::layout_reader()
@@ -76,6 +89,7 @@ void MainWnd::layout_reader()
     MoveWindow(back_, m, m, px(kBackW), ch, TRUE);
     MoveWindow(resume_text_, tx, m, px(kResumeTextW), ch, TRUE);
     MoveWindow(resume_btn_, tx + px(kResumeTextW) + m, m, px(kResumeBtnW), ch, TRUE);
+    MoveWindow(aa_, std::max(0L, rc.right - m - px(kAaW)), m, px(kAaW), ch, TRUE);
     MoveWindow(reader_.hwnd(), 0, top, rc.right, std::max(0L, rc.bottom - top - status_h), TRUE);
 }
 
@@ -110,13 +124,14 @@ void MainWnd::open_book(const std::string& id)
     in_reader_ = true;
     reading_id_ = id;
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_HIDE);
-    show_all({back_, reader_.hwnd()}, SW_SHOW);
+    show_all({back_, aa_, reader_.hwnd()}, SW_SHOW);
     layout();
     if (!reader_.open(OpenJob{*path, paths_.data / L"pending", id, fmt})) {
         close_book();
         show_notice(L"Không mở được sách: không đủ bộ nhớ.");
         return;
     }
+    apply_chrome();
     SetTimer(hwnd_, kReaderTickTimer, kReaderTickMs, nullptr);
     SetFocus(reader_.hwnd());
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
@@ -132,7 +147,8 @@ void MainWnd::close_book()
     hide_resume();
     reader_.close();
     in_reader_ = false;
-    show_all({back_, reader_.hwnd()}, SW_HIDE);
+    apply_chrome();
+    show_all({back_, aa_, reader_.hwnd()}, SW_HIDE);
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_SHOW);
     layout();
     refresh_list();
@@ -182,6 +198,9 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
     case ReaderEvent::Fullscreen:
         toggle_fullscreen();
         break;
+    case ReaderEvent::Settings:
+        open_reader_settings();
+        break;
     }
 }
 
@@ -198,6 +217,8 @@ bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
     case WM_COMMAND:
         if (LOWORD(wp) == kIdBack && HIWORD(wp) == BN_CLICKED) {
             close_book();
+        } else if (LOWORD(wp) == kIdReaderSettings && HIWORD(wp) == BN_CLICKED) {
+            open_reader_settings();
         } else if (LOWORD(wp) == kIdResumeStart && HIWORD(wp) == BN_CLICKED) {
             reader_.go_to_start();
             hide_resume();
@@ -259,7 +280,7 @@ void MainWnd::toggle_fullscreen()
         SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
     }
     const int chrome = fullscreen_ ? SW_HIDE : SW_SHOW;
-    show_all({status_, back_}, chrome);
+    show_all({status_, back_, aa_}, chrome);
     show_all({resume_text_, resume_btn_}, resume_page_ >= 0 ? chrome : SW_HIDE);
     layout();
 }
@@ -288,6 +309,7 @@ void MainWnd::init_smoke_open()
     smoke_open_ = smoke_open_name();
     if (smoke_open_.empty())
         return;
+    smoke_theme_ = has_arg(L"--smoke-theme");
     SetTimer(hwnd_, kSmokeTimer, kSmokeWatchdogMs, nullptr);
     PostMessageW(hwnd_, kMsgSmokeOpen, 0, 0);
 }
@@ -309,6 +331,14 @@ void MainWnd::smoke_step(int page)
 {
     if (smoke_open_.empty())
         return;
+    if (smoke_theme_) {
+        smoke_theme_ = false;
+        ReaderPrefs p = reader_.prefs();
+        p.theme.id = ThemeId::Black;
+        reader_.set_prefs(p, false);
+        apply_chrome();
+        return;
+    }
     if (!smoke_keys_sent_ && page == 0) {
         smoke_keys_sent_ = true;
         for (int i = 0; i < kSmokeKeys; ++i)
@@ -316,6 +346,28 @@ void MainWnd::smoke_step(int page)
     } else if (smoke_keys_sent_ && page >= kSmokeKeys) {
         PostMessageW(reader_.hwnd(), WM_KEYDOWN, VK_ESCAPE, 0);
     }
+}
+
+void MainWnd::apply_chrome()
+{
+    apply_reader_chrome(hwnd_, status_, in_reader_ ? std::optional<uint32_t>(reader_.colors().bg) : std::nullopt);
+}
+
+void MainWnd::open_reader_settings()
+{
+    if (!in_reader_ || in_settings_)
+        return;
+    in_settings_ = true;
+    const ReaderPrefs initial = reader_.prefs();
+    const PrefsApply live = [this](const ReaderPrefs& p) {
+        reader_.set_prefs(p, false);
+        apply_chrome();
+    };
+    const auto accepted = show_reader_settings(inst_, hwnd_, initial, live);
+    reader_.set_prefs(accepted ? *accepted : initial, accepted.has_value());
+    apply_chrome();
+    in_settings_ = false;
+    SetFocus(reader_.hwnd());
 }
 
 }

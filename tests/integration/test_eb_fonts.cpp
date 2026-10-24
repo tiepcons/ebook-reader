@@ -201,16 +201,30 @@ TEST_CASE("eb_mupdf font dirs skip corrupt and oversized files")
 TEST_CASE("eb_mupdf font index startup is cheap")
 {
     const Lib lib;
-    const TempDir dir;
-    std::error_code ec;
-    fs::copy_file(system_fonts() / "segoeui.ttf", dir.path / "AppOne.ttf", ec);
-    fs::copy_file(system_fonts() / "arial.ttf", dir.path / "AppTwo.ttf", ec);
+    const fs::path app = EB_FONTS_DIR;
     const auto t0 = std::chrono::steady_clock::now();
-    REQUIRE(set_dirs({dir.path, system_fonts()}) == EB_OK);
+    REQUIRE(set_dirs({app / "Literata", app / "BeVietnamPro", system_fonts()}) == EB_OK);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     MESSAGE("eb_set_font_dirs took ", ms, " ms");
-    CHECK(ms < 500);
-    CHECK_FALSE(families().empty());
+    CHECK(ms < 250);
+    const auto f = families();
+    CHECK(has_family(f, "Literata"));
+    CHECK(has_family(f, "Be Vietnam Pro"));
+}
+
+TEST_CASE("eb_mupdf app fonts render Vietnamese text and reject reparse or UNC dirs")
+{
+    const Lib lib;
+    const fs::path app = EB_FONTS_DIR;
+    REQUIRE(set_dirs({app / "Literata"}) == EB_OK);
+    CHECK(has_family(families(), "Literata"));
+    const eb_render_opts o{1.0f, 0, 0xFFFFFF, 0};
+    const BitmapPtr lit = render_with_css("* { font-family: \"Literata\" !important; }", o);
+    const BitmapPtr ser = render_with_css("* { font-family: \"Times New Roman\" !important; }", o);
+    CHECK(not_uniform(*lit));
+    CHECK(ser != nullptr);
+    CHECK(set_dirs({fs::path(L"\\\\server\\share\\fonts"), fs::path(L"\\\\?\\UNC\\server\\share"), fs::path(L"relative")}) == EB_OK);
+    CHECK(families().empty());
 }
 
 TEST_CASE("eb_mupdf renders concurrently with fonts registered")

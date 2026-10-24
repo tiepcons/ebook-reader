@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
+#include <functional>
 #include <new>
 
 namespace eb {
@@ -45,6 +46,12 @@ eb_status open_txt(const OpenJob& job, eb_doc** doc)
     if (!fb2)
         return fb2.error().code == ErrorCode::Limit ? EB_E_LIMIT : EB_E_FORMAT;
     return eb_open_memory(fb2->data(), fb2->size(), "fb2", doc);
+}
+
+const ReaderStyle& style_of(const RenderWant& w) noexcept
+{
+    static const ReaderStyle kDefault;
+    return w.style ? *w.style : kDefault;
 }
 
 long long ms_since(std::chrono::steady_clock::time_point t) noexcept
@@ -228,9 +235,11 @@ void RenderWorker::serve(const RenderWant& w)
     }
 }
 
-eb_status RenderWorker::apply_layout(const LayoutParams& lp)
+eb_status RenderWorker::apply_layout(const LayoutParams& lp, const std::string& css)
 {
-    if (const eb_status st = eb_layout(doc_, lp.width_pt, lp.height_pt, lp.em_pt, nullptr); st != EB_OK)
+    log::info("reader: layout-css-hash {:016x} css={}", lp.css_hash, css);
+    if (const eb_status st = eb_layout(doc_, lp.width_pt, lp.height_pt, lp.em_pt, css.empty() ? nullptr : css.c_str());
+        st != EB_OK)
         return st;
     if (const eb_status st = eb_page_count(doc_, &count_); st != EB_OK)
         return st;
@@ -262,11 +271,14 @@ eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
     }
     uint64_t mark = w.anchor;
     if (reflowable_) {
-        const LayoutParams lp = reflow_layout(w.view.client_w, w.view.client_h, w.view.dpi);
+        const ReaderStyle& style = style_of(w);
+        LayoutParams lp = reflow_layout(w.view.client_w, w.view.client_h, w.view.dpi);
+        lp.em_pt = style.em_pt;
+        lp.css_hash = std::hash<std::string>{}(style.css);
         if (!laid_out_ || !(lp == applied_)) {
             if (mark == kNoAnchor)
                 mark = shown_mark(w);
-            if (const eb_status st = apply_layout(lp); st != EB_OK)
+            if (const eb_status st = apply_layout(lp, style.css); st != EB_OK)
                 return st;
         }
     }
@@ -330,7 +342,8 @@ eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderR
         scale = fixed_scale(w.view.zoom, pw, ph, w.view.client_w, w.view.client_h, w.view.dpi, w.max_side_px);
     }
     scale = limit_scale(scale, pw, ph, w.max_side_px);
-    const eb_render_opts opts{scale, 0x000000, 0xFFFFFF, 0};
+    const ReaderStyle& style = style_of(w);
+    const eb_render_opts opts{scale, style.colors.fg, style.colors.bg, !reflowable_ && style.tint ? 1 : 0};
     eb_bitmap* b = nullptr;
     const eb_status st = eb_render_page(doc_, page, &opts, &b);
     r.bmp.reset(b);

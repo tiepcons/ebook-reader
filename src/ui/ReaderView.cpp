@@ -17,7 +17,6 @@ namespace {
 constexpr wchar_t kClass[] = L"EbookReaderView";
 constexpr UINT_PTR kResizeTimer = 1;
 constexpr UINT kResizeDebounceMs = 150;
-constexpr uint32_t kPaperRgb = 0xFFFFFF;
 constexpr int kDragSlop = 5;
 constexpr int kPanEnd = 1 << 28;
 constexpr int kMaxWheelSteps = 10;
@@ -200,7 +199,7 @@ void ReaderView::on_paint()
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
     const SIZE c = content_size(), v = client_size();
-    canvas_.paint(shown_.Get(), axis_origin(v.cx, c.cx, pan_x_), axis_origin(v.cy, c.cy, pan_y_), kPaperRgb);
+    canvas_.paint(shown_.Get(), axis_origin(v.cx, c.cx, pan_x_), axis_origin(v.cy, c.cy, pan_y_), colors().bg);
     EndPaint(hwnd_, &ps);
     if (canvas_.epoch() != epoch_) {
         check_epoch();
@@ -247,6 +246,7 @@ void ReaderView::send_want()
     w.anchor = anchor_;
     w.mark = mark_;
     w.max_side_px = canvas_.max_side();
+    w.style = style_;
     const SIZE c = content_size();
     w.prefetch = bitmap_bytes(c.cx, c.cy) <= kPrefetchMaxBytes;
     w.page = page_;
@@ -273,6 +273,12 @@ bool ReaderView::open(OpenJob job)
 {
     close();
     error_.clear();
+    if (!prefs_loaded_) {
+        prefs_ = load_reader_prefs(db_);
+        prefs_loaded_ = true;
+    }
+    fmt_ = job.fmt;
+    rebuild_style();
     saver_.emplace(store_, job.id);
     const auto saved = store_.load(job.id);
     const Progress p = saved ? saved->value_or(Progress{}) : Progress{};
@@ -431,9 +437,46 @@ void ReaderView::go_to_start()
     go_to(0);
 }
 
+void ReaderView::rebuild_style()
+{
+    style_ = std::make_shared<const ReaderStyle>(make_style(prefs_, fmt_));
+}
+
+void ReaderView::set_prefs(const ReaderPrefs& p, bool persist)
+{
+    ReaderPrefs n = p;
+    n.font = clamped(std::move(n.font));
+    if (persist && !save_reader_prefs(db_, n))
+        log::error("reader: cannot save theme and font settings");
+    prefs_loaded_ = true;
+    if (n == prefs_)
+        return;
+    prefs_ = std::move(n);
+    rebuild_style();
+    if (hwnd_ != nullptr)
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    if (!worker_)
+        return;
+    cache_.clear();
+    ++view_id_;
+    send_want();
+}
+
+void ReaderView::bump_font_size(int direction)
+{
+    ReaderPrefs n = prefs_;
+    n.font.size_pt += direction;
+    set_prefs(n, true);
+}
+
 void ReaderView::zoom(int direction)
 {
-    if (reflowable_ || scale_ <= 0)
+    if (reflowable_) {
+        if (direction != 0)
+            bump_font_size(direction);
+        return;
+    }
+    if (scale_ <= 0)
         return;
     zoom_ = direction == 0 ? toggle_fit_width(zoom_) : zoom_step(scale_, view_.dpi, direction);
     pan_x_ = pan_y_ = 0;
@@ -469,6 +512,9 @@ void ReaderView::on_action(NavAction a)
         break;
     case NavAction::Close:
         notify(ReaderEvent::CloseRequested);
+        break;
+    case NavAction::Settings:
+        notify(ReaderEvent::Settings);
         break;
     case NavAction::None:
         break;

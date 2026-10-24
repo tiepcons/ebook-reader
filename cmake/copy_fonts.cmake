@@ -1,0 +1,6 @@
+if(EXISTS "${SRC}")
+  file(GLOB fonts "${SRC}/*")
+  if(fonts)
+    file(COPY ${fonts} DESTINATION "${DST}")
+  endif()
+endif()

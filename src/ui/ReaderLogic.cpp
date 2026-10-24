@@ -102,7 +102,7 @@ NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept
             return NavAction::ZoomIn;
         if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)
             return NavAction::ZoomOut;
-        return NavAction::None;
+        return vk == 'T' ? NavAction::Settings : NavAction::None;
     }
     switch (vk) {
     case VK_LEFT:

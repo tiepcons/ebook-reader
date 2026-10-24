@@ -1,4 +1,5 @@
 #pragma once
+#include "FontPrefs.h"
 #include "ReaderCanvas.h"
 #include "ReaderLogic.h"
 #include "ReaderWorker.h"
@@ -19,7 +20,7 @@ namespace eb {
 // all MuPDF work happens in the RenderWorker. Reports to the parent with WM_APP_READER_EVENT.
 class ReaderView {
 public:
-    explicit ReaderView(Db& db) noexcept : store_(db), cache_(kBitmapCacheBytes) {}
+    explicit ReaderView(Db& db) noexcept : db_(db), store_(db), cache_(kBitmapCacheBytes) {}
     ReaderView(const ReaderView&) = delete;
     ReaderView& operator=(const ReaderView&) = delete;
     ~ReaderView();
@@ -39,6 +40,13 @@ public:
     // Percent of the saved position when a book opened somewhere after its start, once; -1 otherwise.
     [[nodiscard]] int take_resume_percent() noexcept;
 
+    [[nodiscard]] const ReaderPrefs& prefs() const noexcept { return prefs_; }
+    [[nodiscard]] ThemeColors colors() const noexcept { return resolve_theme(prefs_.theme); }
+    // Colour for the sentence the text-to-speech engine is reading.
+    [[nodiscard]] uint32_t highlight_color() const noexcept { return colors().highlight; }
+    // Applies theme and font settings at once: the cache is dropped and the current page is requested first.
+    void set_prefs(const ReaderPrefs& p, bool persist);
+
 private:
     static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept;
     LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
@@ -51,6 +59,8 @@ private:
     void record_progress(const RenderResult& r) noexcept;
     void check_epoch();
     void set_shown(BitmapRef b);
+    void rebuild_style();
+    void bump_font_size(int direction);
 
     [[nodiscard]] ViewParams current_view() const;
     void send_want();
@@ -67,6 +77,7 @@ private:
 
     HWND hwnd_ = nullptr;
     HWND parent_ = nullptr;
+    Db& db_;
     ProgressStore store_;
     std::optional<ProgressSaver> saver_;
     std::unique_ptr<RenderWorker> worker_;
@@ -75,6 +86,10 @@ private:
     BitmapRef shown_;
     ViewParams view_;
     ZoomState zoom_;
+    ReaderPrefs prefs_;
+    std::shared_ptr<const ReaderStyle> style_;
+    std::string fmt_;
+    bool prefs_loaded_ = false;
     uint32_t view_id_ = 0;
     uint32_t epoch_ = 0;
     uint64_t want_gen_ = 0;

@@ -72,7 +72,7 @@ private:
     [[nodiscard]] uint64_t shown_mark(const RenderWant& w) const;
     void post_error(const RenderWant& w, eb_status st, int32_t page) noexcept;
     eb_status ensure_layout(const RenderWant& w, int32_t& page);
-    eb_status apply_layout(const LayoutParams& lp);
+    eb_status apply_layout(const LayoutParams& lp, const std::string& css);
     eb_status deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary);
     eb_status render_bitmap(const RenderWant& w, int32_t page, RenderResult& r);
     bool load_toc();

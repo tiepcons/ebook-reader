@@ -1,4 +1,5 @@
-add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp integration/test_eb_bookmark.cpp integration/test_eb_embed.cpp)
+add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp integration/test_eb_bookmark.cpp integration/test_eb_embed.cpp integration/test_eb_fonts.cpp integration/test_eb_sfnt.cpp ${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_sfnt.c)
+target_compile_definitions(eb_tests PRIVATE EB_FONTS_DIR="${CMAKE_SOURCE_DIR}/fonts")
 target_link_libraries(eb_tests PRIVATE eb_hardening eb_warnings eb_sqlite eb_mupdf eb_base)
 target_include_directories(eb_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(eb_tests PRIVATE EB_MUPDF_DLL="$<TARGET_FILE:eb_mupdf>" EB_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus")
@@ -47,7 +48,7 @@ target_sources(eb_tests PRIVATE unit/test_tts_winrt.cpp)
 target_sources(eb_tests PRIVATE unit/test_lib_slots.cpp)
 target_sources(eb_tests PRIVATE unit/test_secret_store.cpp unit/test_azure_usage.cpp)
 
-target_sources(eb_tests PRIVATE unit/test_tray.cpp unit/test_external_open.cpp ${CMAKE_SOURCE_DIR}/src/ui/Tray.cpp
+target_sources(eb_tests PRIVATE unit/test_tray.cpp unit/test_external_open.cpp unit/test_path_safety.cpp ${CMAKE_SOURCE_DIR}/src/ui/Tray.cpp
   ${CMAKE_SOURCE_DIR}/src/ui/CloseAsk.cpp ${CMAKE_SOURCE_DIR}/src/ui/Kv.cpp ${CMAKE_SOURCE_DIR}/src/ui/SingleInstance.cpp)
 target_link_libraries(eb_tests PRIVATE comctl32 shell32 delayimp)
 target_link_options(eb_tests PRIVATE /DELAYLOAD:comctl32.dll)
@@ -63,3 +64,7 @@ add_test(NAME ui_single_instance COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:Eb
   -DBOOK=${CMAKE_SOURCE_DIR}/tests/corpus/good/epub/pg11.epub -DWORK=${CMAKE_BINARY_DIR}/tests
   -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/single_instance.cmake)
 set_tests_properties(ui_single_instance PROPERTIES TIMEOUT 40)
+target_sources(eb_tests PRIVATE unit/test_theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/Theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/FontPrefs.cpp)
+target_sources(eb_tests PRIVATE unit/test_tts_piper.cpp)
+target_compile_definitions(eb_tests PRIVATE EB_PIPER_DIR="${CMAKE_SOURCE_DIR}/build/spike/piper/bin/piper"
+  EB_PIPER_VOICES="${CMAKE_SOURCE_DIR}/build/spike/piper/voices")

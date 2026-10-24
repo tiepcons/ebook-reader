@@ -1,9 +1,12 @@
 #pragma once
+#include "Theme.h"
+
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <stop_token>
@@ -25,6 +28,7 @@ inline constexpr uint64_t kNoAnchor = UINT64_MAX;
 
 struct LayoutParams {
     float width_pt = 0, height_pt = 0, em_pt = 0;
+    std::size_t css_hash = 0;
     friend bool operator==(const LayoutParams&, const LayoutParams&) = default;
 };
 
@@ -55,7 +59,7 @@ struct ZoomState {
 [[nodiscard]] int axis_origin(int viewport, int content, int pan) noexcept;
 [[nodiscard]] std::size_t bitmap_bytes(int width, int height) noexcept;
 
-enum class NavAction : uint8_t { None, Prev, Next, First, Last, ZoomIn, ZoomOut, ToggleFitWidth, Fullscreen, Close };
+enum class NavAction : uint8_t { None, Prev, Next, First, Last, ZoomIn, ZoomOut, ToggleFitWidth, Fullscreen, Close, Settings };
 
 [[nodiscard]] NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept;
 // The outer quarters of the page turn it.
@@ -78,6 +82,7 @@ struct RenderWant {
     int32_t page = 0;
     bool prefetch = true;
     bool have_cur = false, have_next = false, have_prev = false; // bitmaps the UI already holds
+    std::shared_ptr<const ReaderStyle> style; // null = white theme, book fonts
 };
 
 // Latest-wins request slot: a newer request replaces an unserved one and aborts the one in flight.

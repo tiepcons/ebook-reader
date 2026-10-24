@@ -14,7 +14,9 @@
 
 #include <commctrl.h>
 #include <delayimp.h>
+#include <knownfolders.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <objbase.h>
 
 #include <chrono>
@@ -113,6 +115,24 @@ bool load_all_imports() noexcept
     }
 }
 
+void register_font_dirs(const std::filesystem::path& exe_dir) noexcept
+{
+    try {
+        std::vector<std::wstring> dirs{(exe_dir / L"fonts").wstring()};
+        PWSTR system_fonts = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &system_fonts)))
+            dirs.emplace_back(system_fonts);
+        CoTaskMemFree(system_fonts);
+        std::vector<const wchar_t*> raw;
+        for (const auto& d : dirs)
+            raw.push_back(d.c_str());
+        if (eb_set_font_dirs(raw.data(), static_cast<int32_t>(raw.size())) != EB_OK)
+            log::error("font directories rejected: {}", eb_last_error());
+    } catch (...) {
+        log::error("font directories not registered");
+    }
+}
+
 int run_loop() noexcept
 {
     MSG msg{};
@@ -155,6 +175,7 @@ int run(HINSTANCE inst, int show)
     if (eb_init(nullptr) != EB_OK)
         return fatal(L"Không khởi tạo được bộ xử lý tài liệu.");
     const EngineScope engine;
+    register_font_dirs(exe_dir);
     auto db = Db::open(paths->data / L"library.db", kUiBusyTimeoutMs);
     if (!db || !migrate(*db))
         return fatal(L"Không mở được cơ sở dữ liệu thư viện.", db ? nullptr : &db.error());

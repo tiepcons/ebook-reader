@@ -72,7 +72,7 @@ target_compile_options(eb_libmobi PRIVATE /W0 "/FI${CMAKE_SOURCE_DIR}/libs/eb_mu
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
 add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
-  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c)
+  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c libs/eb_mupdf/eb_font.c libs/eb_mupdf/eb_sfnt.c)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
@@ -118,12 +118,19 @@ target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)
 target_sources(eb_tts PRIVATE src/tts/winrt/WinRtTts.cpp)
 target_link_libraries(eb_tts PUBLIC windowsapp)
 
-target_sources(eb_base PRIVATE src/base/SecretStore.cpp)
+target_sources(eb_base PRIVATE src/base/SecretStore.cpp src/base/PathSafety.cpp)
 target_link_libraries(eb_base PRIVATE advapi32)
 target_sources(eb_lib PRIVATE src/lib/AzureUsage.cpp)
 
 target_sources(EbookReader PRIVATE src/ui/Tray.cpp src/ui/CloseAsk.cpp src/ui/SingleInstance.cpp src/ui/ExternalOpen.cpp
   src/ui/MainWndTray.cpp)
+
+target_sources(EbookReader PRIVATE src/ui/Theme.cpp src/ui/FontPrefs.cpp src/ui/ReaderSettings.cpp)
+target_link_libraries(EbookReader PRIVATE dwmapi comdlg32 uuid)
+add_custom_command(TARGET EbookReader POST_BUILD COMMAND ${CMAKE_COMMAND}
+  -DSRC=${CMAKE_SOURCE_DIR}/fonts -DDST=${CMAKE_BINARY_DIR}/fonts -P ${CMAKE_SOURCE_DIR}/cmake/copy_fonts.cmake)
+
+target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp)
 
 enable_testing()
 add_subdirectory(tests)
