@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-#define EB_ABI_VERSION 1
+#define EB_ABI_VERSION 2 /* v2: font directories (eb_set_font_dirs, eb_font_families), render_opts bg for reflow */
 
 typedef enum eb_status {
     EB_OK = 0,
@@ -59,9 +59,10 @@ typedef struct eb_bitmap {
 
 typedef struct eb_render_opts {
     float scale;          /* device pixels per point (96 dpi at 100% = 1.333f) */
-    uint32_t fg_rgb;      /* text colour for tinting, 0xRRGGBB */
-    uint32_t bg_rgb;      /* paper colour for tinting, 0xRRGGBB */
-    int32_t tint;         /* 1: map black->fg and white->bg (themes for PDF/CBZ); 0: original colours */
+    uint32_t fg_rgb;      /* text colour for tinting, 0xRRGGBB (fixed-layout docs only) */
+    uint32_t bg_rgb;      /* paper colour, 0xRRGGBB. Reflowable docs: the page is always cleared to bg_rgb and
+                             text colour comes from user_css (eb_layout); fixed-layout docs: used when tint=1 */
+    int32_t tint;         /* fixed-layout only: 1 maps black->fg and white->bg (themes for PDF/CBZ); 0 original */
 } eb_render_opts;
 
 typedef struct eb_rect {
@@ -90,6 +91,15 @@ EB_API eb_status eb_init(const eb_limits* limits); /* NULL = defaults */
 EB_API void eb_shutdown(void);
 EB_API const char* eb_status_text(eb_status s);
 EB_API const char* eb_last_error(void); /* detail of the last failure on the calling thread */
+
+/* Fonts (v2). Register font directories searched, in order, when book CSS or user_css names a font family that
+ * the document does not embed, and for glyph fallback (e.g. Vietnamese marks missing from a book font).
+ * dirs: absolute UTF-16 paths; only .ttf/.otf/.ttc files are used (at most 512 files, each <= 32 MiB).
+ * Call after eb_init and before opening documents; replaces any previous list; thread-safe. */
+EB_API eb_status eb_set_font_dirs(const wchar_t* const* dirs, int32_t count);
+/* Family names (UTF-8, de-duplicated, sorted) available from the registered dirs, for a font picker. */
+EB_API eb_status eb_font_families(char*** names, int32_t* count);
+EB_API void eb_font_families_free(char** names, int32_t count);
 
 /* Documents */
 EB_API eb_status eb_open(const wchar_t* path, eb_doc** out);
