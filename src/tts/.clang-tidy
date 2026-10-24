@@ -1,4 +1,0 @@
-# C++/WinRT projection headers (null-initialised {nullptr} handles) trip clang-analyzer-core.CallAndMessage
-# inside the SDK headers; the check is disabled for src/tts only.
-InheritParentConfig: true
-Checks: '-clang-analyzer-core.CallAndMessage'

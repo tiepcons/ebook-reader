@@ -41,7 +41,7 @@ constexpr uint32_t tts_value(LPARAM lp) noexcept
 class TtsEngine {
 public:
     virtual ~TtsEngine() = default;
-    virtual std::vector<Voice> voices() = 0;
+    virtual std::vector<Voice> voices() noexcept = 0;
     virtual bool speak(uint32_t utterance_id, std::string_view utf8, const std::wstring& voice_id, double rate,
         double volume) noexcept = 0;
     virtual void prepare(uint32_t utterance_id, std::string_view utf8, const std::wstring& voice_id, double rate) noexcept = 0;

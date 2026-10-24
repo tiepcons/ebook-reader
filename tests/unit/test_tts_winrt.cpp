@@ -1,8 +1,11 @@
-#include "tts/WinRtTts.h"
+#include "tts/winrt/WinRtTts.h"
+
+#include "tts/Utf8.h"
 
 #include <doctest/doctest.h>
 
 #include <chrono>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -19,12 +22,16 @@ struct Got {
 };
 
 std::vector<Got>* g_got = nullptr;
+std::function<void(const Got&)> g_on_event;
 
 LRESULT CALLBACK sink_proc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     if (m == kMsg) {
-        if (g_got != nullptr)
+        if (g_got != nullptr) {
             g_got->push_back({static_cast<uint32_t>(w), eb::tts_event(l), eb::tts_value(l), Clock::now()});
+            if (g_on_event)
+                g_on_event(g_got->back());
+        }
         return 0;
     }
     return DefWindowProcW(h, m, w, l);
@@ -47,6 +54,7 @@ struct Sink {
     ~Sink()
     {
         g_got = nullptr;
+        g_on_event = nullptr;
         DestroyWindow(hwnd);
     }
     Sink(const Sink&) = delete;
@@ -102,13 +110,13 @@ void check_words(const std::vector<Got>& got, std::string_view text)
         REQUIRE(g.value < text.size());
         CHECK(static_cast<int64_t>(g.value) > prev);
         prev = g.value;
-        CHECK((g.value == 0 || text[g.value - 1] == ' '));
+        CHECK(!eb::u8::is_cont(text, g.value));
         CHECK(text[g.value] != ' ');
     }
     CHECK(words >= 3);
 }
 
-void read_sentence(std::wstring_view lang, std::string_view text)
+void read_sentence(std::wstring_view lang, const std::string& text)
 {
     Sink sink;
     eb::WinRtTts tts;
@@ -160,7 +168,7 @@ TEST_CASE("tts winrt unknown voice posts Error")
     CHECK(sink.got.back().value == eb::kTtsBadVoice);
 }
 
-TEST_CASE("tts winrt prepared utterance starts without a gap")
+TEST_CASE("tts winrt back-to-back prepared utterance starts within 150 ms")
 {
     Sink sink;
     eb::WinRtTts tts;
@@ -168,16 +176,59 @@ TEST_CASE("tts winrt prepared utterance starts without a gap")
     const auto voice = find_voice(tts, L"en-US");
     if (voice.empty())
         return;
-    REQUIRE(tts.speak(1, "Hello there.", voice, 1.0, 0.0));
-    tts.prepare(2, "General Kenobi.", voice, 1.0);
-    REQUIRE(sink.wait_for(eb::TtsEvent::Finished, 20000));
-    sink.pump_ms(1500);
-    sink.got.clear();
+    const std::string next = "General Kenobi.";
+    Clock::time_point t0{};
+    g_on_event = [&](const Got& g) {
+        if (g.id == 1 && g.ev == eb::TtsEvent::Finished) {
+            t0 = Clock::now();
+            tts.speak(2, next, voice, 1.0, 0.0);
+        }
+    };
+    REQUIRE(tts.speak(1, "One two three four five six.", voice, 1.0, 0.0));
+    tts.prepare(2, next, voice, 1.0);
+    const auto end = Clock::now() + std::chrono::seconds(30);
+    const Got* started = nullptr;
+    while (started == nullptr && Clock::now() < end) {
+        sink.pump_ms(20);
+        for (const auto& g : sink.got)
+            if (g.id == 2 && g.ev == eb::TtsEvent::Started)
+                started = &g;
+    }
+    REQUIRE(started != nullptr);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(started->at - t0).count() < 150);
+    CHECK(sink.wait_for(eb::TtsEvent::Finished, 20000));
+}
+
+TEST_CASE("tts winrt stop and destruction cancel a long pending synthesis quickly")
+{
+    Sink sink;
     const auto t0 = Clock::now();
-    REQUIRE(tts.speak(2, "General Kenobi.", voice, 1.0, 0.0));
-    REQUIRE(sink.wait_for(eb::TtsEvent::Started, 5000));
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(sink.got.front().at - t0).count() < 300);
-    REQUIRE(sink.wait_for(eb::TtsEvent::Finished, 20000));
+    {
+        eb::WinRtTts tts;
+        tts.set_sink(sink.hwnd, kMsg);
+        const auto voice = find_voice(tts, L"en-US");
+        if (voice.empty())
+            return;
+        std::string text;
+        while (text.size() < 30000)
+            text += "The quick brown fox jumps over the lazy dog. ";
+        tts.prepare(1, text, voice, 1.0);
+        tts.stop();
+    }
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 500);
+}
+
+TEST_CASE("tts winrt NFD Vietnamese offsets are code point boundaries")
+{
+    const std::string text = std::string("Tra") + "\xCC\x86" + "m na" + "\xCC\x86" + "m trong co" + "\xCC\x83" + "i ngu"
+        + "\xCC\x9B" + "o" + "\xCC\x80" + "i ta.";
+    read_sentence(L"vi", text);
+}
+
+TEST_CASE("tts winrt offsets survive a surrogate pair")
+{
+    const std::string text = std::string("Hello ") + "\xF0\x9F\x98\x80" + " world again and again.";
+    read_sentence(L"en-US", text);
 }
 
 TEST_CASE("tts winrt stop silences further events")

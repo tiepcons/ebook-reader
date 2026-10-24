@@ -12,7 +12,7 @@ public:
     WinRtTts(const WinRtTts&) = delete;
     WinRtTts& operator=(const WinRtTts&) = delete;
 
-    std::vector<Voice> voices() override;
+    std::vector<Voice> voices() noexcept override;
     bool speak(uint32_t utterance_id, std::string_view utf8, const std::wstring& voice_id, double rate,
         double volume) noexcept override;
     void prepare(uint32_t utterance_id, std::string_view utf8, const std::wstring& voice_id, double rate) noexcept override;
