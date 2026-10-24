@@ -43,6 +43,11 @@ threading model (you write the header, `eb-dev` implements), editing PLAN.md tex
 - Don't re-read files you just wrote, don't re-run green tests without a change, don't review unchanged code.
 - Keep this file and agent files stable (prompt-cache friendly); change them only when the user asks.
 
+## Hung builds (user rule 2026-10-24)
+The orchestrator may kill this project's own build processes (ninja.exe, cl.exe, clang-tidy.exe, eb_tests.exe,
+EbookReader.exe started from build/) that have been running > 30 min with no progress. Check the command line first
+(read-only), log what was killed, never kill anything else. Agents still may not kill processes themselves.
+
 ## Per-task loop
 1. `eb-dev`: failing test → code → `tools/test.ps1` green.
 2. `eb-reviewer` on the task diff (+ `eb-security` when the task touches untrusted input, files, DLLs, keys or network).
