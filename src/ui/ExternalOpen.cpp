@@ -1,11 +1,39 @@
 #include "ExternalOpen.h"
 
+#include "base/CrashGuard.h"
 #include "base/Log.h"
 #include "lib/Metadata.h"
 
 namespace eb {
+namespace {
 
-bool ExternalOpen::start(HWND notify, std::filesystem::path file) noexcept
+constexpr int kBusyTimeoutMs = 2000;
+
+ExternalMeta inspect(const ExternalJob& job)
+{
+    ExternalMeta out;
+    auto db = Db::open(job.db_file, kBusyTimeoutMs);
+    if (!db)
+        return out;
+    auto file = inspect_external_book(*db, job.raw_path);
+    if (!file)
+        return out;
+    out.file = std::move(*file);
+    out.ok = true;
+    CrashLoopGuard guard(job.marker_file);
+    if (guard.previous_suspect() == out.file.id) {
+        log::error("external open: skipping a book that crashed the metadata reader");
+        return out;
+    }
+    const CrashLoopGuard::Scope scope(guard, "external", out.file.id);
+    if (auto m = read_book_meta(out.file.path); m)
+        out.meta = std::move(*m);
+    return out;
+}
+
+}
+
+bool ExternalOpen::start(HWND notify, ExternalJob job) noexcept
 {
     try {
         {
@@ -14,7 +42,7 @@ bool ExternalOpen::start(HWND notify, std::filesystem::path file) noexcept
                 return false;
             busy_ = true;
         }
-        thread_ = std::jthread([this, notify, f = std::move(file)]() mutable { run(notify, std::move(f)); });
+        thread_ = std::jthread([this, notify, j = std::move(job)]() { run(notify, j); });
         return true;
     } catch (...) {
         const std::scoped_lock lock(mu_);
@@ -23,16 +51,13 @@ bool ExternalOpen::start(HWND notify, std::filesystem::path file) noexcept
     }
 }
 
-void ExternalOpen::run(HWND notify, std::filesystem::path file) noexcept
+void ExternalOpen::run(HWND notify, const ExternalJob& job) noexcept
 {
-    ExternalMeta out{std::move(file), {}, false};
+    ExternalMeta out;
     try {
-        if (auto m = read_book_meta(out.file); m) {
-            out.meta = std::move(*m);
-            out.ok = true;
-        }
+        out = inspect(job);
     } catch (...) {
-        log::error("external open: metadata read threw");
+        log::error("external open: worker threw");
     }
     {
         const std::scoped_lock lock(mu_);

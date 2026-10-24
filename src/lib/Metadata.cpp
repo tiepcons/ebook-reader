@@ -1,8 +1,11 @@
 #include "Metadata.h"
 
+#include "base/Handle.h"
 #include "base/Text.h"
 #include "doc/TxtToFb2.h"
 #include "tts/LangDetect.h"
+
+#include <windows.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -35,17 +38,21 @@ std::wstring lower_ext(const std::filesystem::path& file)
 
 Result<std::vector<std::byte>> read_limited(const std::filesystem::path& file)
 {
-    std::ifstream in(file, std::ios::binary | std::ios::ate);
-    if (!in)
+    const UniqueHandle h(CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    LARGE_INTEGER size{};
+    if (!h || GetFileType(h.get()) != FILE_TYPE_DISK || !GetFileSizeEx(h.get(), &size))
         return fail(ErrorCode::Io);
-    const auto size = static_cast<std::streamoff>(in.tellg());
-    if (size < 0 || static_cast<size_t>(size) > kMaxTxtBytes)
+    if (size.QuadPart < 0 || static_cast<unsigned long long>(size.QuadPart) > kMaxTxtBytes)
         return fail(ErrorCode::Limit, L"text file too large");
-    std::vector<std::byte> data(static_cast<size_t>(size));
-    in.seekg(0);
-    in.read(reinterpret_cast<char*>(data.data()), size);
-    if (!in && !data.empty())
-        return fail(ErrorCode::Io);
+    std::vector<std::byte> data(static_cast<size_t>(size.QuadPart));
+    size_t done = 0;
+    while (done < data.size()) {
+        DWORD got = 0;
+        if (!ReadFile(h.get(), data.data() + done, static_cast<DWORD>(std::min<size_t>(data.size() - done, 1U << 20)), &got, nullptr)
+            || got == 0)
+            return fail(ErrorCode::Io);
+        done += got;
+    }
     return data;
 }
 

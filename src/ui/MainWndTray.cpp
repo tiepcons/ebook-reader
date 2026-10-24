@@ -15,6 +15,7 @@ constexpr UINT_PTR kTrimTimer = 30, kHoldTimer = 31, kSmokeTrayTimer = 32;
 constexpr UINT kTrimDelayMs = 400, kSmokeTrayCheckMs = 600;
 constexpr size_t kBytesPerKb = 1024;
 constexpr const char* kHintKey = "ui.tray_hint_shown";
+constexpr size_t kMaxQueuedPaths = 8;
 constexpr const char* kMinToTrayKey = "ui.min_to_tray";
 
 std::wstring title_of(Db& db, const std::string& id)
@@ -38,6 +39,12 @@ int menu_id(CloseAction a) noexcept
     default:
         return IDM_CLOSE_ASK;
     }
+}
+
+bool min_to_tray(Db& db)
+{
+    const auto v = kv_get(db, kMinToTrayKey);
+    return v && *v == "1";
 }
 
 CloseAction action_of(int id) noexcept
@@ -65,8 +72,18 @@ bool MainWnd::on_tray_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         res = on_copydata(lp) ? TRUE : FALSE;
         return true;
     case WM_APP_OPEN_PATH:
-        on_open_path();
+        pump_open_queue();
         return true;
+    case WM_QUERYENDSESSION:
+        res = TRUE;
+        return true;
+    case WM_ENDSESSION:
+        if (wp != FALSE)
+            exit_app();
+        return true;
+    case WM_DPICHANGED:
+        tray_.set_dpi(HIWORD(wp));
+        return false;
     case WM_APP_EXTERNAL_META:
         on_external_meta();
         return true;
@@ -77,6 +94,8 @@ bool MainWnd::on_tray_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
     case WM_INITMENUPOPUP:
         CheckMenuRadioItem(reinterpret_cast<HMENU>(wp), IDM_CLOSE_ASK, IDM_CLOSE_TRAY, // NOLINT(performance-no-int-to-ptr): Win32 message ABI
             static_cast<UINT>(menu_id(load_close_action(db_))), MF_BYCOMMAND);
+        CheckMenuItem(reinterpret_cast<HMENU>(wp), IDM_MIN_TO_TRAY, // NOLINT(performance-no-int-to-ptr): Win32 message ABI
+            MF_BYCOMMAND | (min_to_tray(db_) ? MF_CHECKED : MF_UNCHECKED));
         return false;
     default:
         return false;
@@ -88,6 +107,10 @@ bool MainWnd::on_tray_command(int id)
     const auto tts = [this](TtsCmd c) { PostMessageW(hwnd_, WM_APP_TTS_CMD, static_cast<WPARAM>(c), 0); };
     if (id >= IDM_CLOSE_ASK && id <= IDM_CLOSE_TRAY) {
         store_close_action(db_, action_of(id));
+        return true;
+    }
+    if (id == IDM_MIN_TO_TRAY) {
+        kv_set(db_, kMinToTrayKey, min_to_tray(db_) ? "0" : "1");
         return true;
     }
     switch (id) {
@@ -157,7 +180,7 @@ void MainWnd::on_close_request()
 
 void MainWnd::on_minimized()
 {
-    if (const auto v = kv_get(db_, kMinToTrayKey); v && *v == "1")
+    if (min_to_tray(db_))
         send_to_tray();
 }
 
@@ -170,17 +193,37 @@ void MainWnd::exit_app()
     DestroyWindow(hwnd_);
 }
 
+bool MainWnd::sync_tray()
+{
+    const bool tts_active = tts_state_ == TtsState::Playing || tts_state_ == TtsState::Paused;
+    if (in_tray_ || tts_active) {
+        if (tray_.present())
+            return true;
+        tray_.set_tooltip(in_reader_ ? title_of(db_, reading_id_) : std::wstring{});
+        return tray_.add(hwnd_, dpi_);
+    }
+    tray_.remove();
+    return true;
+}
+
+void MainWnd::set_tts_state(TtsState s)
+{
+    tts_state_ = s;
+    tray_.set_tts_state(s);
+    sync_tray();
+}
+
 void MainWnd::send_to_tray()
 {
     if (in_tray_)
         return;
-    tray_.set_tooltip(in_reader_ ? title_of(db_, reading_id_) : std::wstring{});
-    if (!tray_.add(hwnd_, dpi_)) {
+    in_tray_ = true;
+    if (!sync_tray()) {
+        in_tray_ = false;
         log::error("tray icon could not be added; minimizing instead");
         ShowWindow(hwnd_, SW_MINIMIZE);
         return;
     }
-    in_tray_ = true;
     ShowWindow(hwnd_, SW_HIDE);
     if (in_reader_)
         PostMessageW(reader_.hwnd(), WM_APP_TO_TRAY, 0, 0);
@@ -195,8 +238,8 @@ void MainWnd::bring_to_front()
 {
     if (in_tray_) {
         KillTimer(hwnd_, kTrimTimer);
-        tray_.remove();
         in_tray_ = false;
+        sync_tray();
     }
     ShowWindow(hwnd_, IsIconic(hwnd_) ? SW_RESTORE : SW_SHOW);
     SetForegroundWindow(hwnd_);
@@ -212,47 +255,46 @@ bool MainWnd::on_copydata(LPARAM lp)
     }
     log::info("copydata open {}", wide_to_utf8(*path).value_or(std::string{}));
     bring_to_front();
-    if (!path->empty()) {
-        pending_path_ = std::move(*path);
-        PostMessageW(hwnd_, WM_APP_OPEN_PATH, 0, 0);
-    }
+    queue_open_path(std::move(*path));
     return true;
 }
 
-void MainWnd::on_open_path()
+void MainWnd::queue_open_path(std::wstring path)
 {
-    const std::wstring raw = std::move(pending_path_);
-    pending_path_.clear();
-    const auto file = resolve_external_book(raw);
-    if (!file) {
-        show_notice(L"Không mở được tệp: không tồn tại hoặc định dạng không được hỗ trợ.");
+    if (path.empty())
+        return;
+    if (pending_paths_.size() >= kMaxQueuedPaths) {
+        log::error("open queue full; dropping a request");
         return;
     }
-    if (const auto id = find_book_by_path(db_, *file)) {
-        open_external_id(*id);
-    } else if (!ext_.start(hwnd_, *file)) {
-        log::error("external open: a metadata read is already running");
-    }
+    pending_paths_.push_back(std::move(path));
+    PostMessageW(hwnd_, WM_APP_OPEN_PATH, 0, 0);
+}
+
+void MainWnd::pump_open_queue()
+{
+    if (pending_paths_.empty())
+        return;
+    ExternalJob job{pending_paths_.front(), paths_.data / L"library.db", paths_.data / L"pending_ext"};
+    if (ext_.start(hwnd_, std::move(job)))
+        pending_paths_.pop_front();
 }
 
 void MainWnd::on_external_meta()
 {
-    const auto done = ext_.take();
-    if (!done)
-        return;
-    if (!done->ok) {
-        show_notice(L"Không đọc được thông tin của sách này.");
-        return;
+    if (const auto done = ext_.take()) {
+        if (!done->ok) {
+            show_notice(L"Không mở được tệp: không tồn tại hoặc định dạng không được hỗ trợ.");
+        } else if (const auto id = upsert_external(db_, done->file, done->meta)) {
+            refresh_tree();
+            refresh_list();
+            open_external_id(*id);
+        } else {
+            log::error("external open: cannot add the book to the library");
+            show_notice(L"Không thêm được sách vào thư viện.");
+        }
     }
-    const auto id = upsert_external(db_, done->file, done->meta);
-    if (!id) {
-        log::error("external open: cannot add the book to the library");
-        show_notice(L"Không thêm được sách vào thư viện.");
-        return;
-    }
-    refresh_tree();
-    refresh_list();
-    open_external_id(*id);
+    pump_open_queue();
 }
 
 void MainWnd::open_external_id(const std::string& id)
@@ -273,10 +315,7 @@ void MainWnd::after_first_paint_tray()
 {
     if (smoke_ && launch_.smoke_tray)
         PostMessageW(hwnd_, WM_CLOSE, 0, 0);
-    if (!launch_.path.empty()) {
-        pending_path_ = launch_.path;
-        PostMessageW(hwnd_, WM_APP_OPEN_PATH, 0, 0);
-    }
+    queue_open_path(launch_.path);
 }
 
 void MainWnd::shutdown_tray()

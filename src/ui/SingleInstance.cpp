@@ -9,7 +9,7 @@ namespace eb {
 namespace {
 
 constexpr wchar_t kPropName[] = L"EbookReader.Instance";
-constexpr DWORD kForwardWaitMs = 1500;
+constexpr DWORD kForwardWaitMs = 10000;
 constexpr DWORD kPollMs = 50;
 constexpr UINT kSendTimeoutMs = 1000;
 constexpr DWORD kMaxHoldMs = 60000;
@@ -143,7 +143,7 @@ bool SingleInstance::forward(std::wstring_view path) const noexcept
 
 void SingleInstance::mark_window(HWND wnd, std::uint64_t key) noexcept
 {
-    SetPropW(wnd, kPropName, reinterpret_cast<HANDLE>(key));
+    SetPropW(wnd, kPropName, reinterpret_cast<HANDLE>(key)); // NOLINT(performance-no-int-to-ptr): window property ABI
 }
 
 void SingleInstance::unmark_window(HWND wnd) noexcept

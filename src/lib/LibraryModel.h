@@ -36,14 +36,21 @@ Result<std::wstring> book_path(Db& db, std::string_view id) noexcept;
 Result<void> hide_book(Db& db, std::string_view id) noexcept;
 Result<void> unhide_all_books(Db& db) noexcept;
 
-// A file named from outside the library: made absolute and canonical; it must be an existing regular file
-// with a supported extension. NotFound otherwise.
-Result<std::filesystem::path> resolve_external_book(std::wstring_view raw) noexcept;
-// Id of the listed (status 0 or 2) row stored under this path, compared case-insensitively. NotFound when none.
-Result<std::string> find_book_by_path(Db& db, const std::filesystem::path& file) noexcept;
-// Makes the file an openable row (status 0, folder = parent directory) and returns its id. A row already stored
-// under the path or with the same content id is revived instead of duplicated.
-Result<std::string> upsert_external(Db& db, const std::filesystem::path& file, const BookMeta& meta) noexcept;
+struct ExternalFile {
+    std::filesystem::path path; // absolute, canonical
+    std::string id, path8, folder;
+    int64_t size = 0, mtime = 0;
+    bool copy_alive = false; // a listed row with this content id still has its file on disk
+};
+
+// All the file I/O for a book named from outside the library (resolve, safety check, hashing, attributes);
+// meant for a worker thread. db is only read. NotFound unless it is an existing regular file with a supported
+// extension that is not a device path.
+Result<ExternalFile> inspect_external_book(Db& db, std::wstring_view raw) noexcept;
+// Database work only. Makes the file an openable row (status 0, folder = parent directory) and returns its id.
+// A row under the same path is revived; a row with the same content id is revived as is when its own file still
+// exists, and moved to this path otherwise.
+Result<std::string> upsert_external(Db& db, const ExternalFile& file, const BookMeta& meta) noexcept;
 
 struct FolderNode {
     std::wstring label, prefix; // prefix is the folder string as stored in books.folder

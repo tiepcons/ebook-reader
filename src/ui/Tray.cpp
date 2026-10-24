@@ -35,7 +35,7 @@ UniqueIcon load_icon(UINT dpi) noexcept
 void copy_text(wchar_t* dst, size_t cap, std::wstring_view src) noexcept
 {
     const size_t n = std::min(src.size(), cap - 1);
-    std::copy_n(src.data(), n, dst);
+    std::ranges::copy(src.substr(0, n), dst);
     dst[n] = L'\0';
 }
 
@@ -113,6 +113,17 @@ void Tray::remove() noexcept
     if (present_)
         notify(NIM_DELETE, 0);
     present_ = false;
+}
+
+void Tray::set_dpi(UINT dpi) noexcept
+{
+    if (dpi == dpi_)
+        return;
+    dpi_ = dpi;
+    if (!present_)
+        return;
+    icon_ = load_icon(dpi);
+    notify(NIM_MODIFY, NIF_ICON);
 }
 
 bool Tray::readd() noexcept

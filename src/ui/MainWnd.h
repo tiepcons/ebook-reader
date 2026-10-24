@@ -15,6 +15,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ public:
 
     bool create(int show) noexcept;
     [[nodiscard]] HWND hwnd() const noexcept { return hwnd_; }
+    void set_tts_state(TtsState s);
     void set_launch(LaunchArgs args, std::uint64_t key) { launch_ = std::move(args); instance_key_ = key; }
 
 private:
@@ -88,6 +90,8 @@ private:
     void init_smoke_open();
     void smoke_open_book();
     void smoke_step(int page);
+    void open_reader_settings();
+    void apply_chrome();
 
     bool on_tray_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res);
     bool on_tray_command(int id);
@@ -98,7 +102,9 @@ private:
     void send_to_tray();
     void bring_to_front();
     bool on_copydata(LPARAM lp);
-    void on_open_path();
+    bool sync_tray();
+    void queue_open_path(std::wstring path);
+    void pump_open_queue();
     void on_external_meta();
     void open_external_id(const std::string& id);
     void init_launch();
@@ -130,8 +136,8 @@ private:
     std::vector<std::wstring> tree_folders_, tree_roots_;
     std::vector<std::string> open_queue_;
     ReaderView reader_;
-    HWND back_ = nullptr, resume_text_ = nullptr, resume_btn_ = nullptr;
-    bool in_reader_ = false, fullscreen_ = false, smoke_keys_sent_ = false;
+    HWND back_ = nullptr, resume_text_ = nullptr, resume_btn_ = nullptr, aa_ = nullptr;
+    bool in_reader_ = false, fullscreen_ = false, smoke_keys_sent_ = false, smoke_theme_ = false, in_settings_ = false;
     int resume_page_ = -1;
     std::string smoke_open_, reading_id_;
     WINDOWPLACEMENT saved_wp_{};
@@ -141,7 +147,8 @@ private:
     ExternalOpen ext_;
     LaunchArgs launch_;
     std::uint64_t instance_key_ = 0;
-    std::wstring pending_path_;
+    std::deque<std::wstring> pending_paths_;
+    TtsState tts_state_ = TtsState::Unavailable;
     bool in_tray_ = false, asking_ = false;
 };
 

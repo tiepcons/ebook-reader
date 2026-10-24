@@ -47,6 +47,8 @@ public:
 
     bool add(HWND owner, UINT dpi) noexcept;
     void remove() noexcept;
+    // Reloads the icon at the new small-icon size.
+    void set_dpi(UINT dpi) noexcept;
     // Explorer restarted: the icon is gone and must be added again.
     bool readd() noexcept;
     [[nodiscard]] bool present() const noexcept { return present_; }
