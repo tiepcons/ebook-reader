@@ -34,7 +34,7 @@ Phần mềm đọc ebook **mã nguồn mở (AGPL-3.0)**, viết bằng **C++20
 | D6 | Thư viện = **quét đệ quy `<exe>\ebooks\`** và các thư mục người dùng thêm. Quét lại tăng dần khi khởi động, khi cửa sổ được focus lại, và khi bấm nút. **Không dùng FolderWatcher** | Ít thread, ít bug. Quét lại 1000 sách chỉ khoảng 1 giây |
 | D7 | **Chạy portable**: dữ liệu ở `<exe>\data\`. Nếu không ghi được thì dùng `%LOCALAPPDATA%\EbookReader\` | |
 | D8 | **Định danh sách = hash** (kích thước + SHA-256 của 64 KB đầu và cuối, dùng BCrypt có sẵn trong Windows) | Đổi tên hoặc di chuyển file vẫn giữ vị trí đọc |
-| D9 | **DLL riêng trong `libs\` với C ABI ổn định**: `eb_mupdf.dll` (bắt buộc), `libs\piper\eb_piper.dll` (tùy chọn) | Cập nhật riêng từng phần. Thiếu Piper thì app vẫn chạy |
+| D9 | **DLL riêng trong `libs\` với C ABI ổn định**: `eb_mupdf.dll` (bắt buộc). **Piper (tùy chọn) chạy dưới dạng tiến trình con**: `libs\piper\piper.exe` (bản build chính thức, MIT), giao tiếp qua stdin/stdout ở chế độ JSON (đổi ngày 2026-10-24 thay cho `eb_piper.dll`) | Cập nhật riêng từng phần. Piper crash thì app không chết. Không phải build onnxruntime/espeak-ng, không lệch CRT. Thiếu Piper thì app vẫn chạy |
 | D10 | **CRT tĩnh (`/MT`)** cho exe và mọi DLL. **DLL nào cấp phát bộ nhớ thì DLL đó giải phóng** | Không cần cài VC++ Redistributable |
 | D11 | **Theme chỉ áp dụng cho vùng đọc.** Menu và control giữ màu hệ thống. Thanh tiêu đề chuyển tối bằng `DwmSetWindowAttribute` | Không phải dùng hack dark mode của Win32 |
 | D12 | **Không hỗ trợ DRM** | Bẻ DRM là vi phạm pháp luật |
@@ -270,7 +270,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T6.4 | **`WinRtTts`**: C++/WinRT `SpeechSynthesizer` + `MediaPlayer`, dùng giọng OneCore (Microsoft An, David, Zira...), lấy word boundary để tô sáng. Thiếu giọng Việt thì hướng dẫn cài | DEV | T6.1 | 1,2 | Đọc được cả tiếng Anh và tiếng Việt | ⬜ |
 | T6.5 | `TtsController`: tô sáng câu đang đọc, **tự lật trang**, lưu vị trí câu vào ProgressStore, chạy tiếp khi app ở khay | DEV | T6.4, T4.4 | 0,9 | Đọc liên tục hết 1 chương | ⬜ |
 | T6.6 | `TtsBar` và trang TTS trong Settings: chọn engine, giọng Anh, giọng Việt, tốc độ, nghe thử | DEV | T6.5 | 0,4 | | ⬜ |
-| T6.7 | **`eb_piper.dll`** (C ABI: init(model), synth(text) → PCM, free) và **`PiperTts`**: chỉ nạp khi có `libs\piper\`, tổng hợp trước câu tiếp theo, phát bằng WASAPI hoặc `MediaPlayer` | DEV | T0.8, T6.1 | 1,3 | Khoảng lặng giữa 2 câu ≤ 300 ms. Thiếu Piper thì engine này bị ẩn | ⬜ |
+| T6.7 | **`PiperTts`**: chạy `libs\piper\piper.exe` dưới dạng tiến trình con, mỗi giọng một tiến trình, giữ tiến trình sống giữa các câu, dùng `--json-input`, mỗi câu ra một file WAV tạm trong `data\tts-cache\piper\`. Phát bằng `MediaPlayer`, tô sáng theo cả câu. Chỉ bật khi có `libs\piper\` và giọng trong `voices\`. Tổng hợp trước câu tiếp theo | DEV | T0.8, T6.1 | 1,3 | Khoảng lặng giữa 2 câu ≤ 300 ms. Thiếu Piper thì engine này bị ẩn | ⬜ |
 | T6.8 | REV + SEC review và **PO nghiệm thu** (1 chương tiếng Việt và 1 chương tiếng Anh, có xuống khay giữa chừng) | REV, SEC, **PO** | T6.1–T6.7 | 0,3 | | ⬜ |
 
 ### PHASE 7: Azure Speech và bộ đếm % free (3–4 ngày)
