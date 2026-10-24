@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <string>
@@ -117,7 +118,7 @@ TEST_CASE("eb_mupdf reflowable pages are cleared to bg_rgb")
 TEST_CASE("eb_mupdf reflowable text colour comes from user_css")
 {
     const Lib lib;
-    const eb_render_opts o{1.0f, 0x00FF00, 0xFFFFFF, 1};
+    const eb_render_opts o{1.0f, 0x00FF00, 0xFFFFFF, 0};
     const BitmapPtr b = render_with_css("* { color: #ff0000 !important; }", o);
     size_t reddish = 0, darkish = 0, greenish = 0;
     for (int32_t y = 0; y < b->height; ++y) {
@@ -132,6 +133,24 @@ TEST_CASE("eb_mupdf reflowable text colour comes from user_css")
     CHECK(reddish > 50);
     CHECK(darkish == 0);
     CHECK(greenish == 0);
+}
+
+TEST_CASE("eb_mupdf tint maps a reflowable page black to fg and white to bg")
+{
+    const Lib lib;
+    const eb_render_opts o{1.0f, 0xD0D0D0, 0x121212, 1};
+    const BitmapPtr b = render_with_css(nullptr, o);
+    const uint8_t* corner = b->bgra + static_cast<size_t>(b->stride) * static_cast<size_t>(b->height - 1) + static_cast<size_t>(b->width - 1) * 4;
+    for (int c = 0; c < 3; ++c) CHECK(std::abs(corner[c] - 0x12) <= 2);
+    size_t textlike = 0;
+    for (int32_t y = 0; y < b->height; ++y) {
+        const uint8_t* row = b->bgra + static_cast<size_t>(y) * static_cast<size_t>(b->stride);
+        for (int32_t x = 0; x < b->width; ++x) {
+            if (std::abs(row[x * 4] - 0xD0) <= 16 && std::abs(row[x * 4 + 1] - 0xD0) <= 16 && std::abs(row[x * 4 + 2] - 0xD0) <= 16) ++textlike;
+        }
+    }
+    CHECK(textlike > 50);
+    CHECK(all_opaque(*b));
 }
 
 TEST_CASE("eb_mupdf fixed-layout pages ignore bg_rgb unless tint is set")
