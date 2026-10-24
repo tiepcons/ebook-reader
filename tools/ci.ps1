@@ -2,7 +2,8 @@
 param([switch]$Quick) # -Quick: debug tests + lint only
 $ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot
-$budgetKB = @{ 'EbookReader.exe' = 1536; 'eb_mupdf.dll' = 10240 }
+# PLAN.md §8 allows exe ≤ 3 MB; 2 MB is a tighter regression guard (C++/WinRT TTS + reader push past 1.5 MB).
+$budgetKB = @{ 'EbookReader.exe' = 2048; 'eb_mupdf.dll' = 10240 }
 $steps = if ($Quick) { @(@('test', 'debug'), @('build', 'lint')) } else {
     @(@('test', 'debug'), @('test', 'asan'), @('build', 'lint'), @('test', 'release')) }
 $fail = 0
