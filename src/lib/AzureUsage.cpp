@@ -12,6 +12,12 @@ namespace {
 constexpr uint64_t kMaxCount = 1000000000000000ULL;
 constexpr uint64_t kMaxQuota = 1000000000000ULL;
 constexpr int64_t kSecondsPerDay = 86400;
+constexpr int64_t kMaxUnix = 253402300799;
+
+int64_t clamp_time(int64_t t) noexcept
+{
+    return std::clamp<int64_t>(t, 0, kMaxUnix);
+}
 
 #define EB_TRY(expr)                                                                                                   \
     if (auto eb_r = (expr); !eb_r)                                                                                     \
@@ -144,6 +150,18 @@ Result<void> kv_put(Db& db, std::string_view key, std::string_view value)
     return {};
 }
 
+Result<void> kv_delete(Db& db, std::string_view key)
+{
+    auto st = db.prepare("DELETE FROM kv WHERE key=?1");
+    if (!st)
+        return std::unexpected(std::move(st.error()));
+    EB_TRY(st->bind_text(1, key));
+    auto step = st->step();
+    if (!step)
+        return std::unexpected(std::move(step.error()));
+    return {};
+}
+
 Result<void> put_month(Db& db, std::string_view month, uint64_t chars, bool additive)
 {
     const char* sql = additive ? "INSERT INTO tts_usage(month,chars) VALUES(?1,?2) ON CONFLICT(month) DO UPDATE SET "
@@ -252,7 +270,7 @@ std::wstring format_status_vi(const UsageStatus& s) noexcept
 Result<void> AzureUsage::add(int64_t now_unix, uint64_t chars) noexcept
 {
     try {
-        return put_month(*db_, month_utc(now_unix), chars, true);
+        return put_month(*db_, month_utc(clamp_time(now_unix)), chars, true);
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::NoMemory);
     } catch (...) {
@@ -263,6 +281,7 @@ Result<void> AzureUsage::add(int64_t now_unix, uint64_t chars) noexcept
 Result<UsageStatus> AzureUsage::status(int64_t now_unix) noexcept
 {
     try {
+        now_unix = clamp_time(now_unix);
         auto quota = read_quota(*db_);
         if (!quota)
             return std::unexpected(std::move(quota.error()));
@@ -273,9 +292,9 @@ Result<UsageStatus> AzureUsage::status(int64_t now_unix) noexcept
         s.used = *used;
         s.quota = *quota;
         s.over_quota = s.used >= s.quota;
-        const double pct = std::min(100.0, static_cast<double>(s.used) * 100.0 / static_cast<double>(s.quota));
-        s.percent_used = std::round(pct * 10) / 10;
-        s.percent_left = std::round((100.0 - pct) * 10) / 10;
+        const uint64_t tenths = s.over_quota ? 1000 : s.used * 1000 / s.quota;
+        s.percent_used = static_cast<double>(tenths) / 10;
+        s.percent_left = static_cast<double>(1000 - tenths) / 10;
         s.reset_utc_unix = next_month_start(now_unix);
         return s;
     } catch (const std::bad_alloc&) {
@@ -288,7 +307,19 @@ Result<UsageStatus> AzureUsage::status(int64_t now_unix) noexcept
 Result<void> AzureUsage::calibrate(int64_t now_unix, uint64_t used_this_month) noexcept
 {
     try {
-        return put_month(*db_, month_utc(now_unix), used_this_month, false);
+        now_unix = clamp_time(now_unix);
+        const std::string month = month_utc(now_unix);
+        auto tx = Tx::begin(*db_);
+        if (!tx)
+            return std::unexpected(std::move(tx.error()));
+        EB_TRY(put_month(*db_, month, used_this_month, false));
+        auto s = status(now_unix);
+        if (!s)
+            return std::unexpected(std::move(s.error()));
+        const Warn level = level_for(*s);
+        const std::string key = "azure.warned." + month;
+        EB_TRY(level == Warn::None ? kv_delete(*db_, key) : kv_put(*db_, key, std::to_string(static_cast<int>(level))));
+        return tx->commit();
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::NoMemory);
     } catch (...) {
@@ -299,18 +330,13 @@ Result<void> AzureUsage::calibrate(int64_t now_unix, uint64_t used_this_month) n
 Result<void> AzureUsage::reset_month(int64_t now_unix) noexcept
 {
     try {
+        now_unix = clamp_time(now_unix);
         const std::string month = month_utc(now_unix);
         auto tx = Tx::begin(*db_);
         if (!tx)
             return std::unexpected(std::move(tx.error()));
         EB_TRY(put_month(*db_, month, 0, false));
-        auto st = db_->prepare("DELETE FROM kv WHERE key=?1");
-        if (!st)
-            return std::unexpected(std::move(st.error()));
-        EB_TRY(st->bind_text(1, "azure.warned." + month));
-        auto step = st->step();
-        if (!step)
-            return std::unexpected(std::move(step.error()));
+        EB_TRY(kv_delete(*db_, "azure.warned." + month));
         return tx->commit();
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::NoMemory);
@@ -322,6 +348,7 @@ Result<void> AzureUsage::reset_month(int64_t now_unix) noexcept
 Result<Warn> AzureUsage::check_warning(int64_t now_unix) noexcept
 {
     try {
+        now_unix = clamp_time(now_unix);
         auto tx = Tx::begin(*db_);
         if (!tx)
             return std::unexpected(std::move(tx.error()));

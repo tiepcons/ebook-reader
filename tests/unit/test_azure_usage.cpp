@@ -73,8 +73,8 @@ TEST_CASE("status math and reset date")
     REQUIRE(u.calibrate(kOct31Last, 123456).has_value());
     auto s = u.status(kOct31Last).value();
     CHECK(s.quota == 500000);
-    CHECK(s.percent_used == doctest::Approx(24.7));
-    CHECK(s.percent_left == doctest::Approx(75.3));
+    CHECK(s.percent_used == doctest::Approx(24.6));
+    CHECK(s.percent_left == doctest::Approx(75.4));
     CHECK(s.reset_utc_unix == kNov1);
     CHECK_FALSE(s.over_quota);
     CHECK(u.status(kDec1 + 5)->reset_utc_unix == kJan1);
@@ -132,7 +132,7 @@ TEST_CASE("format_status_vi renders Vietnamese grouping")
     eb::AzureUsage u(db);
     REQUIRE(u.calibrate(kOct31Last, 123456).has_value());
     CHECK(eb::format_status_vi(u.status(kOct31Last).value())
-        == L"Đã dùng 123.456 / 500.000 ký tự (24,7%) · Còn 75,3% · Reset 01/11 (UTC)");
+        == L"Đã dùng 123.456 / 500.000 ký tự (24,6%) · Còn 75,4% · Reset 01/11 (UTC)");
     REQUIRE(u.calibrate(kOct31Last, 0).has_value());
     CHECK(eb::format_status_vi(u.status(kOct31Last).value())
         == L"Đã dùng 0 / 500.000 ký tự (0,0%) · Còn 100,0% · Reset 01/11 (UTC)");
@@ -164,4 +164,43 @@ TEST_CASE("concurrent add from two connections sums correctly")
     CHECK(failures.load() == 0);
     auto db = fresh(t);
     CHECK(eb::AzureUsage(db).status(kNov1)->used == 1200);
+}
+
+TEST_CASE("percent floors below quota and shows 100 only when over")
+{
+    const ebtest::TempDir t;
+    auto db = fresh(t);
+    eb::AzureUsage u(db);
+    REQUIRE(u.calibrate(kNov1, 499999).has_value());
+    auto s = u.status(kNov1).value();
+    CHECK_FALSE(s.over_quota);
+    CHECK(s.percent_used == doctest::Approx(99.9));
+    CHECK(s.percent_left == doctest::Approx(0.1));
+    REQUIRE(u.calibrate(kNov1, 500000).has_value());
+    CHECK(eb::format_status_vi(u.status(kNov1).value()).find(L"(100,0%) · Còn 0,0%") != std::wstring::npos);
+}
+
+TEST_CASE("calibrate resets the warned level to the calibrated value")
+{
+    const ebtest::TempDir t;
+    auto db = fresh(t);
+    eb::AzureUsage u(db);
+    REQUIRE(u.add(kNov1, 400000).has_value());
+    CHECK(u.check_warning(kNov1).value() == eb::Warn::P80);
+    REQUIRE(u.calibrate(kNov1, 100).has_value());
+    REQUIRE(u.add(kNov1, 400000).has_value());
+    CHECK(u.check_warning(kNov1).value() == eb::Warn::P80);
+    REQUIRE(u.calibrate(kNov1, 480000).has_value());
+    CHECK(u.check_warning(kNov1).value() == eb::Warn::None);
+}
+
+TEST_CASE("out-of-range time is clamped")
+{
+    const ebtest::TempDir t;
+    auto db = fresh(t);
+    eb::AzureUsage u(db);
+    REQUIRE(u.add(-5, 10).has_value());
+    CHECK(u.status(0)->used == 10);
+    REQUIRE(u.add(INT64_MAX, 4).has_value());
+    CHECK(u.status(INT64_MAX)->used == 4);
 }

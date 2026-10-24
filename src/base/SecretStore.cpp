@@ -4,6 +4,7 @@
 // wincred.h needs windows.h first
 #include <wincred.h>
 
+#include <algorithm>
 #include <new>
 #include <string>
 #include <utility>
@@ -36,6 +37,8 @@ std::unexpected<Error> win_fail(DWORD err) noexcept
         return fail(ErrorCode::NotFound);
     if (err == ERROR_ACCESS_DENIED)
         return fail(ErrorCode::Access);
+    if (err == ERROR_NO_SUCH_LOGON_SESSION || err == ERROR_NOT_SUPPORTED)
+        return fail(ErrorCode::Unavailable, L"Credential Manager không khả dụng trên máy này");
     return fail(ErrorCode::Io);
 }
 
@@ -81,22 +84,48 @@ Result<SecretString> SecretString::copy_of(std::wstring_view s) noexcept
     return out;
 }
 
-Result<void> secret_set(std::wstring_view target, std::wstring_view secret) noexcept
+SecretString SecretString::from_window_text(HWND__* edit) noexcept
+{
+    SecretString out;
+    const int len = GetWindowTextLengthW(edit);
+    if (len <= 0 || static_cast<size_t>(len) > kMaxSecretChars)
+        return out;
+    out.buf_.reset(new (std::nothrow) wchar_t[static_cast<size_t>(len) + 1]);
+    if (!out.buf_)
+        return out;
+    out.size_ = static_cast<size_t>(len);
+    const int got = GetWindowTextW(edit, out.buf_.get(), len + 1);
+    SecureZeroMemory(out.buf_.get() + got, (static_cast<size_t>(len) + 1 - static_cast<size_t>(got)) * sizeof(wchar_t));
+    out.size_ = static_cast<size_t>(got);
+    return out;
+}
+
+Result<void> validate_api_key(const SecretString& key) noexcept
+{
+    const std::wstring_view v = key.view();
+    const bool printable = std::all_of(v.begin(), v.end(), [](wchar_t c) { return c >= 0x21 && c <= 0x7E; });
+    if (!printable || v.size() < kMinApiKeyChars || v.size() > kMaxApiKeyChars)
+        return fail(ErrorCode::Format, L"Khóa API không hợp lệ (chỉ gồm chữ và số)");
+    return {};
+}
+
+Result<void> secret_set(std::wstring_view target, const SecretString& secret) noexcept
 {
     try {
         auto name = check_target(target);
         if (!name)
             return std::unexpected(std::move(name.error()));
-        if (secret.empty())
+        if (secret.view().empty())
             return fail(ErrorCode::Format, L"empty secret");
-        auto copy = SecretString::copy_of(secret);
-        if (!copy)
-            return std::unexpected(std::move(copy.error()));
+        wchar_t comment[] = L"Ebook Reader – Azure Speech key";
+        wchar_t user[] = L"azure-speech";
         CREDENTIALW cred{};
         cred.Type = CRED_TYPE_GENERIC;
         cred.TargetName = name->data();
-        cred.CredentialBlobSize = static_cast<DWORD>(secret.size() * sizeof(wchar_t));
-        cred.CredentialBlob = reinterpret_cast<LPBYTE>(const_cast<wchar_t*>(copy->view().data()));
+        cred.Comment = comment;
+        cred.UserName = user;
+        cred.CredentialBlobSize = static_cast<DWORD>(secret.view().size() * sizeof(wchar_t));
+        cred.CredentialBlob = reinterpret_cast<LPBYTE>(const_cast<wchar_t*>(secret.view().data()));
         cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
         if (!CredWriteW(&cred, 0))
             return win_fail(GetLastError());

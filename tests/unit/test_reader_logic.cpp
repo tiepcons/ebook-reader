@@ -29,7 +29,8 @@ TEST_CASE("reader: DIP to point layout math")
     CHECK(at96.em_pt == doctest::Approx(12.0));
     const auto at192 = eb::reflow_layout(2000, 1600, 192);
     CHECK(at192.width_pt == doctest::Approx(at96.width_pt));
-    CHECK(at192.em_pt == doctest::Approx(24.0));
+    CHECK(at192.em_pt == doctest::Approx(12.0));
+    CHECK(eb::reflow_layout(1500, 900, 144).em_pt == doctest::Approx(12.0));
     CHECK(eb::reflow_layout(0, 0, 96).width_pt == doctest::Approx(eb::kMinLayoutPt));
     CHECK(eb::render_scale(96) == doctest::Approx(96.0 / 72.0));
 }
@@ -41,14 +42,17 @@ TEST_CASE("reader: zoom clamp, fit modes and steps")
     CHECK(eb::clamp_zoom(NAN) == doctest::Approx(100));
     const float actual = eb::render_scale(96);
     const eb::ZoomState page;
-    CHECK(eb::fixed_scale(page, 600, 800, 1200, 800, 96) == doctest::Approx(1.0));
+    CHECK(eb::fixed_scale(page, 600, 800, 1200, 800, 96, 16384) == doctest::Approx(1.0));
     const eb::ZoomState width{eb::ZoomState::Fit::Width, 100};
-    CHECK(eb::fixed_scale(width, 600, 800, 900, 400, 96) == doctest::Approx(1.5));
+    CHECK(eb::fixed_scale(width, 600, 800, 900, 400, 96, 16384) == doctest::Approx(1.5));
     const eb::ZoomState custom{eb::ZoomState::Fit::Custom, 200};
-    CHECK(eb::fixed_scale(custom, 600, 800, 100, 100, 96) == doctest::Approx(actual * 2));
-    CHECK(eb::fixed_scale(eb::ZoomState{eb::ZoomState::Fit::Custom, 9000}, 100, 100, 100, 100, 96) == doctest::Approx(actual * 4));
-    CHECK(eb::fixed_scale(page, 1, 1, 10000, 10000, 96) <= actual * 4 + 0.001F);
-    CHECK(eb::fixed_scale(page, 0, 0, 100, 100, 96) == doctest::Approx(actual));
+    CHECK(eb::fixed_scale(custom, 600, 800, 100, 100, 96, 16384) == doctest::Approx(actual * 2));
+    CHECK(eb::fixed_scale(eb::ZoomState{eb::ZoomState::Fit::Custom, 9000}, 100, 100, 100, 100, 96, 16384) == doctest::Approx(actual * 4));
+    CHECK(eb::fixed_scale(page, 1, 1, 10000, 10000, 96, 16384) <= actual * 4 + 0.001F);
+    CHECK(eb::fixed_scale(page, 0, 0, 100, 100, 96, 16384) == doctest::Approx(actual));
+    CHECK(eb::limit_scale(5.0F, 1000, 1000, 2048) == doctest::Approx(2.047));
+    CHECK(eb::limit_scale(5.0F, 4000, 4000, 16384) == doctest::Approx(std::sqrt(8.0 * 1024 * 1024 / 16.0e6)));
+    CHECK(eb::limit_scale(1.0F, 100, 100, 4096) == doctest::Approx(1.0));
     const auto in = eb::zoom_step(actual, 96, 1);
     CHECK(in.fit == eb::ZoomState::Fit::Custom);
     CHECK(in.percent == doctest::Approx(125));
@@ -108,6 +112,13 @@ TEST_CASE("reader: LRU byte accounting")
     lru.put(9, 90, 500); // a single oversized entry is kept alone
     CHECK(lru.size() == 1);
     CHECK(lru.bytes() == 500);
+    lru.set_cap(120);
+    CHECK(lru.size() == 1);
+    lru.put(1, 1, 60);
+    lru.put(2, 2, 60);
+    lru.set_cap(60);
+    CHECK(lru.size() == 1);
+    CHECK(lru.contains(2));
     lru.clear();
     CHECK(lru.bytes() == 0);
     CHECK(lru.size() == 0);
@@ -134,6 +145,18 @@ TEST_CASE("reader: a newer request replaces the pending one and stale generation
     q.done();
     q.post(want(4));
     CHECK(aborts == 1);
+}
+
+TEST_CASE("reader: supersede makes earlier requests stale and drops the pending one")
+{
+    eb::RenderQueue q([] {});
+    const auto g = q.post(want(1));
+    q.supersede();
+    CHECK_FALSE(q.current(g));
+    std::stop_source src;
+    src.request_stop();
+    eb::RenderWant w;
+    CHECK_FALSE(q.pop(w, src.get_token()));
 }
 
 TEST_CASE("reader: pop returns on stop and wakes on a late post")

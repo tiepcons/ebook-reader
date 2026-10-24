@@ -5,7 +5,7 @@
 
 namespace eb {
 
-enum class ErrorCode : unsigned char { Io, NotFound, Access, Format, Limit, NoMemory, Abi, Internal };
+enum class ErrorCode : unsigned char { Io, NotFound, Access, Format, Limit, NoMemory, Abi, Internal, Unavailable };
 
 struct Error {
     ErrorCode code;
