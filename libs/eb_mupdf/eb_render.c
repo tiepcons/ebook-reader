@@ -72,7 +72,7 @@ static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, con
     fz_context* ctx = d->ctx;
     fz_device* dev = NULL;
     fz_matrix m = fz_concat(fz_translate(-b.x0, -b.y0), fz_scale(s, s));
-    if (d->reflowable) clear_to_rgb(pix, rq->bg);
+    if (d->reflowable && !rq->tint) clear_to_rgb(pix, rq->bg);
     else fz_clear_pixmap_with_value(ctx, pix, 255);
     fz_var(dev);
     fz_try(ctx)
@@ -84,7 +84,7 @@ static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, con
     }
     fz_always(ctx) fz_drop_device(ctx, dev);
     fz_catch(ctx) fz_rethrow(ctx);
-    if (rq->tint && !d->reflowable) fz_tint_pixmap(ctx, pix, (int)rq->fg, (int)rq->bg);
+    if (rq->tint) fz_tint_pixmap(ctx, pix, (int)rq->fg, (int)rq->bg);
     eb_make_opaque(pix);
 }
 

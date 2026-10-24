@@ -1,7 +1,6 @@
 #include "eb_internal.h"
+#include "eb_sfnt.h"
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
 #include <mupdf/ucdn.h>
 
 #include <stdlib.h>
@@ -11,29 +10,48 @@
 
 #define EB_FONT_MAX_DIRS 32
 #define EB_FONT_MAX_FILES 512
-#define EB_FONT_MAX_FACES 16
 #define EB_FONT_MAX_BYTES ((DWORD)32 << 20)
 #define EB_FONT_CACHE_BYTES ((size_t)128 << 20)
 #define EB_FONT_MAX_PATH_CHARS 32000
+#define EB_FONT_DOC_LOADS 32
 #define EB_VI_PROBE_A 0x1EA1
 #define EB_VI_PROBE_O 0x01A1
 
-typedef struct face {
+typedef struct file_ent {
     wchar_t* path;
-    char* family;
-    int bold, italic, index;
     size_t size;
+    fz_buffer* buf; /* shared by every face of the file once loaded */
+} file_ent;
+
+typedef struct face {
+    int file, index;
+    char* family;
+    int bold, italic;
     fz_font* font;
 } face;
 
-typedef struct builder {
-    face* v;
-    int n, cap, files;
-} builder;
+typedef struct state {
+    file_ent* files;
+    int nfiles, capfiles;
+    face* faces;
+    int nfaces, capfaces;
+    int oom;
+} state;
+
+typedef struct ticket {
+    int face, file, index;
+    unsigned gen;
+    wchar_t* path;
+    fz_buffer* buf;
+    fz_font* font;
+    size_t size;
+} ticket;
+
+enum { CLAIM_NONE, CLAIM_HIT, CLAIM_WORK };
 
 static SRWLOCK g_font_lock = SRWLOCK_INIT;
-static face* g_faces;
-static int g_nfaces;
+static state g_st;
+static unsigned g_gen;
 static size_t g_cached;
 static int g_installed;
 
@@ -43,14 +61,21 @@ static const wchar_t* const k_any[] = {L"*.ttf", L"*.otf", L"*.ttc"};
 static const wchar_t* const k_system[] = {L"georgia*.ttf", L"cambria*.ttc", L"segoeui*.ttf", L"times*.ttf",
                                           L"arial*.ttf",   L"tahoma*.ttf",  L"pala*.ttf",    L"calibri*.ttf"};
 
-static void free_faces(fz_context* ctx, face* v, int n)
+#define COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
+
+static void free_state(fz_context* ctx, state* s)
 {
-    for (int i = 0; i < n; ++i) {
-        fz_drop_font(ctx, v[i].font);
-        free(v[i].path);
-        free(v[i].family);
+    for (int i = 0; i < s->nfiles; ++i) {
+        fz_drop_buffer(ctx, s->files[i].buf);
+        free(s->files[i].path);
     }
-    free(v);
+    for (int i = 0; i < s->nfaces; ++i) {
+        fz_drop_font(ctx, s->faces[i].font);
+        free(s->faces[i].family);
+    }
+    free(s->files);
+    free(s->faces);
+    memset(s, 0, sizeof *s);
 }
 
 static int is_sep(wchar_t c) { return c == L'\\' || c == L'/'; }
@@ -61,55 +86,117 @@ static int has_font_ext(const wchar_t* name)
     return dot && (_wcsicmp(dot, L".ttf") == 0 || _wcsicmp(dot, L".otf") == 0 || _wcsicmp(dot, L".ttc") == 0);
 }
 
-static int same_dir(const wchar_t* a, const wchar_t* b)
+static int grow(void** v, int* cap, size_t elem)
 {
-    size_t la = wcslen(a), lb = wcslen(b);
-    while (la > 0 && is_sep(a[la - 1])) --la;
-    while (lb > 0 && is_sep(b[lb - 1])) --lb;
-    if (la != lb) return 0;
-    for (size_t i = 0; i < la; ++i) {
-        if (is_sep(a[i]) && is_sep(b[i])) continue;
-        if (towlower(a[i]) != towlower(b[i])) return 0;
-    }
+    int ncap = *cap ? *cap * 2 : 16;
+    void* nv = realloc(*v, (size_t)ncap * elem);
+    if (!nv) return 0;
+    *v = nv;
+    *cap = ncap;
     return 1;
 }
 
-static int is_system_fonts_dir(const wchar_t* dir)
+/* Only "X:\..." and "\\?\X:\..." are accepted; UNC, device and other \\?\ forms are refused. */
+static int path_shape_ok(const wchar_t* p)
+{
+    size_t n = wcsnlen(p, EB_FONT_MAX_PATH_CHARS + 1);
+    if (n < 3 || n > EB_FONT_MAX_PATH_CHARS) return 0;
+    if (is_sep(p[0]) && is_sep(p[1])) {
+        if (p[2] != L'?' || p[3] != L'\\') return 0;
+        p += 4;
+    }
+    return ((p[0] >= L'A' && p[0] <= L'Z') || (p[0] >= L'a' && p[0] <= L'z')) && p[1] == L':' && is_sep(p[2]);
+}
+
+static int is_plain_dir(HANDLE h)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    return GetFileInformationByHandle(h, &info) && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+           !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
+static HANDLE open_dir(const wchar_t* dir)
+{
+    HANDLE h = INVALID_HANDLE_VALUE;
+    if (!path_shape_ok(dir)) return INVALID_HANDLE_VALUE;
+    h = CreateFileW(dir, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (h != INVALID_HANDLE_VALUE && !is_plain_dir(h)) {
+        CloseHandle(h);
+        return INVALID_HANDLE_VALUE;
+    }
+    return h;
+}
+
+/* malloc'd "\\?\X:\..." path of an open handle, or NULL. */
+static wchar_t* final_path(HANDLE h)
+{
+    DWORD n = GetFinalPathNameByHandleW(h, NULL, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    wchar_t* p = NULL;
+    if (n == 0 || n > EB_FONT_MAX_PATH_CHARS) return NULL;
+    p = malloc((size_t)n * sizeof *p);
+    if (p && GetFinalPathNameByHandleW(h, p, n, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS) == n - 1 && path_shape_ok(p)) return p;
+    free(p);
+    return NULL;
+}
+
+static int is_system_fonts_dir(const wchar_t* final)
 {
     wchar_t sys[MAX_PATH + 8];
     UINT n = GetSystemWindowsDirectoryW(sys, MAX_PATH);
+    HANDLE h = INVALID_HANDLE_VALUE;
+    wchar_t* sysfinal = NULL;
+    int same = 0;
     if (n == 0 || n >= MAX_PATH) return 0;
     wcscat_s(sys, sizeof sys / sizeof sys[0], L"\\Fonts");
-    return same_dir(dir, sys);
+    h = open_dir(sys);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    sysfinal = final_path(h);
+    CloseHandle(h);
+    same = sysfinal && _wcsicmp(sysfinal, final) == 0;
+    free(sysfinal);
+    return same;
 }
 
-static int dir_usable(const wchar_t* dir)
+typedef struct file_reader {
+    HANDLE h;
+} file_reader;
+
+static int file_read(void* user, uint64_t off, void* dst, size_t len)
 {
-    DWORD attr = 0;
-    size_t n = wcsnlen(dir, EB_FONT_MAX_PATH_CHARS + 1);
-    if (n < 3 || n > EB_FONT_MAX_PATH_CHARS) return 0;
-    if (is_sep(dir[0]) && is_sep(dir[1]) && dir[2] == L'.') return 0;
-    attr = GetFileAttributesW(dir);
-    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) && !(attr & FILE_ATTRIBUTE_REPARSE_POINT);
+    LARGE_INTEGER pos;
+    DWORD got = 0;
+    pos.QuadPart = (LONGLONG)off;
+    return len <= EB_FONT_MAX_BYTES && SetFilePointerEx(((file_reader*)user)->h, pos, NULL, FILE_BEGIN) &&
+           ReadFile(((file_reader*)user)->h, dst, (DWORD)len, &got, NULL) && got == len;
+}
+
+static HANDLE open_font_file(const wchar_t* path, DWORD* size)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (h == INVALID_HANDLE_VALUE) return h;
+    if (!GetFileInformationByHandle(h, &info) || (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+        info.nFileSizeHigh != 0 || info.nFileSizeLow == 0 || info.nFileSizeLow > EB_FONT_MAX_BYTES) {
+        CloseHandle(h);
+        return INVALID_HANDLE_VALUE;
+    }
+    *size = info.nFileSizeLow;
+    return h;
 }
 
 static fz_buffer* read_font_file(fz_context* ctx, const wchar_t* path)
 {
-    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    DWORD size = 0, got = 0;
+    HANDLE h = open_font_file(path, &size);
     fz_buffer* buf = NULL;
     fz_var(buf);
     if (h == INVALID_HANDLE_VALUE) fz_throw(ctx, FZ_ERROR_LIBRARY, "cannot open font file");
     fz_try(ctx)
     {
-        BY_HANDLE_FILE_INFORMATION info;
-        DWORD got = 0;
-        if (!GetFileInformationByHandle(h, &info) || (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
-            info.nFileSizeHigh != 0 || info.nFileSizeLow == 0 || info.nFileSizeLow > EB_FONT_MAX_BYTES)
-            fz_throw(ctx, FZ_ERROR_LIBRARY, "font file rejected");
-        buf = fz_new_buffer(ctx, info.nFileSizeLow);
-        if (!ReadFile(h, buf->data, info.nFileSizeLow, &got, NULL) || got != info.nFileSizeLow)
-            fz_throw(ctx, FZ_ERROR_LIBRARY, "cannot read font file");
+        buf = fz_new_buffer(ctx, size);
+        if (!ReadFile(h, buf->data, size, &got, NULL) || got != size) fz_throw(ctx, FZ_ERROR_LIBRARY, "cannot read font file");
         buf->len = got;
     }
     fz_always(ctx) CloseHandle(h);
@@ -121,73 +208,40 @@ static fz_buffer* read_font_file(fz_context* ctx, const wchar_t* path)
     return buf;
 }
 
-static int builder_add(builder* b, face* f)
+static void add_file(const wchar_t* path, state* s)
 {
-    if (b->n == b->cap) {
-        int cap = b->cap ? b->cap * 2 : 16;
-        face* nv = realloc(b->v, (size_t)cap * sizeof *nv);
-        if (!nv) return 0;
-        b->v = nv;
-        b->cap = cap;
+    DWORD size = 0;
+    HANDLE h = open_font_file(path, &size);
+    file_reader rd = {h};
+    eb_sfnt_face found[EB_SFNT_MAX_FACES];
+    int idx[EB_SFNT_MAX_FACES];
+    int n = 0, count = 0;
+    if (h == INVALID_HANDLE_VALUE) return;
+    count = eb_sfnt_face_count(file_read, &rd, size);
+    for (int i = 0; i < count; ++i) {
+        if (eb_sfnt_probe(file_read, &rd, size, i, &found[n])) idx[n++] = i;
     }
-    b->v[b->n++] = *f;
-    return 1;
-}
-
-static int face_count(const fz_buffer* buf)
-{
-    const unsigned char* d = buf->data;
-    if (buf->len < 12 || memcmp(d, "ttcf", 4) != 0) return 1;
-    unsigned n = ((unsigned)d[8] << 24) | ((unsigned)d[9] << 16) | ((unsigned)d[10] << 8) | d[11];
-    return n < 1 ? 1 : n > EB_FONT_MAX_FACES ? EB_FONT_MAX_FACES : (int)n;
-}
-
-/* Reads family and style of one face; returns 0 for a face that is unusable. */
-static int probe_face(fz_context* ctx, fz_buffer* buf, int index, face* out)
-{
-    fz_font* font = NULL;
-    int ok = 0;
-    fz_var(font);
-    fz_try(ctx)
-    {
-        FT_Face ft = NULL;
-        font = fz_new_font_from_buffer(ctx, NULL, buf, index, 0);
-        ft = (FT_Face)fz_font_ft_face(ctx, font);
-        if (ft && ft->family_name && ft->family_name[0]) {
-            out->family = _strdup(ft->family_name);
-            out->bold = fz_font_is_bold(ctx, font) != 0;
-            out->italic = fz_font_is_italic(ctx, font) != 0;
-            ok = out->family != NULL;
+    CloseHandle(h);
+    if (n == 0) return;
+    if (s->nfiles == s->capfiles && !grow((void**)&s->files, &s->capfiles, sizeof *s->files)) s->oom = 1;
+    if (s->oom) return;
+    s->files[s->nfiles] = (file_ent){_wcsdup(path), size, NULL};
+    if (!s->files[s->nfiles].path) {
+        s->oom = 1;
+        return;
+    }
+    ++s->nfiles;
+    for (int i = 0; i < n && !s->oom; ++i) {
+        if (s->nfaces == s->capfaces && !grow((void**)&s->faces, &s->capfaces, sizeof *s->faces)) s->oom = 1;
+        else if ((s->faces[s->nfaces].family = _strdup(found[i].family)) == NULL) s->oom = 1;
+        else {
+            s->faces[s->nfaces].file = s->nfiles - 1;
+            s->faces[s->nfaces].index = idx[i];
+            s->faces[s->nfaces].bold = found[i].bold;
+            s->faces[s->nfaces].italic = found[i].italic;
+            s->faces[s->nfaces++].font = NULL;
         }
     }
-    fz_always(ctx) fz_drop_font(ctx, font);
-    fz_catch(ctx) ok = 0;
-    return ok;
-}
-
-static void add_file(fz_context* ctx, const wchar_t* path, builder* b)
-{
-    fz_buffer* buf = NULL;
-    int faces = 0;
-    fz_var(buf);
-    fz_try(ctx)
-    {
-        buf = read_font_file(ctx, path);
-        faces = face_count(buf);
-        for (int i = 0; i < faces; ++i) {
-            face f = {0};
-            f.index = i;
-            f.size = buf->len;
-            if (!probe_face(ctx, buf, i, &f)) continue;
-            f.path = _wcsdup(path);
-            if (!f.path || !builder_add(b, &f)) {
-                free(f.path);
-                free(f.family);
-            }
-        }
-    }
-    fz_always(ctx) fz_drop_buffer(ctx, buf);
-    fz_catch(ctx) {}
 }
 
 static wchar_t* join_path(const wchar_t* dir, const wchar_t* name)
@@ -207,7 +261,7 @@ static int entry_ok(const WIN32_FIND_DATAW* fd)
            fd->nFileSizeHigh == 0 && fd->nFileSizeLow > 0 && fd->nFileSizeLow <= EB_FONT_MAX_BYTES;
 }
 
-static void scan_pattern(fz_context* ctx, const wchar_t* dir, const wchar_t* pattern, builder* b)
+static void scan_pattern(const wchar_t* dir, const wchar_t* pattern, state* s, int* files)
 {
     WIN32_FIND_DATAW fd;
     wchar_t* query = join_path(dir, pattern);
@@ -216,98 +270,176 @@ static void scan_pattern(fz_context* ctx, const wchar_t* dir, const wchar_t* pat
     if (h == INVALID_HANDLE_VALUE) return;
     do {
         wchar_t* full = NULL;
-        if (b->files >= EB_FONT_MAX_FILES) break;
+        if (*files >= EB_FONT_MAX_FILES || s->oom) break;
         if (!entry_ok(&fd)) continue;
         full = join_path(dir, fd.cFileName);
-        if (!full) break;
-        ++b->files;
-        add_file(ctx, full, b);
+        if (!full) {
+            s->oom = 1;
+            break;
+        }
+        ++*files;
+        add_file(full, s);
         free(full);
     } while (FindNextFileW(h, &fd));
     FindClose(h);
 }
 
-static void scan_dir(fz_context* ctx, const wchar_t* dir, builder* b)
+static void scan_dir(const wchar_t* dir, state* s, int* files)
 {
-    const int sys = is_system_fonts_dir(dir);
+    HANDLE h = open_dir(dir);
+    wchar_t* fp = h == INVALID_HANDLE_VALUE ? NULL : final_path(h);
+    const int sys = fp && is_system_fonts_dir(fp);
     const wchar_t* const* pats = sys ? k_system : k_any;
-    const int n = sys ? (int)(sizeof k_system / sizeof k_system[0]) : (int)(sizeof k_any / sizeof k_any[0]);
-    if (!dir_usable(dir)) return;
-    for (int i = 0; i < n; ++i) scan_pattern(ctx, dir, pats[i], b);
+    const int n = sys ? (int)COUNT_OF(k_system) : (int)COUNT_OF(k_any);
+    for (int i = 0; fp && i < n; ++i) scan_pattern(fp, pats[i], s, files);
+    free(fp);
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
 }
 
 static int ci_equal(const char* a, const char* b) { return _stricmp(a, b) == 0; }
 
-static face* best_face(const char* family, int bold, int italic)
+static int best_face(const char* family, int bold, int italic)
 {
-    face* best = NULL;
-    int best_score = -1;
-    for (int i = 0; i < g_nfaces; ++i) {
+    int best = -1, best_score = -1;
+    for (int i = 0; i < g_st.nfaces; ++i) {
         int score = 0;
-        if (!ci_equal(g_faces[i].family, family)) continue;
-        score = 2 * (g_faces[i].bold == (bold != 0)) + 4 * (g_faces[i].italic == (italic != 0));
+        if (!ci_equal(g_st.faces[i].family, family)) continue;
+        score = 2 * (g_st.faces[i].bold == (bold != 0)) + 4 * (g_st.faces[i].italic == (italic != 0));
         if (score > best_score) {
             best_score = score;
-            best = &g_faces[i];
+            best = i;
         }
     }
     return best;
 }
 
-static face* generic_face(const char* const* prefs, size_t n, int bold, int italic)
+static int generic_face(const char* const* prefs, size_t n, int bold, int italic)
 {
     for (size_t i = 0; i < n; ++i) {
-        face* f = best_face(prefs[i], bold, italic);
-        if (f) return f;
+        int f = best_face(prefs[i], bold, italic);
+        if (f >= 0) return f;
     }
-    return NULL;
+    return -1;
 }
 
-#define COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
-
-static face* pick_face(const char* name, int bold, int italic)
+static int pick_face(const char* name, int bold, int italic, int generic)
 {
-    if (!name || !*name) return NULL;
-    if (ci_equal(name, "serif")) return generic_face(k_serif, COUNT_OF(k_serif), bold, italic);
-    if (ci_equal(name, "sans-serif")) return generic_face(k_sans, COUNT_OF(k_sans), bold, italic);
+    if (!name || !*name) return -1;
+    if (generic && ci_equal(name, "serif")) return generic_face(k_serif, COUNT_OF(k_serif), bold, italic);
+    if (generic && ci_equal(name, "sans-serif")) return generic_face(k_sans, COUNT_OF(k_sans), bold, italic);
     return best_face(name, bold, italic);
 }
 
-/* Caller holds g_font_lock; throws on read or parse failure. */
-static fz_font* face_font(fz_context* ctx, face* f)
+/* Looks the face up under the lock and either returns the cached font (CLAIM_HIT) or the data needed to build it. */
+static int claim(fz_context* ctx, const char* name, int bold, int italic, int generic, ticket* t)
 {
-    fz_buffer* buf = NULL;
+    int r = CLAIM_NONE, fi = -1;
+    AcquireSRWLockExclusive(&g_font_lock);
+    fi = pick_face(name, bold, italic, generic);
+    if (fi >= 0) {
+        face* f = &g_st.faces[fi];
+        file_ent* fl = &g_st.files[f->file];
+        *t = (ticket){fi, f->file, f->index, g_gen, NULL, NULL, NULL, fl->size};
+        if (f->font) {
+            t->font = fz_keep_font(ctx, f->font);
+            r = CLAIM_HIT;
+        } else if (fl->buf) {
+            t->buf = fz_keep_buffer(ctx, fl->buf);
+            r = CLAIM_WORK;
+        } else if (g_cached + fl->size <= EB_FONT_CACHE_BYTES && (t->path = _wcsdup(fl->path)) != NULL) {
+            r = CLAIM_WORK;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_font_lock);
+    return r;
+}
+
+/* Takes ownership of buf; returns the buffer to build from (the first published one wins), or NULL if the cache is full. */
+static fz_buffer* publish_buffer(fz_context* ctx, const ticket* t, fz_buffer* buf)
+{
+    AcquireSRWLockExclusive(&g_font_lock);
+    if (t->gen == g_gen) {
+        file_ent* fl = &g_st.files[t->file];
+        if (fl->buf) {
+            fz_drop_buffer(ctx, buf);
+            buf = fz_keep_buffer(ctx, fl->buf);
+        } else if (g_cached + t->size <= EB_FONT_CACHE_BYTES) {
+            fl->buf = fz_keep_buffer(ctx, buf);
+            g_cached += t->size;
+        } else {
+            fz_drop_buffer(ctx, buf);
+            buf = NULL;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_font_lock);
+    return buf;
+}
+
+static fz_font* publish_font(fz_context* ctx, const ticket* t, fz_font* font)
+{
+    AcquireSRWLockExclusive(&g_font_lock);
+    if (t->gen == g_gen) {
+        face* f = &g_st.faces[t->face];
+        if (f->font) {
+            fz_drop_font(ctx, font);
+            font = fz_keep_font(ctx, f->font);
+        } else {
+            f->font = fz_keep_font(ctx, font);
+        }
+    }
+    ReleaseSRWLockExclusive(&g_font_lock);
+    return font;
+}
+
+/* Reads and parses outside the lock. Failures other than out-of-memory only mean "no such font". */
+static fz_font* build(fz_context* ctx, ticket* t)
+{
+    fz_buffer* buf = t->buf;
     fz_font* font = NULL;
-    if (f->font) return fz_keep_font(ctx, f->font);
     fz_var(buf);
+    fz_var(font);
     fz_try(ctx)
     {
-        buf = read_font_file(ctx, f->path);
-        font = fz_new_font_from_buffer(ctx, NULL, buf, f->index, 0);
+        if (!buf) {
+            buf = read_font_file(ctx, t->path);
+            buf = publish_buffer(ctx, t, buf);
+        }
+        if (buf) font = fz_new_font_from_buffer(ctx, NULL, buf, t->index, 0);
     }
-    fz_always(ctx) fz_drop_buffer(ctx, buf);
-    fz_catch(ctx) fz_rethrow(ctx);
-    if (g_cached + f->size <= EB_FONT_CACHE_BYTES) {
-        f->font = fz_keep_font(ctx, font);
-        g_cached += f->size;
+    fz_always(ctx)
+    {
+        fz_drop_buffer(ctx, buf);
+        free(t->path);
     }
-    return font;
+    fz_catch(ctx)
+    {
+        fz_rethrow_if(ctx, FZ_ERROR_SYSTEM);
+        fz_report_error(ctx);
+        font = NULL;
+    }
+    return font ? publish_font(ctx, t, font) : NULL;
+}
+
+static fz_font* load_named(fz_context* ctx, const char* name, int bold, int italic, int generic)
+{
+    ticket t;
+    int* loads = (int*)fz_user_context(ctx);
+    int r = claim(ctx, name, bold, italic, generic, &t);
+    if (r == CLAIM_NONE) return NULL;
+    if (r == CLAIM_HIT) return t.font;
+    if (loads && *loads >= EB_FONT_DOC_LOADS) {
+        fz_drop_buffer(ctx, t.buf);
+        free(t.path);
+        return NULL;
+    }
+    if (loads) ++*loads;
+    return build(ctx, &t);
 }
 
 static fz_font* system_font(fz_context* ctx, const char* name, int bold, int italic, int exact)
 {
-    fz_font* font = NULL;
     (void)exact;
-    fz_var(font);
-    AcquireSRWLockExclusive(&g_font_lock);
-    fz_try(ctx)
-    {
-        face* f = pick_face(name, bold, italic);
-        if (f) font = face_font(ctx, f);
-    }
-    fz_always(ctx) ReleaseSRWLockExclusive(&g_font_lock);
-    fz_catch(ctx) fz_rethrow(ctx);
-    return font;
+    return load_named(ctx, name, bold, italic, 1);
 }
 
 static int covers_vietnamese(fz_context* ctx, fz_font* font)
@@ -315,39 +447,28 @@ static int covers_vietnamese(fz_context* ctx, fz_font* font)
     return fz_encode_character(ctx, font, EB_VI_PROBE_A) != 0 && fz_encode_character(ctx, font, EB_VI_PROBE_O) != 0;
 }
 
-static fz_font* fallback_from(fz_context* ctx, const char* const* prefs, size_t n, int bold, int italic)
+static fz_font* fallback_from(fz_context* ctx, const char* const* prefs, size_t n)
 {
     for (size_t i = 0; i < n; ++i) {
-        face* f = best_face(prefs[i], bold, italic);
-        fz_font* font = f ? face_font(ctx, f) : NULL;
+        fz_font* font = load_named(ctx, prefs[i], 0, 0, 0);
         if (font && covers_vietnamese(ctx, font)) return font;
         fz_drop_font(ctx, font);
     }
     return NULL;
 }
 
+/* Latin-script glyph fallback from the app fonts. Regular weight only: MuPDF keeps the first fallback font per script
+ * and serif flag for the whole life of the engine (until eb_shutdown), so style variants could not be honoured. */
 static fz_font* fallback_font(fz_context* ctx, int script, int language, int serif, int bold, int italic)
 {
     fz_font* font = NULL;
     (void)language;
+    (void)bold;
+    (void)italic;
     if (script != UCDN_SCRIPT_LATIN && script != UCDN_SCRIPT_COMMON && script != UCDN_SCRIPT_INHERITED) return NULL;
-    fz_var(font);
-    AcquireSRWLockExclusive(&g_font_lock);
-    fz_try(ctx)
-    {
-        font = fallback_from(ctx, serif ? k_serif : k_sans, serif ? COUNT_OF(k_serif) : COUNT_OF(k_sans), bold, italic);
-        if (!font) font = fallback_from(ctx, serif ? k_sans : k_serif, serif ? COUNT_OF(k_sans) : COUNT_OF(k_serif), bold, italic);
-    }
-    fz_always(ctx) ReleaseSRWLockExclusive(&g_font_lock);
-    fz_catch(ctx) fz_rethrow(ctx);
+    font = fallback_from(ctx, serif ? k_serif : k_sans, serif ? COUNT_OF(k_serif) : COUNT_OF(k_sans));
+    if (!font) font = fallback_from(ctx, serif ? k_sans : k_serif, serif ? COUNT_OF(k_sans) : COUNT_OF(k_serif));
     return font;
-}
-
-static void install_loaders(fz_context* ctx)
-{
-    if (g_installed) return;
-    fz_install_load_system_font_funcs(ctx, system_font, NULL, fallback_font);
-    g_installed = 1;
 }
 
 static int dirs_valid(const wchar_t* const* dirs, int32_t count)
@@ -361,36 +482,44 @@ static int dirs_valid(const wchar_t* const* dirs, int32_t count)
 
 eb_status eb_set_font_dirs(const wchar_t* const* dirs, int32_t count)
 {
-    builder b = {0};
-    face* old = NULL;
-    int old_n = 0;
+    state fresh = {0}, old;
+    int files = 0;
     fz_context* ctx = NULL;
     if (!dirs_valid(dirs, count)) return eb_fail_msg(EB_E_ARG, "bad font directories");
     ctx = eb_acquire_ctx();
     if (!ctx) return eb_take_oom() ? eb_fail_msg(EB_E_NOMEM, "out of memory") : eb_fail_msg(EB_E_ARG, "eb_init not called");
-    for (int32_t i = 0; i < count; ++i) scan_dir(ctx, dirs[i], &b);
+    for (int32_t i = 0; i < count && !fresh.oom; ++i) scan_dir(dirs[i], &fresh, &files);
+    if (fresh.oom) {
+        free_state(ctx, &fresh);
+        eb_release_ctx(ctx);
+        return eb_fail_msg(EB_E_NOMEM, "out of memory");
+    }
     AcquireSRWLockExclusive(&g_font_lock);
-    old = g_faces;
-    old_n = g_nfaces;
-    g_faces = b.v;
-    g_nfaces = b.n;
+    old = g_st;
+    g_st = fresh;
+    ++g_gen;
     g_cached = 0;
-    install_loaders(ctx);
+    if (!g_installed) {
+        fz_install_load_system_font_funcs(ctx, system_font, NULL, fallback_font);
+        g_installed = 1;
+    }
     ReleaseSRWLockExclusive(&g_font_lock);
-    free_faces(ctx, old, old_n);
+    free_state(ctx, &old);
     eb_release_ctx(ctx);
     return EB_OK;
 }
 
 void eb_fonts_release(fz_context* ctx)
 {
+    state old;
     AcquireSRWLockExclusive(&g_font_lock);
-    free_faces(ctx, g_faces, g_nfaces);
-    g_faces = NULL;
-    g_nfaces = 0;
+    old = g_st;
+    memset(&g_st, 0, sizeof g_st);
+    ++g_gen;
     g_cached = 0;
     g_installed = 0;
     ReleaseSRWLockExclusive(&g_font_lock);
+    free_state(ctx, &old);
 }
 
 static int cmp_names(const void* a, const void* b) { return _stricmp(*(char* const*)a, *(char* const*)b); }
@@ -413,10 +542,10 @@ eb_status eb_font_families(char*** names, int32_t* count)
     *names = NULL;
     *count = 0;
     AcquireSRWLockShared(&g_font_lock);
-    total = g_nfaces;
+    total = g_st.nfaces;
     v = calloc((size_t)total + 1, sizeof *v);
     for (int i = 0; v && i < total; ++i) {
-        v[n] = _strdup(g_faces[i].family);
+        v[n] = _strdup(g_st.faces[i].family);
         if (!v[n]) break;
         ++n;
     }

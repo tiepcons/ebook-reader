@@ -133,6 +133,7 @@ static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_mobi_i
         return eb_fail_msg(EB_E_NOMEM, "out of memory");
     }
     d->ctx = ctx;
+    fz_set_user_context(ctx, &d->font_loads);
     d->doc = fdoc;
     d->file = file;
     d->src = src;

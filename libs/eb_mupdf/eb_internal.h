@@ -31,6 +31,7 @@ struct eb_doc {
     fz_buffer* src;    /* kept bytes of memory-opened documents, for eb_embed.c */
     fz_buffer* cover_buf; /* embedded EPUB/FB2 cover bytes, released after the first successful cover render */
     int meta_probed, cover_probed;
+    int font_loads; /* system-font loads charged to this document (eb_font.c), reached via the ctx user pointer */
 };
 
 extern eb_limits eb_g_limits;
