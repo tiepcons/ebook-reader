@@ -11,7 +11,7 @@ Ebook Reader is licensed under the AGPL-3.0 and includes the following component
 | SQLite | 3.54.1 | Public domain | https://sqlite.org · `third_party/sqlite` |
 | doctest (tests only, not shipped) | 2.5.3 | MIT | https://github.com/doctest/doctest · `third_party/doctest` |
 
-Fonts, Piper/onnxruntime/espeak-ng and voice models will be listed here when they are added.
+Bundled fonts are listed below. Piper/onnxruntime/espeak-ng and voice models (optional download) will be listed when added.
 
 The full license texts are shipped in the `licenses\` folder of release packages. Because the complete source code
 of Ebook Reader (including the exact library versions above) is published in this repository, the source-availability
