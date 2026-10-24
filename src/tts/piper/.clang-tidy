@@ -1,0 +1,4 @@
+# C++/WinRT null-initialised handles ({nullptr}) trip clang-analyzer-core.CallAndMessage inside the SDK
+# projection headers, where NOLINT cannot reach; the check is disabled for this directory only.
+InheritParentConfig: true
+Checks: '-clang-analyzer-core.CallAndMessage'
