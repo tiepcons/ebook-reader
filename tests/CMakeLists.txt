@@ -66,5 +66,11 @@ add_test(NAME ui_single_instance COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:Eb
 set_tests_properties(ui_single_instance PROPERTIES TIMEOUT 40)
 target_sources(eb_tests PRIVATE unit/test_theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/Theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/FontPrefs.cpp)
 target_sources(eb_tests PRIVATE unit/test_tts_piper.cpp)
+target_sources(eb_tests PRIVATE unit/test_tts_azure_proto.cpp unit/test_tts_azure_cache.cpp unit/test_tts_azure_engine.cpp)
 target_compile_definitions(eb_tests PRIVATE EB_PIPER_DIR="${CMAKE_SOURCE_DIR}/build/spike/piper/bin/piper"
   EB_PIPER_VOICES="${CMAKE_SOURCE_DIR}/build/spike/piper/voices")
+add_executable(eb_fake_piper unit/fake_piper.cpp)
+target_link_libraries(eb_fake_piper PRIVATE eb_hardening eb_warnings)
+set_target_properties(eb_fake_piper PROPERTIES OUTPUT_NAME piper RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/fake_piper")
+add_dependencies(eb_tests eb_fake_piper)
+target_compile_definitions(eb_tests PRIVATE EB_FAKE_PIPER_DIR="${CMAKE_BINARY_DIR}/tests/fake_piper")

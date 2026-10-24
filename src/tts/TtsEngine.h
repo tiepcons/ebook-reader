@@ -16,7 +16,8 @@ struct Voice {
 
 enum class TtsEvent : uint8_t { Started, Word, Finished, Error };
 
-enum TtsError : uint8_t { kTtsBadVoice = 1, kTtsSynthFailed = 2, kTtsPlayFailed = 3, kTtsTextTooLarge = 4 };
+enum TtsError : uint8_t { kTtsBadVoice = 1, kTtsSynthFailed = 2, kTtsPlayFailed = 3, kTtsTextTooLarge = 4,
+    kTtsAuth = 5, kTtsNetwork = 6, kTtsQuota = 7 };
 
 inline constexpr size_t kTtsMaxUtf8 = size_t{64} * 1024;
 inline constexpr uint32_t kTtsValueMask = 0xFFFFFF;

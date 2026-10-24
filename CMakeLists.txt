@@ -130,7 +130,13 @@ target_link_libraries(EbookReader PRIVATE dwmapi comdlg32 uuid)
 add_custom_command(TARGET EbookReader POST_BUILD COMMAND ${CMAKE_COMMAND}
   -DSRC=${CMAKE_SOURCE_DIR}/fonts -DDST=${CMAKE_BINARY_DIR}/fonts -P ${CMAKE_SOURCE_DIR}/cmake/copy_fonts.cmake)
 
-target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp src/tts/piper/PiperProc.cpp src/tts/piper/PiperText.cpp)
+target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp src/tts/piper/PiperProc.cpp src/tts/piper/PiperText.cpp
+  src/tts/piper/player/PiperPlayer.cpp)
+target_link_libraries(eb_tts PUBLIC advapi32)
+
+target_sources(eb_tts PRIVATE src/tts/azure/AzureTts.cpp src/tts/azure/AzureHttp.cpp src/tts/azure/AzureProto.cpp
+  src/tts/azure/AudioCache.cpp src/tts/azure/AzurePlayer.cpp)
+target_link_libraries(eb_tts PUBLIC eb_lib winhttp PRIVATE bcrypt)
 
 enable_testing()
 add_subdirectory(tests)
