@@ -356,7 +356,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 - [ ] Windows 10 và 11. DPI 100/150/200%. Hai màn hình. Đường dẫn có tiếng Việt và dài hơn 260 ký tự
 
 ## 10. Backlog: đã CẮT khỏi v1 để gọn (làm sau nếu cần)
-Đọc 2 trang cùng lúc · tìm kiếm trong sách · kéo thả để nhập sách · khởi động cùng Windows · phím media · cài đặt riêng cho từng sách · ghi chú cho bookmark · tải Piper và font ngay trong app · bộ cài Inno Setup · tự cập nhật · CBR, DJVU · encoding TCVN3 · theo dõi thư mục theo thời gian thực · PGO.
+Chế độ cuộn liên tục và thanh cuộn khi zoom PDF (v1 chỉ có chế độ phân trang, pan bằng kéo hoặc lăn chuột) · Đọc 2 trang cùng lúc · tìm kiếm trong sách · kéo thả để nhập sách · khởi động cùng Windows · phím media · cài đặt riêng cho từng sách · ghi chú cho bookmark · tải Piper và font ngay trong app · bộ cài Inno Setup · tự cập nhật · CBR, DJVU · encoding TCVN3 · theo dõi thư mục theo thời gian thực · PGO.
 
 ## 11. Rủi ro
 
