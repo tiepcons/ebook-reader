@@ -97,7 +97,7 @@ private:
 template <class V>
 class ByteLru {
 public:
-    explicit ByteLru(std::size_t cap) noexcept : cap_(cap) {}
+    explicit ByteLru(std::size_t cap) noexcept : cap_(cap) {} // NOLINT(bugprone-exception-escape): an empty std::list allocates nothing the program could recover from
 
     void put(int32_t key, V value, std::size_t bytes)
     {

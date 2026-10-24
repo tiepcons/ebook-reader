@@ -126,7 +126,7 @@ void RenderWorker::release_doc() noexcept
         eb_close(d);
 }
 
-void RenderWorker::run(std::stop_token st, const OpenJob& job) noexcept
+void RenderWorker::run(const std::stop_token& st, const OpenJob& job) noexcept
 {
     try {
         guard_.emplace(job.marker);
@@ -233,8 +233,11 @@ eb_status RenderWorker::serve_once(const RenderWant& w)
     scope_.reset();
     if (load_toc())
         deliver(w, page, false, true);
-    if (!w.have_next && page + 1 < count_ && (st = deliver(w, page + 1, true, false)) == EB_E_ABORTED)
-        return st;
+    if (!w.have_next && page + 1 < count_) {
+        st = deliver(w, page + 1, true, false);
+        if (st == EB_E_ABORTED)
+            return st;
+    }
     if (!w.have_prev && page > 0)
         st = deliver(w, page - 1, true, false);
     return st == EB_E_ABORTED ? st : EB_OK;

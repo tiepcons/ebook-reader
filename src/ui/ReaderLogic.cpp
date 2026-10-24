@@ -136,7 +136,7 @@ uint64_t RenderQueue::post(RenderWant w)
         const std::lock_guard lock(mu_);
         gen = ++gen_;
         w.generation = gen;
-        pending_ = std::move(w);
+        pending_ = w;
         abort_now = in_flight_;
     }
     cv_.notify_one();
@@ -148,7 +148,7 @@ uint64_t RenderQueue::post(RenderWant w)
 bool RenderQueue::pop(RenderWant& out, std::stop_token st)
 {
     std::unique_lock lock(mu_);
-    if (!cv_.wait(lock, st, [this] { return pending_.has_value(); }))
+    if (!cv_.wait(lock, std::move(st),[this] { return pending_.has_value(); }))
         return false;
     out = *pending_;
     pending_.reset();

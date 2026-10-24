@@ -63,7 +63,7 @@ private:
         std::string title;
     };
 
-    void run(std::stop_token st, const OpenJob& job) noexcept;
+    void run(const std::stop_token& st, const OpenJob& job) noexcept;
     bool open_doc(const OpenJob& job);
     void serve(const RenderWant& w);
     eb_status serve_once(const RenderWant& w);
