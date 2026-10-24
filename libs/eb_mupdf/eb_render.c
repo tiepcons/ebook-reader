@@ -1,6 +1,7 @@
 #include "eb_internal.h"
 
 #include <math.h>
+#include <string.h>
 
 #define EB_MAX_COVER_SIDE 8192
 #define EB_MAX_SIDE_PX 32767.0
@@ -39,6 +40,15 @@ void eb_make_opaque(fz_pixmap* pix)
     for (size_t i = 3; i < (size_t)pix->stride * (size_t)pix->h; i += 4) pix->samples[i] = 255;
 }
 
+static void clear_to_rgb(fz_pixmap* pix, uint32_t rgb)
+{
+    const uint8_t px[4] = {(uint8_t)(rgb & 0xFFu), (uint8_t)((rgb >> 8) & 0xFFu), (uint8_t)((rgb >> 16) & 0xFFu), 255};
+    for (size_t y = 0; y < (size_t)pix->h; ++y) {
+        uint8_t* row = pix->samples + y * (size_t)pix->stride;
+        for (size_t x = 0; x < (size_t)pix->w; ++x) memcpy(row + x * 4, px, 4);
+    }
+}
+
 static void dims_of(fz_rect b, float scale, int32_t max_side, int* w, int* h, float* used)
 {
     double bw = (double)b.x1 - (double)b.x0;
@@ -62,7 +72,8 @@ static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, con
     fz_context* ctx = d->ctx;
     fz_device* dev = NULL;
     fz_matrix m = fz_concat(fz_translate(-b.x0, -b.y0), fz_scale(s, s));
-    fz_clear_pixmap_with_value(ctx, pix, 255);
+    if (d->reflowable) clear_to_rgb(pix, rq->bg);
+    else fz_clear_pixmap_with_value(ctx, pix, 255);
     fz_var(dev);
     fz_try(ctx)
     {
@@ -73,7 +84,7 @@ static void draw(eb_doc* d, fz_page* pg, fz_rect b, float s, fz_pixmap* pix, con
     }
     fz_always(ctx) fz_drop_device(ctx, dev);
     fz_catch(ctx) fz_rethrow(ctx);
-    if (rq->tint) fz_tint_pixmap(ctx, pix, (int)rq->fg, (int)rq->bg);
+    if (rq->tint && !d->reflowable) fz_tint_pixmap(ctx, pix, (int)rq->fg, (int)rq->bg);
     eb_make_opaque(pix);
 }
 
@@ -134,6 +145,7 @@ eb_status eb_render_cover(eb_doc* doc, int32_t max_side_px, eb_bitmap** out)
     *out = NULL;
     if (max_side_px < 1 || max_side_px > EB_MAX_COVER_SIDE) return eb_fail_msg(EB_E_ARG, "bad cover size");
     rq.max_side = max_side_px;
+    rq.bg = 0xFFFFFF;
     if (eb_embed_probe(doc, 1)) return eb_fail_msg(EB_E_ABORTED, "cancelled");
     if ((doc->mobi.cover || doc->cover_buf) && eb_render_embedded_cover(doc, max_side_px, out) == EB_OK) {
         if (doc->cover_buf) doc->cover_probed = 0;

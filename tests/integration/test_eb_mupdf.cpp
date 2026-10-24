@@ -191,9 +191,9 @@ TEST_CASE("eb_mupdf enforces limits and argument checks")
 TEST_CASE("eb_mupdf tint changes the rendered pixels")
 {
     const Lib lib;
-    const auto files = corpus("good");
-    REQUIRE_FALSE(files.empty());
-    const DocPtr d = open_doc(files[0]);
+    const auto pdf = first_with_ext(".pdf");
+    REQUIRE_FALSE(pdf.empty());
+    const DocPtr d = open_doc(pdf);
     const BitmapPtr plain = render0(d.get(), eb_render_opts{1.0f, 0, 0xFFFFFF, 0});
     const BitmapPtr tinted = render0(d.get(), eb_render_opts{1.0f, 0xE0E0E0, 0x101010, 1});
     REQUIRE(plain->width == tinted->width);

@@ -114,6 +114,7 @@ void eb_shutdown(void)
 {
     AcquireSRWLockExclusive(&g_lock);
     if (g_base && InterlockedCompareExchange(&g_open_docs, 0, 0) == 0) {
+        eb_fonts_release(g_base);
         fz_drop_context(g_base);
         g_base = NULL;
         delete_locks();

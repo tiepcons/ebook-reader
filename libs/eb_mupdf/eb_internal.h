@@ -79,6 +79,9 @@ eb_bitmap* eb_new_bitmap(fz_context* ctx, int w, int h);
 fz_pixmap* eb_bitmap_pixmap(fz_context* ctx, eb_bitmap* bmp);
 void eb_make_opaque(fz_pixmap* pix);
 
+/* eb_font.c: drops the indexed font list and cached fonts; call before the base context is dropped. */
+void eb_fonts_release(fz_context* ctx);
+
 /* eb_embed.c: EPUB/FB2 language, fallback title/author and embedded cover, filled into doc->mobi on demand. */
 int eb_embed_probe(eb_doc* doc, int want_cover); /* 1 only if eb_abort cancelled a cover probe */
 char* eb_normalize_language(const char* s); /* lowercase primary subtag ("vi"), or NULL; malloc'd */
