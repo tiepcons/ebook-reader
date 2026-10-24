@@ -59,10 +59,11 @@ typedef struct eb_bitmap {
 
 typedef struct eb_render_opts {
     float scale;          /* device pixels per point (96 dpi at 100% = 1.333f) */
-    uint32_t fg_rgb;      /* text colour for tinting, 0xRRGGBB (fixed-layout docs only) */
-    uint32_t bg_rgb;      /* paper colour, 0xRRGGBB. Reflowable docs: the page is always cleared to bg_rgb and
-                             text colour comes from user_css (eb_layout); fixed-layout docs: used when tint=1 */
-    int32_t tint;         /* fixed-layout only: 1 maps black->fg and white->bg (themes for PDF/CBZ); 0 original */
+    uint32_t fg_rgb;      /* text colour for tinting, 0xRRGGBB */
+    uint32_t bg_rgb;      /* paper colour, 0xRRGGBB */
+    int32_t tint;         /* all docs: 1 clears to white, renders, then maps black->fg and white->bg (instant theme
+                             switch, no relayout; images are tinted too); 0 = reflowable docs are cleared to
+                             bg_rgb and keep user_css colours, fixed-layout docs keep original colours */
 } eb_render_opts;
 
 typedef struct eb_rect {
