@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include "MainWnd.h"
+#include "SingleInstance.h"
 #include "base/ComScope.h"
 #include "base/CrashGuard.h"
 #include "base/DllLoader.h"
@@ -21,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace eb {
 namespace {
@@ -92,6 +94,16 @@ bool has_flag(std::wstring_view flag) noexcept
     return false;
 }
 
+LaunchArgs read_launch_args()
+{
+    int argc = 0;
+    const std::unique_ptr<wchar_t*, ArgvFree> argv(CommandLineToArgvW(GetCommandLineW(), &argc));
+    std::vector<std::wstring_view> args;
+    for (int i = 1; argv && i < argc; ++i)
+        args.emplace_back(argv.get()[i]);
+    return parse_launch_args(args);
+}
+
 bool load_all_imports() noexcept
 {
     __try {
@@ -120,6 +132,11 @@ int run(HINSTANCE inst, int show)
     const auto exe_dir = exe_directory();
     if (exe_dir.empty())
         return fatal(L"Không xác định được thư mục ứng dụng.");
+    LaunchArgs launch = read_launch_args();
+    const auto key = instance_key(exe_dir);
+    const SingleInstance single(key);
+    if (!single.is_first())
+        return single.forward(launch.path) ? 0 : 1;
     auto paths = resolve_paths(exe_dir);
     if (!paths)
         return fatal(L"Không tạo được thư mục dữ liệu. Hãy kiểm tra quyền ghi.", &paths.error());
@@ -145,6 +162,7 @@ int run(HINSTANCE inst, int show)
     if (const auto s = guard.previous_suspect())
         log::error("previous run crashed during: {}", *s);
     MainWnd wnd(inst, *db, *paths, smoke, smoke && has_flag(L"--smoke-scan"), start);
+    wnd.set_launch(std::move(launch), key);
     if (!wnd.create(show))
         return fatal(L"Không tạo được cửa sổ chính.");
     const int code = run_loop();

@@ -118,7 +118,7 @@ void MainWnd::on_first_paint()
     if (smoke_scan_)
         return;
     if (smoke_) {
-        if (smoke_open_.empty())
+        if (smoke_open_.empty() && launch_.hold_ms == 0 && !launch_.smoke_tray)
             PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         return;
     }

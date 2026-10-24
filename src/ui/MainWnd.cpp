@@ -19,7 +19,7 @@
 namespace eb {
 namespace {
 
-constexpr wchar_t kClassName[] = L"EbookReaderMain";
+constexpr const wchar_t* kClassName = kMainWndClass;
 constexpr int kMinW = 640, kMinH = 480;
 constexpr int kMargin = 6, kCtlH = 26, kSplitW = 6, kSplitMinDip = 120, kListMinDip = 200, kSplitMaxDip = 2000;
 constexpr int kMinStripW = 100, kMinStripH = 30;
@@ -124,6 +124,8 @@ bool MainWnd::create(int show) noexcept
         px(700), nullptr, nullptr, inst_, this);
     if (hwnd_ == nullptr)
         return false;
+    init_smoke_open();
+    init_launch();
     restore_placement(show);
     UpdateWindow(hwnd_);
     if (smoke_scan_) // a hidden launch never paints, so do not wait for the first paint
@@ -175,6 +177,8 @@ bool MainWnd::create_children()
         if (h == nullptr)
             return false;
     }
+    if (!create_reader_children())
+        return false;
     SendMessageW(search_, EM_SETCUEBANNER, TRUE, to_lp(L"Tìm sách, tác giả…"));
     for (const wchar_t* s : {L"Tên", L"Tác giả", L"Mới thêm", L"Đọc gần đây"})
         SendMessageW(sort_, CB_ADDSTRING, 0, to_lp(s));
@@ -198,7 +202,7 @@ void MainWnd::update_font()
     UniqueFont nf(CreateFontIndirectW(&ncm.lfMessageFont));
     if (!nf)
         return;
-    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_})
+    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
     font_ = std::move(nf);
     lib_.rebuild_covers(dpi_, false);
@@ -206,6 +210,10 @@ void MainWnd::update_font()
 
 void MainWnd::layout()
 {
+    if (in_reader_) {
+        layout_reader();
+        return;
+    }
     RECT rc{};
     GetClientRect(hwnd_, &rc);
     const int w = rc.right, h = rc.bottom;
@@ -286,6 +294,7 @@ void MainWnd::on_paint()
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_);
     log::info("first-paint {} ms", ms.count());
     on_first_paint();
+    after_first_paint_tray();
 }
 
 bool MainWnd::on_splitter_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
@@ -336,7 +345,8 @@ void MainWnd::on_dpi_changed(WPARAM wp, LPARAM lp)
 LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
 {
     LRESULT res = 0;
-    if (on_splitter_msg(msg, wp, lp, res) || on_library_msg(msg, wp, lp, res))
+    if (on_splitter_msg(msg, wp, lp, res) || on_library_msg(msg, wp, lp, res) || on_reader_msg(msg, wp, lp, res)
+        || on_tray_msg(msg, wp, lp, res))
         return res;
     switch (msg) {
     case WM_CREATE:
@@ -344,6 +354,8 @@ LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
     case WM_SIZE:
         if (wp != SIZE_MINIMIZED)
             layout();
+        else
+            on_minimized();
         return 0;
     case WM_GETMINMAXINFO: {
         RECT r{0, 0, px(kMinW), px(kMinH)};
@@ -361,13 +373,15 @@ LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
         on_paint();
         return 0;
     case WM_CLOSE:
-        if (!smoke_)
-            save_state();
-        DestroyWindow(hwnd_);
+        on_close_request();
         return 0;
     case WM_DESTROY:
+        shutdown_tray();
         KillTimer(hwnd_, kSearchTimer);
+        KillTimer(hwnd_, kReaderTickTimer);
+        reader_.close();
         scan_.stop();
+        lib_.stop_covers();
         PostQuitMessage(0);
         return 0;
     default:

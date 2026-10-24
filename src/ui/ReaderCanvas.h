@@ -20,6 +20,8 @@ public:
     void resize(int w, int h) noexcept;
     BitmapRef upload(const eb_bitmap& bmp) noexcept;
     void paint(ID2D1Bitmap* bmp, int x, int y, uint32_t paper_rgb) noexcept;
+    // Largest bitmap side the device accepts; a conservative default while no device exists.
+    [[nodiscard]] uint32_t max_side() noexcept;
     [[nodiscard]] uint32_t epoch() const noexcept { return epoch_; }
 
 private:

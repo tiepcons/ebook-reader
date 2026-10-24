@@ -27,6 +27,8 @@ target_sources(eb_tests PRIVATE unit/test_tts_segmenter.cpp unit/test_tts_lang.c
 target_link_libraries(eb_tests PRIVATE eb_tts)
 target_sources(eb_tests PRIVATE unit/test_lib_model.cpp)
 
+target_sources(eb_tests PRIVATE unit/test_reader_logic.cpp ${CMAKE_SOURCE_DIR}/src/ui/ReaderLogic.cpp)
+
 add_executable(eb_dbcount ui/dbcount.cpp)
 target_link_libraries(eb_dbcount PRIVATE eb_hardening eb_warnings eb_lib)
 set_target_properties(eb_dbcount PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
@@ -35,5 +37,29 @@ add_test(NAME ui_smoke_library COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:Eboo
   -DDBCOUNT=$<TARGET_FILE:eb_dbcount> -DCORPUS=${CMAKE_SOURCE_DIR}/tests/corpus -DWORK=${CMAKE_BINARY_DIR}/tests
   -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/library.cmake)
 set_tests_properties(ui_smoke_library PROPERTIES TIMEOUT 60)
+add_test(NAME ui_smoke_reader COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_mupdf>
+  -DDBCOUNT=$<TARGET_FILE:eb_dbcount> -DBOOK=${CMAKE_SOURCE_DIR}/tests/corpus/good/epub/pg11.epub
+  -DWORK=${CMAKE_BINARY_DIR}/tests -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/reader.cmake)
+set_tests_properties(ui_smoke_reader PROPERTIES TIMEOUT 100)
 target_sources(eb_tests PRIVATE unit/test_lib_meta.cpp unit/test_lib_cover.cpp)
 target_link_libraries(eb_tests PRIVATE eb_book)
+target_sources(eb_tests PRIVATE unit/test_tts_winrt.cpp)
+target_sources(eb_tests PRIVATE unit/test_lib_slots.cpp)
+target_sources(eb_tests PRIVATE unit/test_secret_store.cpp unit/test_azure_usage.cpp)
+
+target_sources(eb_tests PRIVATE unit/test_tray.cpp unit/test_external_open.cpp ${CMAKE_SOURCE_DIR}/src/ui/Tray.cpp
+  ${CMAKE_SOURCE_DIR}/src/ui/CloseAsk.cpp ${CMAKE_SOURCE_DIR}/src/ui/Kv.cpp ${CMAKE_SOURCE_DIR}/src/ui/SingleInstance.cpp)
+target_link_libraries(eb_tests PRIVATE comctl32 shell32 delayimp)
+target_link_options(eb_tests PRIVATE /DELAYLOAD:comctl32.dll)
+if(EB_ASAN)
+  set(EB_TRAY_BUDGET_KB 0)
+else()
+  set(EB_TRAY_BUDGET_KB 20480)
+endif()
+add_test(NAME ui_smoke_tray COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_mupdf>
+  -DBUDGET=${EB_TRAY_BUDGET_KB} -DWORK=${CMAKE_BINARY_DIR}/tests -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/tray.cmake)
+set_tests_properties(ui_smoke_tray PROPERTIES TIMEOUT 40)
+add_test(NAME ui_single_instance COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_mupdf>
+  -DBOOK=${CMAKE_SOURCE_DIR}/tests/corpus/good/epub/pg11.epub -DWORK=${CMAKE_BINARY_DIR}/tests
+  -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/single_instance.cmake)
+set_tests_properties(ui_single_instance PROPERTIES TIMEOUT 40)

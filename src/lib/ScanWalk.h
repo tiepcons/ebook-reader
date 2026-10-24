@@ -34,6 +34,7 @@ std::wstring prefixed(const std::wstring& p);
 std::string u8(std::wstring_view w);
 std::wstring wide(std::string_view s);
 std::wstring ext_of(std::wstring_view name);
+bool is_book_file(std::wstring_view name);
 std::string key_of(std::wstring_view w);
 std::string dir_prefix(std::wstring_view dir);
 

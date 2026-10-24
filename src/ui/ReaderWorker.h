@@ -46,6 +46,7 @@ struct OpenJob {
 };
 
 // One thread owns the eb_doc for its whole life; the UI thread only posts requests and takes results.
+// Destruction aborts a running render, but eb_open and eb_layout cannot be aborted: closing waits for them.
 class RenderWorker {
 public:
     RenderWorker(HWND notify, UINT msg, OpenJob job);
@@ -64,9 +65,12 @@ private:
     };
 
     void run(const std::stop_token& st, const OpenJob& job) noexcept;
-    bool open_doc(const OpenJob& job);
+    eb_status open_doc(const OpenJob& job);
     void serve(const RenderWant& w);
     eb_status serve_once(const RenderWant& w);
+    eb_status prefetch(const RenderWant& w, int32_t page);
+    [[nodiscard]] uint64_t shown_mark(const RenderWant& w) const;
+    void post_error(const RenderWant& w, eb_status st, int32_t page) noexcept;
     eb_status ensure_layout(const RenderWant& w, int32_t& page);
     eb_status apply_layout(const LayoutParams& lp);
     eb_status deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary);
@@ -90,8 +94,11 @@ private:
     std::optional<CrashLoopGuard> guard_;
     std::optional<CrashLoopGuard::Scope> scope_;
     std::chrono::steady_clock::time_point t0_;
-    bool reflowable_ = false, laid_out_ = false, toc_loaded_ = false, first_logged_ = false;
+    std::stop_token stop_;
+    bool reflowable_ = false, laid_out_ = false, toc_loaded_ = false, first_logged_ = false, dead_ = false;
     int32_t count_ = 0;
+    uint64_t primary_gen_ = 0, resolved_gen_ = 0;
+    int32_t resolved_page_ = 0, last_page_ = -1;
     LayoutParams applied_;
     std::optional<uint64_t> last_mark_;
     std::vector<TocEntry> toc_;

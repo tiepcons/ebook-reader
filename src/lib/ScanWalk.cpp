@@ -149,7 +149,7 @@ private:
                 stack.push_back(std::move(full));
             return true;
         }
-        if (std::ranges::find(kExts, ext_of(name)) == kExts.end())
+        if (!is_book_file(name))
             return true;
         if (out_.files.size() >= kMaxScanFiles) {
             log::error("scan: file cap reached");
@@ -207,6 +207,11 @@ std::wstring ext_of(std::wstring_view name)
     std::wstring e(name.substr(dot + 1));
     std::ranges::transform(e, e.begin(), [](wchar_t c) { return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + 32) : c; });
     return e;
+}
+
+bool is_book_file(std::wstring_view name)
+{
+    return std::ranges::find(kExts, ext_of(name)) != kExts.end();
 }
 
 std::string key_of(std::wstring_view w)

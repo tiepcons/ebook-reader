@@ -10,7 +10,6 @@ namespace {
 
 constexpr float kPtPerDip = 0.75F;
 constexpr float kMaxSidePx = 16384.0F;
-constexpr float kMaxBitmapPx = 24.0F * 1024 * 1024;
 constexpr int kEdgeDivisor = 4;
 
 }
@@ -27,7 +26,7 @@ LayoutParams reflow_layout(int client_w_px, int client_h_px, unsigned dpi) noexc
         const float dip = static_cast<float>(std::max(px, 0)) * to_dip - 2.0F * kReaderMarginDip;
         return std::max(kMinLayoutPt, dip * kPtPerDip);
     };
-    return {content_pt(client_w_px), content_pt(client_h_px), kBaseEmPt * static_cast<float>(dpi) / 96.0F};
+    return {content_pt(client_w_px), content_pt(client_h_px), kBaseEmPt};
 }
 
 float clamp_zoom(float pct) noexcept
@@ -37,7 +36,8 @@ float clamp_zoom(float pct) noexcept
     return std::clamp(pct, kMinZoomPct, kMaxZoomPct);
 }
 
-float fixed_scale(const ZoomState& z, float page_w_pt, float page_h_pt, int client_w, int client_h, unsigned dpi) noexcept
+float fixed_scale(const ZoomState& z, float page_w_pt, float page_h_pt, int client_w, int client_h, unsigned dpi,
+    uint32_t max_side_px) noexcept
 {
     const float actual = render_scale(dpi);
     if (!(page_w_pt > 0) || !(page_h_pt > 0) || client_w <= 0 || client_h <= 0)
@@ -49,8 +49,17 @@ float fixed_scale(const ZoomState& z, float page_w_pt, float page_h_pt, int clie
     else if (z.fit == ZoomState::Fit::Width)
         s = cw / page_w_pt;
     s = std::clamp(s, actual * kMinZoomPct / 100.0F, actual * kMaxZoomPct / 100.0F);
-    s = std::min(s, kMaxSidePx / std::max(page_w_pt, page_h_pt));
-    return std::min(s, std::sqrt(kMaxBitmapPx / (page_w_pt * page_h_pt)));
+    return limit_scale(s, page_w_pt, page_h_pt, max_side_px);
+}
+
+float limit_scale(float scale, float page_w_pt, float page_h_pt, uint32_t max_side_px) noexcept
+{
+    if (!(page_w_pt > 0) || !(page_h_pt > 0))
+        return scale;
+    const float side = max_side_px > 1 ? static_cast<float>(max_side_px - 1) : kMaxSidePx;
+    const float by_side = side / std::max(page_w_pt, page_h_pt);
+    const float by_bytes = std::sqrt(static_cast<float>(kMaxBitmapBytes / 4) / (page_w_pt * page_h_pt));
+    return std::min({scale, by_side, by_bytes});
 }
 
 float zoom_percent_of(float scale, unsigned dpi) noexcept
@@ -143,6 +152,13 @@ uint64_t RenderQueue::post(RenderWant w)
     if (abort_now && abort_)
         abort_();
     return gen;
+}
+
+void RenderQueue::supersede() noexcept
+{
+    const std::lock_guard lock(mu_);
+    ++gen_;
+    pending_.reset();
 }
 
 bool RenderQueue::pop(RenderWant& out, std::stop_token st)

@@ -10,6 +10,12 @@ BEGIN
     POPUP "&Cài đặt"
     BEGIN
         MENUITEM "&Thư viện...", IDM_SETTINGS_LIBRARY
+        POPUP "Khi bấm &X"
+        BEGIN
+            MENUITEM "&Hỏi", IDM_CLOSE_ASK
+            MENUITEM "&Thoát", IDM_CLOSE_EXIT
+            MENUITEM "Xuống &khay", IDM_CLOSE_TRAY
+        END
     END
 END
 

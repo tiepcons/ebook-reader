@@ -1,6 +1,8 @@
 #pragma once
 #include "Db.h"
+#include "Scanner.h"
 
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -33,6 +35,15 @@ Result<std::wstring> book_path(Db& db, std::string_view id) noexcept;
 // "Remove from library": hides the row (status 3) so rescans keep it away; never touches the file.
 Result<void> hide_book(Db& db, std::string_view id) noexcept;
 Result<void> unhide_all_books(Db& db) noexcept;
+
+// A file named from outside the library: made absolute and canonical; it must be an existing regular file
+// with a supported extension. NotFound otherwise.
+Result<std::filesystem::path> resolve_external_book(std::wstring_view raw) noexcept;
+// Id of the listed (status 0 or 2) row stored under this path, compared case-insensitively. NotFound when none.
+Result<std::string> find_book_by_path(Db& db, const std::filesystem::path& file) noexcept;
+// Makes the file an openable row (status 0, folder = parent directory) and returns its id. A row already stored
+// under the path or with the same content id is revived instead of duplicated.
+Result<std::string> upsert_external(Db& db, const std::filesystem::path& file, const BookMeta& meta) noexcept;
 
 struct FolderNode {
     std::wstring label, prefix; // prefix is the folder string as stored in books.folder

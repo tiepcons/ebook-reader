@@ -1,5 +1,6 @@
 #include "ReaderCanvas.h"
 
+#include "ReaderLogic.h"
 #include "base/Log.h"
 
 #include <algorithm>
@@ -59,9 +60,20 @@ BitmapRef ReaderCanvas::upload(const eb_bitmap& bmp) noexcept
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), kDpi, kDpi);
     const HRESULT hr = rt_->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(bmp.width), static_cast<UINT32>(bmp.height)),
         bmp.bgra, static_cast<UINT32>(bmp.stride), props, out.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
+    if (FAILED(hr)) {
         log::error("reader: bitmap upload failed (0x{:08x})", static_cast<unsigned>(hr));
+        out.Reset();
+        if (hr == D2DERR_RECREATE_TARGET) {
+            rt_.Reset();
+            ++epoch_;
+        }
+    }
     return out;
+}
+
+uint32_t ReaderCanvas::max_side() noexcept
+{
+    return ensure_target() ? rt_->GetMaximumBitmapSize() : kDefaultMaxSidePx;
 }
 
 void ReaderCanvas::paint(ID2D1Bitmap* bmp, int x, int y, uint32_t paper_rgb) noexcept

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
+#include <new>
 
 namespace eb {
 namespace {
@@ -13,7 +14,7 @@ namespace {
 constexpr int kMaxAttempts = 2;
 constexpr int32_t kMaxTocItems = 20000;
 constexpr std::size_t kMaxChapterBytes = 200;
-constexpr std::size_t kMaxQueuedResults = 16;
+constexpr std::size_t kMaxQueuedResults = 4;
 
 std::string trim_utf8(const char* s)
 {
@@ -67,6 +68,7 @@ RenderWorker::RenderWorker(HWND notify, UINT msg, OpenJob job)
 RenderWorker::~RenderWorker()
 {
     thread_.request_stop();
+    queue_.supersede();
     abort_doc();
     thread_.join();
 }
@@ -94,12 +96,15 @@ void RenderWorker::post(RenderResult r)
 {
     {
         const std::lock_guard lock(out_mu_);
-        if (out_.size() >= kMaxQueuedResults && !r.primary)
-            return;
+        if (out_.size() >= kMaxQueuedResults) {
+            const auto stale = std::ranges::find_if(out_, [&](const RenderResult& o) { return o.generation < r.generation; });
+            const auto spare = std::ranges::find_if(out_, [](const RenderResult& o) { return !o.primary; });
+            out_.erase(stale != out_.end() ? stale : (spare != out_.end() ? spare : out_.begin()));
+        }
         out_.push_back(std::move(r));
     }
-    if (!notified_.exchange(true))
-        PostMessageW(notify_, msg_, 0, 0);
+    if (!notified_.exchange(true) && !PostMessageW(notify_, msg_, 0, 0))
+        notified_.store(false);
 }
 
 void RenderWorker::fail_open(eb_status st, std::string detail) noexcept
@@ -126,15 +131,29 @@ void RenderWorker::release_doc() noexcept
         eb_close(d);
 }
 
+namespace {
+
+bool is_open_failure(eb_status st) noexcept
+{
+    return st == EB_E_OPEN || st == EB_E_FORMAT || st == EB_E_DRM;
+}
+
+}
+
 void RenderWorker::run(const std::stop_token& st, const OpenJob& job) noexcept
 {
+    stop_ = st;
     try {
         guard_.emplace(job.marker);
         scope_.emplace(*guard_, "open", job.id);
-        if (open_doc(job)) {
+        const eb_status open_st = open_doc(job);
+        if (!is_open_failure(open_st)) {
             RenderWant w;
             while (queue_.pop(w, st)) {
-                serve(w);
+                if (open_st == EB_OK)
+                    serve(w);
+                else
+                    post_error(w, open_st, 0);
                 queue_.done();
             }
         }
@@ -146,35 +165,66 @@ void RenderWorker::run(const std::stop_token& st, const OpenJob& job) noexcept
     release_doc();
 }
 
-bool RenderWorker::open_doc(const OpenJob& job)
+eb_status RenderWorker::open_doc(const OpenJob& job)
 {
     eb_doc* doc = nullptr;
-    const eb_status st = job.fmt == "txt" ? open_txt(job, &doc) : eb_open(job.path.c_str(), &doc);
-    if (st != EB_OK) {
-        fail_open(st, eb_last_error());
-        return false;
+    eb_status st = EB_E_INTERNAL;
+    try {
+        st = job.fmt == "txt" ? open_txt(job, &doc) : eb_open(job.path.c_str(), &doc);
+    } catch (const std::bad_alloc&) {
+        st = EB_E_NOMEM;
+    } catch (...) {
+        st = EB_E_INTERNAL;
     }
-    {
-        const std::lock_guard lock(doc_mu_);
-        doc_ = doc;
-    }
-    reflowable_ = eb_is_reflowable(doc) != 0;
-    if (!reflowable_) {
-        if (const eb_status pc = eb_page_count(doc, &count_); pc != EB_OK || count_ <= 0) {
-            fail_open(pc != EB_OK ? pc : EB_E_FORMAT, eb_last_error());
-            return false;
+    if (st == EB_OK) {
+        {
+            const std::lock_guard lock(doc_mu_);
+            doc_ = doc;
         }
-        laid_out_ = true;
+        reflowable_ = eb_is_reflowable(doc) != 0;
+        if (!reflowable_) {
+            st = eb_page_count(doc, &count_);
+            if (st == EB_OK && count_ <= 0)
+                st = EB_E_FORMAT;
+            laid_out_ = st == EB_OK;
+        }
     }
-    return true;
+    if (is_open_failure(st))
+        fail_open(st, eb_last_error());
+    return st;
+}
+
+void RenderWorker::post_error(const RenderWant& w, eb_status st, int32_t page) noexcept
+{
+    try {
+        log::error("reader: page {} failed: {}", page, eb_status_text(st));
+        RenderResult r;
+        r.generation = w.generation;
+        r.view_id = w.view_id;
+        r.page = page;
+        r.page_count = count_;
+        r.primary = true;
+        r.status = st;
+        post(std::move(r));
+    } catch (...) {
+        log::error("reader: cannot report page failure");
+    }
 }
 
 void RenderWorker::serve(const RenderWant& w)
 {
-    for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
-        // A stray abort (issued when nothing was in flight) fails the next call once; retry unless superseded.
-        if (serve_once(w) != EB_E_ABORTED || !queue_.current(w.generation))
-            return;
+    try {
+        for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+            if (dead_ || stop_.stop_requested())
+                return;
+            // A stray abort (issued when nothing was in flight) fails the next call once; retry unless superseded.
+            if (serve_once(w) != EB_E_ABORTED || !queue_.current(w.generation))
+                return;
+        }
+    } catch (const std::bad_alloc&) {
+        post_error(w, EB_E_NOMEM, 0);
+    } catch (...) {
+        post_error(w, EB_E_INTERNAL, 0);
     }
 }
 
@@ -184,21 +234,40 @@ eb_status RenderWorker::apply_layout(const LayoutParams& lp)
         return st;
     if (const eb_status st = eb_page_count(doc_, &count_); st != EB_OK)
         return st;
+    if (count_ <= 0)
+        return EB_E_FORMAT;
     applied_ = lp;
     laid_out_ = true;
-    return count_ > 0 ? EB_OK : EB_E_FORMAT;
+    return EB_OK;
+}
+
+// The bookmark of the page the UI shows, taken before a relayout; the UI's own mark wins, then the last delivered one.
+uint64_t RenderWorker::shown_mark(const RenderWant& w) const
+{
+    if (w.mark != kNoAnchor)
+        return w.mark;
+    if (last_mark_ && last_page_ == w.page)
+        return *last_mark_;
+    uint64_t m = 0;
+    if (laid_out_ && w.page >= 0 && w.page < count_ && eb_bookmark_of_page(doc_, w.page, &m) == EB_OK)
+        return m;
+    return kNoAnchor;
 }
 
 eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
 {
+    if (resolved_gen_ == w.generation) {
+        page = resolved_page_;
+        return EB_OK;
+    }
     uint64_t mark = w.anchor;
     if (reflowable_) {
         const LayoutParams lp = reflow_layout(w.view.client_w, w.view.client_h, w.view.dpi);
         if (!laid_out_ || !(lp == applied_)) {
+            if (mark == kNoAnchor)
+                mark = shown_mark(w);
             if (const eb_status st = apply_layout(lp); st != EB_OK)
                 return st;
-            if (mark == kNoAnchor && last_mark_)
-                mark = *last_mark_;
         }
     }
     page = w.page;
@@ -207,6 +276,8 @@ eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
             return st;
     }
     page = std::clamp(page, 0, count_ - 1);
+    resolved_gen_ = w.generation;
+    resolved_page_ = page;
     return EB_OK;
 }
 
@@ -214,44 +285,51 @@ eb_status RenderWorker::serve_once(const RenderWant& w)
 {
     int32_t page = 0;
     eb_status st = ensure_layout(w, page);
-    if (st == EB_OK)
-        st = deliver(w, page, !w.have_cur, true);
-    if (st != EB_OK) {
-        if (st != EB_E_ABORTED) {
-            log::error("reader: page {} failed: {}", page, eb_status_text(st));
-            RenderResult r;
-            r.generation = w.generation;
-            r.view_id = w.view_id;
-            r.page = page;
-            r.page_count = count_;
-            r.primary = true;
-            r.status = st;
-            post(std::move(r));
-        }
+    if (st != EB_OK && !laid_out_) {
+        fail_open(st, eb_last_error());
+        dead_ = true;
         return st;
     }
-    scope_.reset();
-    if (load_toc())
-        deliver(w, page, false, true);
+    if (st == EB_OK && primary_gen_ != w.generation) {
+        st = deliver(w, page, !w.have_cur, true);
+        if (st == EB_OK) {
+            primary_gen_ = w.generation;
+            scope_.reset();
+            if (load_toc())
+                deliver(w, page, false, true);
+        }
+    }
+    if (st != EB_OK) {
+        if (st != EB_E_ABORTED)
+            post_error(w, st, page);
+        return st;
+    }
+    return prefetch(w, page);
+}
+
+eb_status RenderWorker::prefetch(const RenderWant& w, int32_t page)
+{
+    if (!w.prefetch)
+        return EB_OK;
     if (!w.have_next && page + 1 < count_) {
-        st = deliver(w, page + 1, true, false);
-        if (st == EB_E_ABORTED)
-            return st;
+        if (deliver(w, page + 1, true, false) == EB_E_ABORTED)
+            return EB_E_ABORTED;
     }
     if (!w.have_prev && page > 0)
-        st = deliver(w, page - 1, true, false);
-    return st == EB_E_ABORTED ? st : EB_OK;
+        return deliver(w, page - 1, true, false) == EB_E_ABORTED ? EB_E_ABORTED : EB_OK;
+    return EB_OK;
 }
 
 eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderResult& r)
 {
     float scale = render_scale(w.view.dpi);
+    float pw = applied_.width_pt, ph = applied_.height_pt;
     if (!reflowable_) {
-        float pw = 0, ph = 0;
         if (const eb_status st = eb_page_size(doc_, page, &pw, &ph); st != EB_OK)
             return st;
-        scale = fixed_scale(w.view.zoom, pw, ph, w.view.client_w, w.view.client_h, w.view.dpi);
+        scale = fixed_scale(w.view.zoom, pw, ph, w.view.client_w, w.view.client_h, w.view.dpi, w.max_side_px);
     }
+    scale = limit_scale(scale, pw, ph, w.max_side_px);
     const eb_render_opts opts{scale, 0x000000, 0xFFFFFF, 0};
     eb_bitmap* b = nullptr;
     const eb_status st = eb_render_page(doc_, page, &opts, &b);
@@ -262,6 +340,8 @@ eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderR
 
 eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary)
 {
+    if (stop_.stop_requested())
+        return EB_E_ABORTED;
     RenderResult r;
     r.generation = w.generation;
     r.view_id = w.view_id;
@@ -283,6 +363,7 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
         return EB_E_ABORTED;
     if (primary) {
         last_mark_ = r.mark;
+        last_page_ = page;
         if (with_bitmap && !first_logged_) {
             first_logged_ = true;
             log::info("reader: open-ms {} page-ms {}", ms_since(t0_), ms_since(t));

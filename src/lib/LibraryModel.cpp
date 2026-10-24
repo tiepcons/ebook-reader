@@ -1,8 +1,13 @@
 #include "LibraryModel.h"
 
+#include "ScanWalk.h"
+#include "base/Hash.h"
 #include "base/Text.h"
 
+#include <windows.h>
+
 #include <algorithm>
+#include <ctime>
 #include <map>
 
 namespace eb {
@@ -305,6 +310,141 @@ std::vector<FolderNode> build_folder_tree(std::span<const std::wstring> folders,
             tb.ensure(f, f, -1);
     }
     return emit_sorted(tb.nodes);
+}
+
+namespace {
+
+constexpr size_t kMaxExternalPathChars = 32768;
+
+std::optional<std::string> id_where(Db& db, const char* sql, std::string_view arg)
+{
+    auto st = db.prepare(sql);
+    if (!st || !st->bind_text(1, arg))
+        return std::nullopt;
+    const auto step = st->step();
+    if (!step || *step != Step::Row)
+        return std::nullopt;
+    return std::string(st->column_text(0));
+}
+
+Result<void> revive(Db& db, std::string_view id)
+{
+    auto st = db.prepare("UPDATE books SET status=0 WHERE id=?1");
+    if (!st || !st->bind_text(1, id))
+        return fail(ErrorCode::Io, L"revive");
+    auto step = st->step();
+    return step ? Result<void>{} : std::unexpected(std::move(step.error()));
+}
+
+struct FileFacts {
+    std::string path8, folder;
+    int64_t size = 0, mtime = 0;
+};
+
+Result<FileFacts> file_facts(const std::filesystem::path& file)
+{
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    FileFacts f;
+    f.path8 = scan_detail::u8(file.wstring());
+    f.folder = scan_detail::u8(file.parent_path().wstring());
+    if (f.path8.empty() || !GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &info))
+        return fail(ErrorCode::Io, L"stat");
+    f.size = static_cast<int64_t>((static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow);
+    f.mtime = static_cast<int64_t>((static_cast<uint64_t>(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime);
+    return f;
+}
+
+Result<void> insert_row(Db& db, const std::string& id, const FileFacts& f, const std::filesystem::path& file, const BookMeta& m)
+{
+    auto st = db.prepare("INSERT INTO books(id,path,folder,title,author,title_nd,author_nd,lang,fmt,size,mtime,added_at,status)"
+                         " VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,0)");
+    if (!st)
+        return std::unexpected(std::move(st.error()));
+    const std::wstring title = m.title.empty() ? file.stem().wstring() : m.title;
+    const std::wstring fmt = m.fmt.empty() ? scan_detail::ext_of(file.filename().wstring()) : m.fmt;
+    const auto all_ok = [](const auto&... r) { return (r.has_value() && ...); };
+    if (!all_ok(st->bind_text(1, id), st->bind_text(2, f.path8), st->bind_text(3, f.folder),
+            st->bind_text(4, scan_detail::u8(title)), st->bind_text(5, scan_detail::u8(m.author)),
+            st->bind_text(6, scan_detail::u8(fold_for_search(title))), st->bind_text(7, scan_detail::u8(fold_for_search(m.author))),
+            st->bind_text(8, scan_detail::u8(m.lang)), st->bind_text(9, scan_detail::u8(fmt)), st->bind_int(10, f.size),
+            st->bind_int(11, f.mtime), st->bind_int(12, static_cast<int64_t>(std::time(nullptr)))))
+        return fail(ErrorCode::Io, L"bind");
+    auto step = st->step();
+    return step ? Result<void>{} : std::unexpected(std::move(step.error()));
+}
+
+Result<void> relocate_row(Db& db, const std::string& id, const FileFacts& f)
+{
+    auto st = db.prepare("UPDATE books SET path=?2,folder=?3,size=?4,mtime=?5,status=0 WHERE id=?1");
+    if (!st || !st->bind_text(1, id) || !st->bind_text(2, f.path8) || !st->bind_text(3, f.folder) || !st->bind_int(4, f.size)
+        || !st->bind_int(5, f.mtime))
+        return fail(ErrorCode::Io, L"bind");
+    auto step = st->step();
+    return step ? Result<void>{} : std::unexpected(std::move(step.error()));
+}
+
+}
+
+Result<std::filesystem::path> resolve_external_book(std::wstring_view raw) noexcept
+{
+    try {
+        if (raw.empty() || raw.size() > kMaxExternalPathChars)
+            return fail(ErrorCode::NotFound);
+        std::error_code ec;
+        std::filesystem::path p = std::filesystem::absolute(std::filesystem::path(scan_path::strip_long_prefix(raw)), ec);
+        if (!ec)
+            p = std::filesystem::weakly_canonical(p, ec);
+        if (ec || !std::filesystem::is_regular_file(p, ec) || !scan_detail::is_book_file(p.filename().wstring()))
+            return fail(ErrorCode::NotFound);
+        return p.make_preferred();
+    } catch (...) {
+        return fail(ErrorCode::NoMemory);
+    }
+}
+
+Result<std::string> find_book_by_path(Db& db, const std::filesystem::path& file) noexcept
+{
+    try {
+        const std::string p8 = scan_detail::u8(file.wstring());
+        for (const char* sql : {"SELECT id FROM books WHERE path=?1 AND status IN (0,2)",
+                 "SELECT id FROM books WHERE path=?1 COLLATE NOCASE AND status IN (0,2)"}) {
+            if (auto id = id_where(db, sql, p8))
+                return *id;
+        }
+        return fail(ErrorCode::NotFound);
+    } catch (...) {
+        return fail(ErrorCode::NoMemory);
+    }
+}
+
+Result<std::string> upsert_external(Db& db, const std::filesystem::path& file, const BookMeta& meta) noexcept
+{
+    try {
+        auto hash = book_id(file);
+        auto facts = file_facts(file);
+        if (!hash || !facts)
+            return std::unexpected(hash ? std::move(facts.error()) : std::move(hash.error()));
+        auto tx = Tx::begin(db);
+        if (!tx)
+            return std::unexpected(std::move(tx.error()));
+        Result<void> done;
+        std::string id = *hash;
+        if (auto at_path = id_where(db, "SELECT id FROM books WHERE path=?1 COLLATE NOCASE", facts->path8)) {
+            id = *at_path;
+            done = revive(db, id);
+        } else if (id_where(db, "SELECT id FROM books WHERE id=?1", id)) {
+            done = relocate_row(db, id, *facts);
+        } else {
+            done = insert_row(db, id, *facts, file, meta);
+        }
+        if (!done)
+            return std::unexpected(std::move(done.error()));
+        if (auto c = tx->commit(); !c)
+            return std::unexpected(std::move(c.error()));
+        return id;
+    } catch (...) {
+        return fail(ErrorCode::NoMemory);
+    }
 }
 
 }

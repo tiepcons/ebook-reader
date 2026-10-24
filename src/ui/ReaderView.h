@@ -50,6 +50,7 @@ private:
     void fail_open(const RenderResult& r);
     void record_progress(const RenderResult& r) noexcept;
     void check_epoch();
+    void set_shown(BitmapRef b);
 
     [[nodiscard]] ViewParams current_view() const;
     void send_want();
@@ -78,6 +79,7 @@ private:
     uint32_t epoch_ = 0;
     uint64_t want_gen_ = 0;
     uint64_t anchor_ = kNoAnchor;
+    uint64_t mark_ = kNoAnchor;
     int32_t page_ = 0, count_ = 0;
     float scale_ = 0;
     bool reflowable_ = false, awaiting_first_ = false;

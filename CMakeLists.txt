@@ -110,5 +110,20 @@ add_library(eb_book STATIC src/lib/Metadata.cpp src/lib/CoverCache.cpp)
 target_link_libraries(eb_book PUBLIC eb_lib eb_doc eb_tts eb_mupdf PRIVATE windowscodecs ole32 oleaut32 uuid)
 target_link_libraries(EbookReader PRIVATE eb_book)
 
+target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cpp src/ui/ReaderCanvas.cpp src/ui/ReaderView.cpp
+  src/ui/MainWndReader.cpp)
+target_link_libraries(EbookReader PRIVATE eb_doc d2d1)
+target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)
+
+target_sources(eb_tts PRIVATE src/tts/winrt/WinRtTts.cpp)
+target_link_libraries(eb_tts PUBLIC windowsapp)
+
+target_sources(eb_base PRIVATE src/base/SecretStore.cpp)
+target_link_libraries(eb_base PRIVATE advapi32)
+target_sources(eb_lib PRIVATE src/lib/AzureUsage.cpp)
+
+target_sources(EbookReader PRIVATE src/ui/Tray.cpp src/ui/CloseAsk.cpp src/ui/SingleInstance.cpp src/ui/ExternalOpen.cpp
+  src/ui/MainWndTray.cpp)
+
 enable_testing()
 add_subdirectory(tests)

@@ -40,6 +40,20 @@ std::wstring wide(std::string_view s)
     return utf8_to_wide(s).value_or(std::wstring{});
 }
 
+double reading_fraction(int32_t page, int32_t count) noexcept
+{
+    return count <= 1 ? 1.0 : static_cast<double>(page) / (count - 1);
+}
+
+std::wstring page_error_text(eb_status st)
+{
+    if (st == EB_E_NOMEM)
+        return L"Không đủ bộ nhớ để hiển thị trang này";
+    if (st == EB_E_LIMIT)
+        return L"Trang quá lớn để hiển thị";
+    return L"Lỗi trang: " + wide(eb_status_text(st));
+}
+
 }
 
 ReaderView::~ReaderView()
@@ -200,9 +214,16 @@ void ReaderView::check_epoch()
         return;
     epoch_ = canvas_.epoch();
     cache_.clear();
-    shown_.Reset();
+    set_shown({});
     ++view_id_;
     send_want();
+}
+
+void ReaderView::set_shown(BitmapRef b)
+{
+    shown_ = std::move(b);
+    const SIZE c = content_size();
+    cache_.set_cap(kBitmapCacheBytes - std::min(kBitmapCacheBytes, bitmap_bytes(c.cx, c.cy)));
 }
 
 ViewParams ReaderView::current_view() const
@@ -224,6 +245,10 @@ void ReaderView::send_want()
     w.view_id = view_id_;
     w.view = view_;
     w.anchor = anchor_;
+    w.mark = mark_;
+    w.max_side_px = canvas_.max_side();
+    const SIZE c = content_size();
+    w.prefetch = bitmap_bytes(c.cx, c.cy) <= kPrefetchMaxBytes;
     w.page = page_;
     w.have_cur = cache_.contains(page_);
     w.have_next = cache_.contains(page_ + 1);
@@ -277,9 +302,9 @@ void ReaderView::close() noexcept
     worker_.reset();
     saver_.reset();
     cache_.clear();
-    shown_.Reset();
+    set_shown({});
     zoom_ = ZoomState{};
-    anchor_ = kNoAnchor;
+    anchor_ = mark_ = kNoAnchor;
     page_ = count_ = 0;
     scale_ = 0;
     reflowable_ = awaiting_first_ = false;
@@ -312,8 +337,8 @@ void ReaderView::on_results()
 {
     if (!worker_)
         return;
-    check_epoch();
     for (RenderResult& r : worker_->take()) {
+        check_epoch();
         if (r.kind == RenderResult::Kind::OpenFailed)
             fail_open(r);
         else if (r.view_id == view_id_)
@@ -335,7 +360,11 @@ void ReaderView::store_result(RenderResult& r)
     count_ = r.page_count;
     reflowable_ = r.reflowable;
     if (r.bmp) {
-        cache_.put(r.page, canvas_.upload(*r.bmp), bitmap_bytes(r.bmp->width, r.bmp->height));
+        const std::size_t bytes = bitmap_bytes(r.bmp->width, r.bmp->height);
+        if (BitmapRef ref = canvas_.upload(*r.bmp))
+            cache_.put(r.page, std::move(ref), bytes);
+        else if (r.primary && r.status == EB_OK)
+            r.status = EB_E_INTERNAL;
         if (r.primary && r.scale > 0)
             scale_ = r.scale;
         r.bmp.reset();
@@ -347,7 +376,7 @@ void ReaderView::store_result(RenderResult& r)
 void ReaderView::show_primary(const RenderResult& r)
 {
     if (r.status != EB_OK) {
-        note_ = L"Lỗi trang: " + wide(eb_status_text(r.status));
+        note_ = page_error_text(r.status);
         notify(ReaderEvent::PageSettled);
         return;
     }
@@ -355,9 +384,10 @@ void ReaderView::show_primary(const RenderResult& r)
     if (r.page != page_)
         pan_x_ = pan_y_ = 0;
     page_ = r.page;
+    mark_ = r.mark;
     chapter_ = wide(r.chapter);
     if (BitmapRef* b = cache_.get(page_))
-        shown_ = *b;
+        set_shown(*b);
     if (awaiting_first_ && anchor_ != kNoAnchor && page_ > 0)
         resume_percent_ = static_cast<int>(std::lround(saved_percent_ * 100));
     awaiting_first_ = false;
@@ -370,8 +400,7 @@ void ReaderView::record_progress(const RenderResult& r) noexcept
 {
     if (!saver_)
         return;
-    const double pct = count_ > 1 ? static_cast<double>(r.page) / (count_ - 1) : 0.0;
-    saver_->update(Progress{r.mark, pct, -1, unix_now()});
+    saver_->update(Progress{r.mark, reading_fraction(r.page, r.page_count), -1, unix_now()});
 }
 
 void ReaderView::notify(ReaderEvent e) const noexcept
@@ -389,8 +418,9 @@ void ReaderView::go_to(int32_t page, bool from_end)
     page_ = page;
     pan_x_ = 0;
     pan_y_ = from_end ? kPanEnd : 0;
+    mark_ = kNoAnchor;
     if (BitmapRef* b = cache_.get(page_))
-        shown_ = *b;
+        set_shown(*b);
     send_want();
     InvalidateRect(hwnd_, nullptr, FALSE);
     notify(ReaderEvent::PageShown);
@@ -484,8 +514,8 @@ void ReaderView::wheel_step(int direction)
 std::wstring ReaderView::status_text() const
 {
     if (count_ <= 0)
-        return L"Đang mở…";
-    const int pct = count_ > 1 ? static_cast<int>(std::lround(100.0 * page_ / (count_ - 1))) : 0;
+        return note_.empty() ? std::wstring(L"Đang mở…") : note_;
+    const int pct = static_cast<int>(std::lround(100.0 * reading_fraction(page_, count_)));
     std::wstring t = std::format(L"Trang {} / {} · {} %", page_ + 1, count_, pct);
     if (!chapter_.empty())
         t += L" · " + chapter_;

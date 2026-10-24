@@ -18,6 +18,9 @@ inline constexpr float kMinZoomPct = 50.0F;
 inline constexpr float kMaxZoomPct = 400.0F;
 inline constexpr float kZoomStep = 1.25F;
 inline constexpr std::size_t kBitmapCacheBytes = std::size_t{96} << 20;
+inline constexpr std::size_t kMaxBitmapBytes = std::size_t{32} << 20;
+inline constexpr std::size_t kPrefetchMaxBytes = std::size_t{16} << 20;
+inline constexpr uint32_t kDefaultMaxSidePx = 4096;
 inline constexpr uint64_t kNoAnchor = UINT64_MAX;
 
 struct LayoutParams {
@@ -40,7 +43,9 @@ struct ZoomState {
 [[nodiscard]] float clamp_zoom(float pct) noexcept;
 // Device pixels per point for a fixed-layout page; bounded so that one bitmap stays renderable.
 [[nodiscard]] float fixed_scale(const ZoomState& z, float page_w_pt, float page_h_pt, int client_w, int client_h,
-    unsigned dpi) noexcept;
+    unsigned dpi, uint32_t max_side_px) noexcept;
+// Reduces a scale so the bitmap of a page stays within max_side_px per side and kMaxBitmapBytes in total.
+[[nodiscard]] float limit_scale(float scale, float page_w_pt, float page_h_pt, uint32_t max_side_px) noexcept;
 [[nodiscard]] float zoom_percent_of(float scale, unsigned dpi) noexcept;
 [[nodiscard]] ZoomState zoom_step(float current_scale, unsigned dpi, int direction) noexcept;
 [[nodiscard]] ZoomState toggle_fit_width(const ZoomState& z) noexcept;
@@ -68,7 +73,10 @@ struct RenderWant {
     uint32_t view_id = 0;    // UI epoch of the view parameters; results of another epoch are dropped by the UI
     ViewParams view;
     uint64_t anchor = kNoAnchor; // bookmark to jump to after layout
+    uint64_t mark = kNoAnchor;   // confirmed bookmark of `page`, kNoAnchor while unknown
+    uint32_t max_side_px = kDefaultMaxSidePx;
     int32_t page = 0;
+    bool prefetch = true;
     bool have_cur = false, have_next = false, have_prev = false; // bitmaps the UI already holds
 };
 
@@ -81,6 +89,8 @@ public:
 
     uint64_t post(RenderWant w);
     bool pop(RenderWant& out, std::stop_token st);
+    // Makes every request so far stale and drops the pending one (used when closing).
+    void supersede() noexcept;
     void done() noexcept;
     [[nodiscard]] bool current(uint64_t generation) const;
 
@@ -116,6 +126,14 @@ public:
             return nullptr;
         items_.splice(items_.begin(), items_, it);
         return &items_.front().value;
+    }
+    void set_cap(std::size_t cap)
+    {
+        cap_ = cap;
+        while (bytes_ > cap_ && items_.size() > 1) {
+            bytes_ -= items_.back().bytes;
+            items_.pop_back();
+        }
     }
     [[nodiscard]] bool contains(int32_t key) const { return find(key) != items_.end(); }
     void clear() noexcept
