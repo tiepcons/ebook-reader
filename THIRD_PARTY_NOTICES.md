@@ -16,3 +16,10 @@ Fonts, Piper/onnxruntime/espeak-ng and voice models will be listed here when the
 The full license texts are shipped in the `licenses\` folder of release packages. Because the complete source code
 of Ebook Reader (including the exact library versions above) is published in this repository, the source-availability
 requirements of the AGPL-3.0 and LGPL-3.0 are met.
+
+## Fonts
+
+| Font | Files | Version / commit | License | Source |
+|---|---|---|---|---|
+| Literata | `fonts/Literata/` (variable TTF, opsz,wght; Regular + Italic) | google/fonts main @ e7db6ca603fd4862010383ff17ffd6cc4ffac1c0 (fetched 2026-10-24) | SIL OFL 1.1 (`fonts/Literata/OFL.txt`) | https://github.com/google/fonts/tree/main/ofl/literata |
+| Be Vietnam Pro | `fonts/BeVietnamPro/` (Regular, Italic, Bold, BoldItalic) | google/fonts main @ e7db6ca603fd4862010383ff17ffd6cc4ffac1c0 (fetched 2026-10-24) | SIL OFL 1.1 (`fonts/BeVietnamPro/OFL.txt`) | https://github.com/google/fonts/tree/main/ofl/bevietnampro |
