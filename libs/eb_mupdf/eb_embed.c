@@ -58,31 +58,44 @@ static void set_if_empty(char** slot, char* value)
     else *slot = value;
 }
 
-/* Joins "dir" and a manifest href, decoding %XX; rejects anything that climbs above the archive root. */
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* Percent-decodes an href (exactly two hex digits per escape) up to any '#' or '?'. */
+static int decode_href(const char* href, char* out, size_t cap)
+{
+    size_t n = 0;
+    for (const char* p = href; *p && *p != '#' && *p != '?'; ++p) {
+        char c = *p;
+        if (n + 1 >= cap || c == '\\') return 0;
+        if (c == '%') {
+            const int hi = p[1] ? hex_value(p[1]) : -1;
+            const int lo = hi >= 0 ? hex_value(p[2]) : -1;
+            if (hi < 0 || lo < 0 || (hi == 0 && lo == 0) || (hi * 16 + lo) == '\\') return 0;
+            c = (char)(hi * 16 + lo);
+            p += 2;
+        }
+        out[n++] = c;
+    }
+    out[n] = '\0';
+    return n > 0;
+}
+
+/* Joins the already-resolved "dir" and a manifest href; rejects anything that climbs above the archive root. */
 static int resolve_path(const char* dir, const char* href, char* out, size_t cap)
 {
+    char dec[EB_PATH_MAX];
     char raw[EB_PATH_MAX];
-    size_t n = 0, len = 0;
-    const char* seg = NULL;
-    if (strlen(dir) + strlen(href) + 2 > sizeof raw) return 0;
-    snprintf(raw, sizeof raw, "%s%s", dir, href);
-    for (const char* p = raw; *p && *p != '#' && *p != '?'; ++p) {
-        if (*p == '\\') return 0;
-        if (*p == '%' && p[1] && p[2]) {
-            const char hex[3] = {p[1], p[2], 0};
-            char* end = NULL;
-            const long v = strtol(hex, &end, 16);
-            if (*end || v <= 0 || v == '\\') return 0;
-            raw[n++] = (char)v;
-            p += 2;
-        } else {
-            raw[n++] = *p;
-        }
-    }
-    raw[n] = '\0';
-    if (n == 0 || raw[0] == '/') return 0;
+    size_t len = 0;
+    if (!decode_href(href, dec, sizeof dec) || dec[0] == '/' || strlen(dir) + strlen(dec) + 1 > sizeof raw) return 0;
+    snprintf(raw, sizeof raw, "%s%s", dir, dec);
     out[0] = '\0';
-    for (seg = raw; seg;) {
+    for (const char* seg = raw; seg;) {
         const char* slash = strchr(seg, '/');
         const size_t sl = slash ? (size_t)(slash - seg) : strlen(seg);
         if (sl == 2 && seg[0] == '.' && seg[1] == '.') {
@@ -116,19 +129,45 @@ static void dir_of(const char* path, char* out, size_t cap)
     out[n] = '\0';
 }
 
+/* Reads at most "limit" bytes, growing to min(2*cap, limit+1); NULL when the stream is longer. */
+static fz_buffer* read_bounded(fz_context* ctx, fz_stream* stm, size_t limit)
+{
+    uint8_t chunk[16384];
+    fz_buffer* buf = fz_new_buffer(ctx, 16384);
+    fz_try(ctx)
+    {
+        for (;;) {
+            const size_t n = fz_read(ctx, stm, chunk, sizeof chunk);
+            if (n == 0) break;
+            if (buf->len + n > limit) {
+                fz_drop_buffer(ctx, buf);
+                buf = NULL;
+                break;
+            }
+            if (buf->len + n > buf->cap) {
+                size_t want = buf->cap * 2 > buf->len + n ? buf->cap * 2 : buf->len + n;
+                if (want > limit + 1) want = limit + 1;
+                fz_resize_buffer(ctx, buf, want);
+            }
+            fz_append_data(ctx, buf, chunk, n);
+        }
+    }
+    fz_catch(ctx)
+    {
+        fz_drop_buffer(ctx, buf);
+        fz_rethrow(ctx);
+    }
+    return buf;
+}
+
 static fz_buffer* read_entry(fz_context* ctx, fz_archive* arch, const char* name, size_t limit)
 {
     fz_stream* s = fz_try_open_archive_entry(ctx, arch, name);
     fz_buffer* buf = NULL;
-    int truncated = 0;
     if (!s) return NULL;
-    fz_try(ctx) buf = fz_read_best(ctx, s, 16384, &truncated, limit);
+    fz_try(ctx) buf = read_bounded(ctx, s, limit);
     fz_always(ctx) fz_drop_stream(ctx, s);
     fz_catch(ctx) fz_rethrow(ctx);
-    if (truncated) {
-        fz_drop_buffer(ctx, buf);
-        return NULL;
-    }
     return buf;
 }
 
@@ -179,28 +218,13 @@ static const char* find_cover_href(fz_xml* package)
     return NULL;
 }
 
-static void take_cover(fz_context* ctx, eb_mobi_info* info, fz_buffer* buf)
-{
-    unsigned char* data = NULL;
-    const size_t n = fz_buffer_storage(ctx, buf, &data);
-    if (n == 0 || n > EB_MAX_IMAGE_BYTES || info->cover) return;
-    info->cover = malloc(n);
-    if (!info->cover) return;
-    memcpy(info->cover, data, n);
-    info->cover_size = n;
-}
-
-static void epub_cover(fz_context* ctx, fz_archive* arch, fz_xml* package, const char* opf_dir, eb_mobi_info* info)
+static void epub_cover(eb_doc* d, fz_archive* arch, fz_xml* package, const char* opf_dir)
 {
     const char* href = find_cover_href(package);
     char path[EB_PATH_MAX];
-    fz_buffer* img = NULL;
     if (!href || !resolve_path(opf_dir, href, path, sizeof path)) return;
-    img = read_entry(ctx, arch, path, EB_MAX_IMAGE_BYTES);
-    if (!img) return;
-    fz_try(ctx) take_cover(ctx, info, img);
-    fz_always(ctx) fz_drop_buffer(ctx, img);
-    fz_catch(ctx) fz_rethrow(ctx);
+    eb_check_abort(d);
+    d->cover_buf = read_entry(d->ctx, arch, path, EB_MAX_IMAGE_BYTES);
 }
 
 static void epub_meta(fz_xml* package, eb_mobi_info* info)
@@ -211,8 +235,10 @@ static void epub_meta(fz_xml* package, eb_mobi_info* info)
     set_if_empty(&info->language, eb_normalize_language(child_text(metadata, "language")));
 }
 
-static void epub_probe(fz_context* ctx, fz_archive* arch, int want_cover, eb_mobi_info* info)
+static void epub_probe(eb_doc* d, fz_archive* arch, int want_cover)
 {
+    fz_context* ctx = d->ctx;
+    eb_mobi_info* info = &d->mobi;
     fz_buffer* buf = read_entry(ctx, arch, "META-INF/container.xml", EB_MAX_XML_BYTES);
     fz_xml* xml = NULL;
     char opf[EB_PATH_MAX];
@@ -234,6 +260,7 @@ static void epub_probe(fz_context* ctx, fz_archive* arch, int want_cover, eb_mob
     }
     fz_catch(ctx) fz_rethrow(ctx);
     if (!have) return;
+    if (want_cover) eb_check_abort(d);
     dir_of(opf, dir, sizeof dir);
     buf = read_entry(ctx, arch, opf, EB_MAX_XML_BYTES);
     if (!buf) return;
@@ -244,7 +271,7 @@ static void epub_probe(fz_context* ctx, fz_archive* arch, int want_cover, eb_mob
         xml = fz_parse_xml(ctx, buf, 0);
         package = fz_xml_find(fz_xml_root(xml), "package");
         epub_meta(package, info);
-        if (want_cover) epub_cover(ctx, arch, package, dir, info);
+        if (want_cover) epub_cover(d, arch, package, dir);
     }
     fz_always(ctx)
     {
@@ -264,31 +291,38 @@ static int b64_value(int c)
     return -1;
 }
 
-static uint8_t* b64_decode(const char* in, size_t* out_size)
+static fz_buffer* b64_decode(fz_context* ctx, const char* in)
 {
     const size_t cap = strlen(in) / 4 * 3 + 3;
-    uint8_t* out = NULL;
+    fz_buffer* out = NULL;
     uint32_t acc = 0;
     int bits = 0;
     size_t n = 0;
     if (cap > EB_MAX_IMAGE_BYTES + 3) return NULL;
-    out = malloc(cap ? cap : 1);
-    if (!out) return NULL;
-    for (; *in; ++in) {
-        const int v = b64_value((unsigned char)*in);
-        if (v < 0) {
-            if (*in == '=' || *in == ' ' || *in == '\n' || *in == '\r' || *in == '\t') continue;
-            free(out);
-            return NULL;
+    out = fz_new_buffer(ctx, cap);
+    fz_try(ctx)
+    {
+        for (; *in; ++in) {
+            const int v = b64_value((unsigned char)*in);
+            if (v < 0) {
+                if (*in == '=' || *in == ' ' || *in == '\n' || *in == '\r' || *in == '\t') continue;
+                fz_throw(ctx, FZ_ERROR_FORMAT, "bad base64");
+            }
+            acc = (acc << 6) | (uint32_t)v;
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                fz_append_byte(ctx, out, (int)((acc >> bits) & 0xFFu));
+                ++n;
+            }
         }
-        acc = (acc << 6) | (uint32_t)v;
-        bits += 6;
-        if (bits >= 8) {
-            bits -= 8;
-            out[n++] = (uint8_t)((acc >> bits) & 0xFFu);
-        }
+        if (n > EB_MAX_IMAGE_BYTES) fz_throw(ctx, FZ_ERROR_LIMIT, "cover too large");
     }
-    *out_size = n;
+    fz_catch(ctx)
+    {
+        fz_drop_buffer(ctx, out);
+        fz_rethrow(ctx);
+    }
     return out;
 }
 
@@ -302,7 +336,7 @@ static char* fb2_author(fz_xml* ti)
     return dup_trimmed(joined);
 }
 
-static void fb2_cover(fz_xml* root, fz_xml* ti, eb_mobi_info* info)
+static void fb2_cover(eb_doc* d, fz_xml* root, fz_xml* ti)
 {
     fz_xml* img = fz_xml_find_down(fz_xml_find_down(ti, "coverpage"), "image");
     const char* href = fz_xml_att_alt(img, "l:href", "xlink:href");
@@ -312,13 +346,15 @@ static void fb2_cover(fz_xml* root, fz_xml* ti, eb_mobi_info* info)
         const char* text = NULL;
         if (!fz_xml_att_eq(b, "id", href + 1)) continue;
         text = fz_xml_text(fz_xml_down(b));
-        if (text) info->cover = b64_decode(text, &info->cover_size);
+        if (text) d->cover_buf = b64_decode(d->ctx, text);
         return;
     }
 }
 
-static void fb2_probe(fz_context* ctx, fz_buffer* buf, int want_cover, eb_mobi_info* info)
+static void fb2_probe(eb_doc* d, fz_buffer* buf, int want_cover)
 {
+    fz_context* ctx = d->ctx;
+    eb_mobi_info* info = &d->mobi;
     fz_xml* xml = NULL;
     fz_var(xml);
     fz_try(ctx)
@@ -331,7 +367,7 @@ static void fb2_probe(fz_context* ctx, fz_buffer* buf, int want_cover, eb_mobi_i
         set_if_empty(&info->title, dup_trimmed(child_text(ti, "book-title")));
         set_if_empty(&info->author, fb2_author(ti));
         set_if_empty(&info->language, eb_normalize_language(child_text(ti, "lang")));
-        if (want_cover) fb2_cover(root, ti, info);
+        if (want_cover) fb2_cover(d, root, ti);
     }
     fz_always(ctx) fz_drop_xml(ctx, xml);
     fz_catch(ctx) fz_rethrow(ctx);
@@ -361,49 +397,81 @@ static fz_stream* open_source(eb_doc* d, FILE** aux)
     return d->src ? fz_open_buffer(ctx, d->src) : NULL;
 }
 
-static void probe_stream(fz_context* ctx, fz_stream* stm, int want_cover, eb_mobi_info* info)
+static int format_contains(eb_doc* d, const char* needle)
 {
-    fz_archive* arch = NULL;
+    char name[64] = {0};
+    int n = -1;
+    fz_try(d->ctx) n = fz_lookup_metadata(d->ctx, d->doc, FZ_META_FORMAT, name, sizeof name);
+    fz_catch(d->ctx) fz_ignore_error(d->ctx);
+    name[sizeof name - 1] = '\0';
+    return n > 1 && contains_nocase(name, needle);
+}
+
+/* FB2 is parsed straight from the kept buffer of memory docs, or from a bounded read of the file. */
+static void probe_fb2(eb_doc* d, fz_stream* stm, int want_cover)
+{
+    fz_context* ctx = d->ctx;
     fz_buffer* buf = NULL;
-    int truncated = 0;
-    uint8_t head[4] = {0};
-    fz_var(arch);
+    if (d->src) {
+        if (d->src->len <= EB_MAX_FB2_BYTES) fb2_probe(d, d->src, want_cover);
+        return;
+    }
     fz_var(buf);
     fz_try(ctx)
     {
-        const int zip = fz_is_zip_archive(ctx, stm);
         fz_seek(ctx, stm, 0, SEEK_SET);
-        if (zip) {
-            arch = fz_open_archive_with_stream(ctx, stm);
-            epub_probe(ctx, arch, want_cover, info);
-        } else {
-            fz_read(ctx, stm, head, sizeof head);
-            fz_seek(ctx, stm, 0, SEEK_SET);
-            if (head[0] == '<' || (head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF)) {
-                buf = fz_read_best(ctx, stm, 1u << 20, &truncated, EB_MAX_FB2_BYTES);
-                if (!truncated) fb2_probe(ctx, buf, want_cover, info);
-            }
-        }
+        buf = read_bounded(ctx, stm, EB_MAX_FB2_BYTES);
+        if (buf) fb2_probe(d, buf, want_cover);
     }
-    fz_always(ctx)
-    {
-        fz_drop_buffer(ctx, buf);
-        fz_drop_archive(ctx, arch);
-    }
-    fz_catch(ctx) fz_ignore_error(ctx);
+    fz_always(ctx) fz_drop_buffer(ctx, buf);
+    fz_catch(ctx) fz_rethrow(ctx);
 }
 
-/* Failures are silent by design: callers fall back to MuPDF's own metadata and to rendering page 0. */
-void eb_embed_probe(eb_doc* d, int want_cover)
+static int probe_stream(eb_doc* d, fz_stream* stm, int want_cover)
+{
+    fz_context* ctx = d->ctx;
+    fz_archive* arch = NULL;
+    int aborted = 0;
+    fz_var(arch);
+    fz_try(ctx)
+    {
+        if (format_contains(d, "epub") && fz_is_zip_archive(ctx, stm)) {
+            fz_seek(ctx, stm, 0, SEEK_SET);
+            arch = fz_open_archive_with_stream(ctx, stm);
+            epub_probe(d, arch, want_cover);
+        } else if (format_contains(d, "fiction") || format_contains(d, "fb2")) {
+            probe_fb2(d, stm, want_cover);
+        }
+    }
+    fz_always(ctx) fz_drop_archive(ctx, arch);
+    fz_catch(ctx)
+    {
+        aborted = fz_caught(ctx) == FZ_ERROR_ABORT;
+        fz_ignore_error(ctx);
+    }
+    return aborted;
+}
+
+/* Other failures are silent by design: callers fall back to MuPDF's own metadata and to rendering page 0.
+ * Returns 1 only when eb_abort cancelled a cover probe (want_cover); the probe then runs again next time. */
+int eb_embed_probe(eb_doc* d, int want_cover)
 {
     FILE* aux = NULL;
     fz_stream* stm = NULL;
-    if ((d->meta_probed && !want_cover) || d->cover_probed) return;
-    d->meta_probed = 1;
-    if (want_cover) d->cover_probed = 1;
+    int aborted = 0;
+    if ((d->meta_probed && !want_cover) || d->cover_probed) return 0;
     stm = open_source(d, &aux);
-    if (!stm) return;
-    probe_stream(d->ctx, stm, want_cover, &d->mobi);
+    if (!stm) {
+        d->meta_probed = 1;
+        d->cover_probed |= want_cover;
+        return 0;
+    }
+    if (want_cover) eb_begin_call(d);
+    aborted = probe_stream(d, stm, want_cover);
     fz_drop_stream(d->ctx, stm);
     if (aux) fclose(aux);
+    if (aborted && want_cover) return 1;
+    d->meta_probed = 1;
+    d->cover_probed |= want_cover;
+    return 0;
 }

@@ -43,7 +43,7 @@ eb_status eb_render_embedded_cover(eb_doc* doc, int32_t max_side, eb_bitmap** ou
     fz_try(ctx)
     {
         int w = 0, h = 0;
-        buf = fz_new_buffer_from_copied_data(ctx, doc->mobi.cover, doc->mobi.cover_size);
+        buf = doc->cover_buf ? fz_keep_buffer(ctx, doc->cover_buf) : fz_new_buffer_from_copied_data(ctx, doc->mobi.cover, doc->mobi.cover_size);
         img = fz_new_image_from_buffer(ctx, buf);
         if (img->w <= 0 || img->h <= 0) fz_throw(ctx, FZ_ERROR_FORMAT, "empty cover image");
         const uint8_t orientation = fz_image_orientation(ctx, img);

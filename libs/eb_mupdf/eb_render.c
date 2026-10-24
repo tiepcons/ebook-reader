@@ -134,8 +134,15 @@ eb_status eb_render_cover(eb_doc* doc, int32_t max_side_px, eb_bitmap** out)
     *out = NULL;
     if (max_side_px < 1 || max_side_px > EB_MAX_COVER_SIDE) return eb_fail_msg(EB_E_ARG, "bad cover size");
     rq.max_side = max_side_px;
-    eb_embed_probe(doc, 1);
-    if (doc->mobi.cover && eb_render_embedded_cover(doc, max_side_px, out) == EB_OK) return EB_OK;
+    if (eb_embed_probe(doc, 1)) return eb_fail_msg(EB_E_ABORTED, "cancelled");
+    if ((doc->mobi.cover || doc->cover_buf) && eb_render_embedded_cover(doc, max_side_px, out) == EB_OK) {
+        if (doc->cover_buf) doc->cover_probed = 0;
+        fz_drop_buffer(doc->ctx, doc->cover_buf);
+        doc->cover_buf = NULL;
+        return EB_OK;
+    }
+    fz_drop_buffer(doc->ctx, doc->cover_buf);
+    doc->cover_buf = NULL;
     return render_impl(doc, 0, &rq, out);
 }
 

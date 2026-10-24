@@ -94,6 +94,7 @@ void eb_close(eb_doc* doc)
     fz_drop_document(doc->ctx, doc->doc);
     eb_mobi_info_free(&doc->mobi);
     fz_drop_buffer(doc->ctx, doc->src);
+    fz_drop_buffer(doc->ctx, doc->cover_buf);
     if (doc->file) fclose(doc->file);
     eb_release_ctx(doc->ctx);
     free(doc);

@@ -29,6 +29,7 @@ struct eb_doc {
     fz_cookie cookie;
     eb_mobi_info mobi; /* libmobi books fill it at open; EPUB/FB2 lazily via eb_embed_probe */
     fz_buffer* src;    /* kept bytes of memory-opened documents, for eb_embed.c */
+    fz_buffer* cover_buf; /* embedded EPUB/FB2 cover bytes, released after the first successful cover render */
     int meta_probed, cover_probed;
 };
 
@@ -79,7 +80,7 @@ fz_pixmap* eb_bitmap_pixmap(fz_context* ctx, eb_bitmap* bmp);
 void eb_make_opaque(fz_pixmap* pix);
 
 /* eb_embed.c: EPUB/FB2 language, fallback title/author and embedded cover, filled into doc->mobi on demand. */
-void eb_embed_probe(eb_doc* doc, int want_cover);
+int eb_embed_probe(eb_doc* doc, int want_cover); /* 1 only if eb_abort cancelled a cover probe */
 char* eb_normalize_language(const char* s); /* lowercase primary subtag ("vi"), or NULL; malloc'd */
 
 #endif

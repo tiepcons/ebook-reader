@@ -21,22 +21,30 @@ void le(std::string& s, uint32_t v, int bytes)
     for (int i = 0; i < bytes; ++i) s.push_back(static_cast<char>((v >> (8 * i)) & 0xFFu));
 }
 
-using Files = std::vector<std::pair<std::string, std::string>>;
+struct Entry {
+    std::string name;
+    std::string data;
+    uint32_t method = 0;
+    uint32_t usize = 0;
+};
+
+using Files = std::vector<Entry>;
 
 std::string stored_zip(const Files& files)
 {
     std::string out;
     std::string central;
-    for (const auto& [name, data] : files) {
+    for (const auto& [name, data, method, usize] : files) {
         const auto offset = static_cast<uint32_t>(out.size());
-        const uint32_t crc = crc32_of(data);
+        const uint32_t crc = method == 0 ? crc32_of(data) : 0;
         const auto size = static_cast<uint32_t>(data.size());
+        const uint32_t full = method == 0 ? size : usize;
         const auto name_len = static_cast<uint32_t>(name.size());
         out += "PK\x03\x04";
-        for (const auto& [v, n] : {std::pair<uint32_t, int>{20, 2}, {0, 2}, {0, 2}, {0, 4}, {crc, 4}, {size, 4}, {size, 4}, {name_len, 2}, {0, 2}}) le(out, v, n);
+        for (const auto& [v, n] : {std::pair<uint32_t, int>{20, 2}, {0, 2}, {method, 2}, {0, 4}, {crc, 4}, {size, 4}, {full, 4}, {name_len, 2}, {0, 2}}) le(out, v, n);
         out += name + data;
         central += "PK\x01\x02";
-        for (const auto& [v, n] : {std::pair<uint32_t, int>{20, 2}, {20, 2}, {0, 2}, {0, 2}, {0, 4}, {crc, 4}, {size, 4}, {size, 4}, {name_len, 2},
+        for (const auto& [v, n] : {std::pair<uint32_t, int>{20, 2}, {20, 2}, {0, 2}, {method, 2}, {0, 4}, {crc, 4}, {size, 4}, {full, 4}, {name_len, 2},
                                    {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 4}, {offset, 4}})
             le(central, v, n);
         central += name;
@@ -50,12 +58,46 @@ std::string stored_zip(const Files& files)
     return out;
 }
 
+constexpr uint32_t kBombMatches = 260000;
+constexpr uint32_t kBombSize = 1 + kBombMatches * 258;
+
+// Raw deflate stream (fixed Huffman) that inflates to kBombSize spaces: one literal, then 258-byte matches at distance 1.
+std::string deflate_spaces()
+{
+    std::string out;
+    uint32_t acc = 0;
+    int bits = 0;
+    const auto put = [&](uint32_t value, int count, bool msb_first) {
+        for (int i = 0; i < count; ++i) {
+            const uint32_t bit = msb_first ? (value >> (count - 1 - i)) & 1u : (value >> i) & 1u;
+            acc |= bit << bits;
+            if (++bits == 8) {
+                out.push_back(static_cast<char>(acc));
+                acc = 0;
+                bits = 0;
+            }
+        }
+    };
+    put(1, 1, false);
+    put(1, 2, false);
+    put(0x30 + 0x20, 8, true);
+    for (uint32_t i = 0; i < kBombMatches; ++i) {
+        put(0xC5, 8, true);
+        put(0, 5, true);
+    }
+    put(0, 7, true);
+    put(0, 7, true);
+    if (bits > 0) out.push_back(static_cast<char>(acc));
+    return out;
+}
+
 struct EpubSpec {
     std::string container_path = "OEBPS/content.opf";
     std::string manifest_cover = R"(<item id="cover-img" href="images/cover.bmp" media-type="image/bmp" properties="cover-image"/>)";
     std::string metadata_extra;
     std::string cover_path = "OEBPS/images/cover.bmp";
     std::string container_override;
+    bool bomb_cover = false;
 };
 
 std::string make_epub(const EpubSpec& spec, const std::string& cover_bytes)
@@ -72,11 +114,13 @@ std::string make_epub(const EpubSpec& spec, const std::string& cover_bytes)
         R"(</manifest><spine><itemref idref="c1"/></spine></package>)";
     const std::string chapter = R"(<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head>)"
                                 R"(<body><p>Hello synthetic epub.</p></body></html>)";
+    Entry cover{spec.cover_path, cover_bytes};
+    if (spec.bomb_cover) cover = Entry{spec.cover_path, deflate_spaces(), 8, kBombSize};
     return stored_zip({{"mimetype", "application/epub+zip"},
                        {"META-INF/container.xml", container},
                        {"OEBPS/content.opf", opf},
                        {"OEBPS/ch1.xhtml", chapter},
-                       {spec.cover_path, cover_bytes}});
+                       cover});
 }
 
 DocPtr open_bytes(const std::string& blob, const char* magic)
@@ -251,4 +295,18 @@ TEST_CASE("eb_embed malformed metadata falls back to page 0 without crashing")
     }
     const DocPtr missing = open_bytes(make_fb2(base64(make_bmp(true)), "#nothere"), ".fb2");
     expect_cover_ok(missing.get());
+}
+
+TEST_CASE("eb_embed oversized cover entry is bounded and falls back to page 0")
+{
+    eb_limits lim{};
+    lim.max_heap_bytes = size_t{64} << 20;
+    const Lib lib(&lim);
+    EpubSpec spec;
+    spec.bomb_cover = true;
+    const std::string blob = make_epub(spec, std::string());
+    REQUIRE(blob.size() < (size_t{1} << 20));
+    const DocPtr d = open_bytes(blob, ".epub");
+    expect_cover_ok(d.get());
+    CHECK(meta_of(d.get(), "language") == "vi");
 }
