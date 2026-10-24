@@ -81,8 +81,7 @@ TEST_CASE("api key validation")
     CHECK(eb::validate_api_key(make(std::wstring(128, L'Z'))).has_value());
     CHECK_FALSE(eb::validate_api_key(make(std::wstring(31, L'a'))).has_value());
     CHECK_FALSE(eb::validate_api_key(make(std::wstring(129, L'a'))).has_value());
-    CHECK_FALSE(eb::validate_api_key(make(std::wstring(31, L'a') + L"
-")).has_value());
+    CHECK_FALSE(eb::validate_api_key(make(std::wstring(31, L'a') + L"\n")).has_value());
     CHECK_FALSE(eb::validate_api_key(make(std::wstring(31, L'a') + L" ")).has_value());
     CHECK_FALSE(eb::validate_api_key(make(std::wstring(31, L'a') + L"é")).has_value());
     const auto bad = eb::validate_api_key(make(L"short"));
