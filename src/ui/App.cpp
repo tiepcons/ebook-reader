@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include "MainWnd.h"
+#include "base/ComScope.h"
 #include "base/CrashGuard.h"
 #include "base/DllLoader.h"
 #include "base/Log.h"
@@ -23,18 +24,6 @@
 
 namespace eb {
 namespace {
-
-struct ComScope {
-    bool ok;
-    ComScope() noexcept : ok(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {}
-    ComScope(const ComScope&) = delete;
-    ComScope& operator=(const ComScope&) = delete;
-    ~ComScope()
-    {
-        if (ok)
-            CoUninitialize();
-    }
-};
 
 struct EngineScope {
     ~EngineScope() { eb_shutdown(); }
@@ -127,7 +116,7 @@ int run(HINSTANCE inst, int show)
     const auto start = std::chrono::steady_clock::now();
     const bool smoke = has_flag(L"--smoke");
     g_quiet = smoke;
-    const ComScope com;
+    const ComScope com(COINIT_APARTMENTTHREADED);
     const auto exe_dir = exe_directory();
     if (exe_dir.empty())
         return fatal(L"Không xác định được thư mục ứng dụng.");

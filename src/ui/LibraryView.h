@@ -17,6 +17,9 @@
 
 namespace eb {
 
+inline constexpr UINT_PTR kCoverTimer = 2; // drains covers even when the ready message was lost
+inline constexpr UINT kCoverPollMs = 500;
+
 enum class MenuOutcome : unsigned char { None, Open, Removed };
 
 // The owner-data book grid. Rows are served from a cached copy of the last query.
@@ -33,13 +36,14 @@ public:
     // Requests the covers of the first n rows regardless of visibility (smoke test).
     void prefetch_covers(size_t n);
     [[nodiscard]] bool covers_idle() const noexcept { return pending_.empty(); }
+    void stop_covers() noexcept;
     // Redraws the icons for the dpi / system colours and hands them to the list.
     void rebuild_covers(UINT dpi, bool force);
     bool refresh(const Query& q);
     [[nodiscard]] size_t count() const noexcept { return rows_.size(); }
 
     void on_getdispinfo(NMLVDISPINFOW& di);
-    bool on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result) const;
+    bool on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result);
     [[nodiscard]] std::optional<std::string> selected_id() const;
     // lp is the WM_CONTEXTMENU position, or -1 for the keyboard. Open yields the id through open_id.
     MenuOutcome context_menu(LPARAM lp, std::string& open_id);
@@ -48,6 +52,7 @@ private:
     [[nodiscard]] const BookRow* selected_row() const;
     [[nodiscard]] const std::wstring& label(size_t i);
     void request_cover(const BookRow& row);
+    void redraw_visible(const std::string& id);
     void reveal(const BookRow& row) const;
     bool confirm_remove(const BookRow& row) const;
 

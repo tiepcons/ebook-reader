@@ -36,11 +36,17 @@ bool file_exists(const std::wstring& path) noexcept
     return !path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-constexpr size_t kCoversPerMessage = 8;
+constexpr size_t kCoversPerMessage = 4;
+constexpr int kVisibleSlack = 2;
 
 } // namespace
 
 LibraryView::~LibraryView()
+{
+    stop_covers();
+}
+
+void LibraryView::stop_covers() noexcept
 {
     if (worker_)
         worker_->stop();
@@ -69,16 +75,29 @@ bool LibraryView::attach(HWND list, UINT dpi, const AppPaths& paths)
 
 void LibraryView::request_cover(const BookRow& row)
 {
-    if (!worker_ || row.status != 0 || covers_.has(row.id) || pending_.contains(row.id) || failed_.contains(row.id))
+    if (!worker_ || row.status != 0 || row.fmt == "txt" || covers_.has(row.id) || pending_.contains(row.id)
+        || failed_.contains(row.id) || !covers_.can_accept())
         return;
     const auto path = book_path(db_, row.id);
     if (!path || kv_get(db_, "cover.bad." + row.id)) {
         failed_.insert(row.id);
         return;
     }
+    const SIZE cell = covers_.cell();
     pending_.insert(row.id);
-    if (const auto dropped = worker_->request(row.id, *path))
+    if (const auto dropped = worker_->request(row.id, *path, cell.cx, cell.cy))
         pending_.erase(*dropped);
+    SetTimer(GetParent(list_), kCoverTimer, kCoverPollMs, nullptr);
+}
+
+void LibraryView::redraw_visible(const std::string& id)
+{
+    const int top = ListView_GetTopIndex(list_);
+    const int last = std::min(static_cast<int>(rows_.size()) - 1, top + ListView_GetCountPerPage(list_) + kVisibleSlack);
+    for (int i = std::max(top, 0); i <= last; ++i) {
+        if (rows_[static_cast<size_t>(i)].id == id)
+            ListView_RedrawItems(list_, i, i);
+    }
 }
 
 void LibraryView::prefetch_covers(size_t n)
@@ -92,17 +111,21 @@ void LibraryView::on_cover_ready()
     if (!worker_)
         return;
     const auto done = worker_->take_ready(kCoversPerMessage);
-    bool changed = false;
+    const SIZE cell = covers_.cell();
     for (const auto& r : done) {
         pending_.erase(r.id);
-        const auto file = r.ok ? cache_->cached(r.id) : std::nullopt;
-        if (file && covers_.set_cover(r.id, *file))
-            changed = true;
-        else
+        if (!r.ok) {
             failed_.insert(r.id);
+            kv_set(db_, "cover.bad." + r.id, "1");
+        } else if (r.width == cell.cx && r.height == cell.cy && (covers_.has(r.id) || covers_.can_accept())) {
+            if (covers_.set_cover(r.id, r.pixels))
+                redraw_visible(r.id);
+            else
+                failed_.insert(r.id);
+        }
     }
-    if (changed)
-        InvalidateRect(list_, nullptr, FALSE);
+    if (pending_.empty())
+        KillTimer(GetParent(list_), kCoverTimer);
     if (done.size() == kCoversPerMessage)
         PostMessageW(GetParent(list_), WM_APP_COVER_READY, 0, 0);
 }
@@ -157,9 +180,10 @@ void LibraryView::on_getdispinfo(NMLVDISPINFOW& di)
     }
 }
 
-bool LibraryView::on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result) const
+bool LibraryView::on_custom_draw(NMLVCUSTOMDRAW& cd, LRESULT& result)
 {
     if (cd.nmcd.dwDrawStage == CDDS_PREPAINT) {
+        covers_.begin_paint();
         result = CDRF_NOTIFYITEMDRAW;
         return true;
     }

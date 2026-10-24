@@ -41,6 +41,8 @@ bool MainWnd::on_library_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         on_context_menu(lp);
         return true;
     case WM_TIMER:
+        if (wp == kCoverTimer)
+            return on_worker_msg(WM_APP_COVER_READY, 0, 0);
         if (wp != kSearchTimer)
             return false;
         KillTimer(hwnd_, kSearchTimer);

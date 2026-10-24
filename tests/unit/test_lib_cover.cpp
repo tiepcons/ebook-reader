@@ -1,4 +1,5 @@
 #include "../integration/eb_test_util.h"
+#include "base/ComScope.h"
 #include "base/Hash.h"
 #include "lib/CoverCache.h"
 #include "test_base_tmp.h"
@@ -9,19 +10,13 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <fstream>
 #include <thread>
 
 namespace {
-
-struct Com {
-    Com() { CoInitializeEx(nullptr, COINIT_MULTITHREADED); }
-    Com(const Com&) = delete;
-    Com& operator=(const Com&) = delete;
-    ~Com() { CoUninitialize(); }
-};
 
 bool decoded_size(const fs::path& jpeg, UINT& w, UINT& h)
 {
@@ -58,7 +53,7 @@ bool wait_for(eb::CoverWorker& w, size_t want, std::vector<eb::CoverResult>& got
 TEST_CASE("cover cache: generates a 320 px JPEG for every good corpus format")
 {
     const Lib lib;
-    const Com com;
+    const eb::ComScope com(COINIT_MULTITHREADED);
     const ebtest::TempDir dir;
     const eb::CoverCache cache(dir.path());
     for (const auto& p : corpus("good")) {
@@ -109,13 +104,20 @@ TEST_CASE("cover worker: serves requests and never retries the crash suspect")
     });
     REQUIRE(worker.previous_suspect().has_value());
     CHECK(*worker.previous_suspect() == suspect_id);
-    worker.request(suspect_id, other);
-    worker.request(good_id, good);
+    worker.request(suspect_id, other, 96, 144);
+    worker.request(good_id, good, 96, 144);
     std::vector<eb::CoverResult> got;
     REQUIRE(wait_for(worker, 2, got));
     CHECK(signals.load() >= 1);
-    for (const auto& r : got)
+    for (const auto& r : got) {
         CHECK(r.ok == (r.id == good_id));
+        if (r.ok) {
+            CHECK(r.width == 96);
+            CHECK(r.height == 144);
+            REQUIRE(r.pixels.size() == 96U * 144U);
+            CHECK((r.pixels[0] >> 24) == 0xFF);
+        }
+    }
     const eb::CoverCache cache(covers);
     CHECK(cache.cached(good_id).has_value());
     CHECK_FALSE(cache.cached(suspect_id).has_value());
