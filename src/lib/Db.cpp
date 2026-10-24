@@ -63,6 +63,8 @@ Result<void> check(sqlite3* db, int rc) noexcept
 
 Result<void> apply_pragmas(Db& db, int busy_timeout_ms) noexcept
 {
+    // busy_timeout first: switching to WAL takes a lock and must wait for concurrent openers, not fail with BUSY.
+    sqlite3_busy_timeout(db.raw(), std::clamp(busy_timeout_ms, 0, 60000));
     auto mode = db.prepare("PRAGMA journal_mode=WAL");
     if (!mode)
         return std::unexpected(std::move(mode.error()));
@@ -70,8 +72,7 @@ Result<void> apply_pragmas(Db& db, int busy_timeout_ms) noexcept
         return std::unexpected(std::move(step.error()));
     if (mode->column_text(0) != "wal")
         log::write("WARN", "database is not in WAL mode");
-    const std::string busy = "PRAGMA busy_timeout=" + std::to_string(std::clamp(busy_timeout_ms, 0, 60000));
-    for (const char* pragma : {"PRAGMA synchronous=NORMAL", busy.c_str(), "PRAGMA foreign_keys=ON"}) {
+    for (const char* pragma : {"PRAGMA synchronous=NORMAL", "PRAGMA foreign_keys=ON"}) {
         if (auto r = db.exec(pragma); !r)
             return r;
     }
