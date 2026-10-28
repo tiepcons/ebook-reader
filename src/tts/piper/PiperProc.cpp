@@ -148,33 +148,64 @@ std::wstring env_block(const Cfg& c)
     return b;
 }
 
+constexpr const wchar_t* kLowLabelSddl = L"S:(ML;OICI;NW;;;LW)";
+// Owner + SYSTEM only (protected from inheritance), plus the Low label so the sandboxed piper can write WAVs.
+constexpr const wchar_t* kTempDirSddl = L"D:P(A;OICI;FA;;;OW)(A;OICI;FA;;;SY)S:(ML;OICI;NW;;;LW)";
+
+// Owns a descriptor allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+class LocalSd {
+public:
+    explicit LocalSd(const wchar_t* sddl) noexcept
+    {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &sd_, nullptr);
+    }
+    ~LocalSd() { LocalFree(sd_); }
+    LocalSd(const LocalSd&) = delete;
+    LocalSd& operator=(const LocalSd&) = delete;
+    [[nodiscard]] PSECURITY_DESCRIPTOR get() const noexcept { return sd_; }
+
+private:
+    PSECURITY_DESCRIPTOR sd_ = nullptr;
+};
+
+bool has_low_label(const fs::path& dir)
+{
+    PSECURITY_DESCRIPTOR raw = nullptr;
+    PACL sacl = nullptr;
+    if (GetNamedSecurityInfoW(dir.c_str(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, &sacl, &raw)
+        != ERROR_SUCCESS)
+        return false;
+    bool low = false;
+    for (DWORD i = 0; sacl != nullptr && i < sacl->AceCount; ++i) {
+        void* ace = nullptr;
+        if (GetAce(sacl, i, &ace) && static_cast<ACE_HEADER*>(ace)->AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE) {
+            auto* sid = reinterpret_cast<PSID>(&static_cast<SYSTEM_MANDATORY_LABEL_ACE*>(ace)->SidStart); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+            low = *GetSidSubAuthority(sid, 0) == SECURITY_MANDATORY_LOW_RID;
+        }
+    }
+    LocalFree(raw);
+    return low;
+}
+
 bool label_low(const fs::path& dir)
 {
-    PSECURITY_DESCRIPTOR sd = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"S:(ML;OICI;NW;;;LW)", SDDL_REVISION_1, &sd, nullptr))
-        return false;
+    const LocalSd sd(kLowLabelSddl);
     BOOL present = FALSE;
     BOOL defaulted = FALSE;
     PACL sacl = nullptr;
     std::wstring path = dir.wstring();
-    const bool ok = GetSecurityDescriptorSacl(sd, &present, &sacl, &defaulted) && present
+    return sd.get() != nullptr && GetSecurityDescriptorSacl(sd.get(), &present, &sacl, &defaulted) && present
         && SetNamedSecurityInfoW(path.data(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, sacl)
             == ERROR_SUCCESS;
-    LocalFree(sd);
-    return ok;
 }
 
 // A medium-integrity caller may stamp a Low label while creating the directory; relabeling an existing one needs
 // WRITE_OWNER, which the user lacks on folders inherited from a drive root.
 bool create_labeled(const fs::path& dir)
 {
-    PSECURITY_DESCRIPTOR sd = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"S:(ML;OICI;NW;;;LW)", SDDL_REVISION_1, &sd, nullptr))
-        return false;
-    SECURITY_ATTRIBUTES sa{sizeof sa, sd, FALSE};
-    const bool ok = CreateDirectoryW(dir.c_str(), &sa) != 0;
-    LocalFree(sd);
-    return ok;
+    const LocalSd sd(kTempDirSddl);
+    SECURITY_ATTRIBUTES sa{sizeof sa, sd.get(), FALSE};
+    return sd.get() != nullptr && CreateDirectoryW(dir.c_str(), &sa) != 0;
 }
 
 void remove_stale(const fs::path& dir)
@@ -204,7 +235,7 @@ bool prepare_temp_dir(const fs::path& dir) noexcept
         if (!is_plain_dir_chain(dir))
             return false;
         remove_stale(dir);
-        return created || label_low(dir) || (fs::remove(dir, ec) && create_labeled(dir) && is_plain_dir_chain(dir));
+        return created || has_low_label(dir) || label_low(dir) || (fs::remove(dir, ec) && create_labeled(dir) && is_plain_dir_chain(dir));
     } catch (...) {
         return false;
     }

@@ -439,6 +439,16 @@ bool has_low_label(const fs::path& dir)
     return low;
 }
 
+// Removes the test directory even when a REQUIRE aborts the test case.
+struct RemoveAll {
+    fs::path path;
+    ~RemoveAll()
+    {
+        std::error_code ec;
+        fs::remove_all(path, ec);
+    }
+};
+
 }
 
 TEST_CASE("tts piper temp dir gets a Low label even where relabeling is denied")
@@ -447,6 +457,7 @@ TEST_CASE("tts piper temp dir gets a Low label even where relabeling is denied")
     const fs::path base = fs::current_path() / L"eb-piper-label-test";
     std::error_code ec;
     fs::remove_all(base, ec);
+    const RemoveAll cleanup{base};
     const fs::path fresh = base / L"a" / L"tmp";
     REQUIRE(eb::piper::prepare_temp_dir(fresh));
     CHECK(has_low_label(fresh));
@@ -456,5 +467,19 @@ TEST_CASE("tts piper temp dir gets a Low label even where relabeling is denied")
     CHECK(has_low_label(plain));
     REQUIRE(eb::piper::prepare_temp_dir(plain));
     CHECK(has_low_label(plain));
+}
+
+TEST_CASE("tts piper temp dir that already has a Low label is kept as is")
+{
+    const fs::path base = fs::current_path() / L"eb-piper-label-test-keep";
+    std::error_code ec;
     fs::remove_all(base, ec);
+    const RemoveAll cleanup{base};
+    const fs::path dir = base / L"tmp";
+    REQUIRE(eb::piper::prepare_temp_dir(dir));
+    { std::ofstream(dir / L"marker.txt") << "x"; }
+    REQUIRE(eb::piper::prepare_temp_dir(dir));
+    REQUIRE(eb::piper::prepare_temp_dir(dir));
+    CHECK(has_low_label(dir));
+    CHECK(fs::exists(dir / L"marker.txt", ec));
 }
