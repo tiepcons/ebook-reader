@@ -20,8 +20,8 @@ constexpr size_t kMaxRootChars = 4096;
 struct DialogState {
     Db* db;
     std::vector<std::wstring> roots;
-    bool scan_start;
-    bool changed;
+    bool scan_start{};
+    bool changed{};
 };
 
 std::wstring pick_folder(HWND owner)

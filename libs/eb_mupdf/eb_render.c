@@ -22,12 +22,14 @@ eb_bitmap* eb_new_bitmap(fz_context* ctx, int w, int h)
         (double)w * (double)h > (double)eb_g_limits.max_bitmap_px)
         fz_throw(ctx, FZ_ERROR_LIMIT, "bitmap exceeds max_bitmap_px");
     bmp = malloc(EB_PIXEL_OFFSET + (size_t)w * (size_t)h * 4u);
+    // cppcheck-suppress-begin [nullPointerOutOfMemory, nullPointerArithmeticOutOfMemory] ; eb_throw_oom does not return
     if (!bmp) eb_throw_oom(ctx);
     bmp->width = w;
     bmp->height = h;
     bmp->stride = (int32_t)((size_t)w * 4u);
     bmp->bgra = (uint8_t*)bmp + EB_PIXEL_OFFSET;
     return bmp;
+    // cppcheck-suppress-end [nullPointerOutOfMemory, nullPointerArithmeticOutOfMemory]
 }
 
 fz_pixmap* eb_bitmap_pixmap(fz_context* ctx, eb_bitmap* bmp)

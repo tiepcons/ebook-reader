@@ -200,9 +200,9 @@ public:
 
 private:
     struct Item {
-        int32_t key;
+        int32_t key{};
         V value;
-        std::size_t bytes;
+        std::size_t bytes{};
     };
     using Items = std::list<Item>;
 

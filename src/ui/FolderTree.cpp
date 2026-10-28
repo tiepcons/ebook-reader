@@ -31,6 +31,7 @@ void FolderTree::rebuild(const std::vector<FolderNode>& nodes)
     std::vector<HTREEITEM> items;
     items.reserve(nodes.size());
     for (const auto& n : nodes) {
+        // cppcheck-suppress containerOutOfBounds ; parents always precede children in nodes
         const auto parent = n.parent >= 0 ? items[static_cast<size_t>(n.parent)] : TVI_ROOT;
         scopes_.push_back({TreeScope::Kind::Folder, n.prefix});
         const auto it = insert(parent, n.label, scopes_.size() - 1);

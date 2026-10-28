@@ -72,8 +72,8 @@ public:
 private:
     struct Entry {
         std::string id;
-        int slot;
-        size_t generation;
+        int slot{};
+        size_t generation{};
     };
 
     void mark(Entry& e) noexcept

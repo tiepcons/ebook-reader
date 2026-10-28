@@ -8,7 +8,7 @@ namespace eb {
 enum class ErrorCode : unsigned char { Io, NotFound, Access, Format, Limit, NoMemory, Abi, Internal, Unavailable };
 
 struct Error {
-    ErrorCode code;
+    ErrorCode code{};
     std::wstring detail;
 };
 

@@ -20,8 +20,8 @@ constexpr std::wstring_view kExt = L".mp3";
 
 struct Item {
     std::filesystem::path path;
-    uint64_t size;
-    uint64_t mtime;
+    uint64_t size{};
+    uint64_t mtime{};
 };
 
 template <class Sv>

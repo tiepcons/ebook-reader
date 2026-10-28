@@ -125,12 +125,11 @@ void hook_player(const MediaPlayer& mp, const MediaPlaybackItem& item, const std
 
 struct WinRtPlayer::Impl {
     std::mutex m;
-    MediaPlayer mp{nullptr};
+    MediaPlayer mp;
     MediaPlaybackItem item{nullptr};
 
     explicit Impl(const MediaSource& src) : item(src)
     {
-        mp = MediaPlayer();
         mp.AutoPlay(false);
         mp.Source(item);
     }

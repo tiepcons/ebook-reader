@@ -140,6 +140,7 @@ public:
         if (h_ != nullptr) {
             WinHttpCloseHandle(h_);
             if (WaitForSingleObject(ctx_->closed.get(), kClosingMs) != WAIT_OBJECT_0)
+                // cppcheck-suppress ignoredReturnValue ; intentional leak
                 ctx_.release(); // NOLINT(bugprone-unused-return-value): WinHTTP may still call back, so leak instead of free
         }
     }

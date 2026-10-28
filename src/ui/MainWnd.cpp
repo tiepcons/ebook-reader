@@ -46,8 +46,8 @@ bool parse_ints(const std::string& s, std::array<int, N>& out) noexcept
 }
 
 struct StripProbe {
-    RECT strip;
-    bool ok;
+    RECT strip{};
+    bool ok{};
 };
 
 BOOL CALLBACK strip_on_monitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) noexcept

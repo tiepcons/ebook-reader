@@ -13,7 +13,7 @@ constexpr std::size_t kHexLen = 7;
 constexpr std::string_view kKeyTheme = "ui.theme", kKeyCustom = "ui.theme.custom", kKeyKeep = "ui.theme.keep_images";
 
 struct IdName {
-    ThemeId id;
+    ThemeId id{};
     std::string_view name;
 };
 constexpr std::array<IdName, 4> kIds{{{ThemeId::White, "white"}, {ThemeId::Black, "black"}, {ThemeId::Paper, "paper"},

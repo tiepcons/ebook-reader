@@ -19,7 +19,7 @@ constexpr int kCellW = 96, kCellH = 144;
 
 struct FormatStyle {
     std::string_view fmt;
-    const wchar_t* label;
+    const wchar_t* label{};
     COLORREF color;
 };
 

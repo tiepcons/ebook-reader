@@ -117,6 +117,7 @@ void refresh_swatches(HWND dlg, DlgState& st)
     ThemeColors c = resolve_theme(st.prefs.theme);
     const auto f = fields(c);
     for (std::size_t i = 0; i < f.size(); ++i) {
+        // cppcheck-suppress objectIndex ; fields() points at distinct members of c
         st.brushes[i].reset(CreateSolidBrush(to_ref(*f[i])));
         InvalidateRect(GetDlgItem(dlg, kSwatches[i]), nullptr, TRUE);
     }
@@ -194,15 +195,18 @@ void changed(HWND dlg, DlgState& st, bool immediate)
 void pick_color(HWND dlg, DlgState& st, std::size_t which)
 {
     ThemeColors c = resolve_theme(st.prefs.theme);
+    // cppcheck-suppress objectIndex ; fields() points at distinct members of c
     uint32_t& slot = *fields(c)[which];
     CHOOSECOLORW cc{};
     cc.lStructSize = sizeof(cc);
     cc.hwndOwner = dlg;
+    // cppcheck-suppress danglingTempReference ; c outlives slot
     cc.rgbResult = to_ref(slot);
     cc.lpCustColors = st.custom_colors.data();
     cc.Flags = CC_RGBINIT | CC_FULLOPEN;
     if (!ChooseColorW(&cc))
         return;
+    // cppcheck-suppress danglingTempReference ; c outlives slot
     slot = from_ref(cc.rgbResult);
     st.prefs.theme.id = ThemeId::Custom;
     st.prefs.theme.custom = c;
@@ -260,6 +264,7 @@ INT_PTR on_color_static(DlgState& st, HDC hdc, HWND ctl) noexcept
     if (it == kSwatches.end())
         return FALSE;
     ThemeColors c = resolve_theme(st.prefs.theme);
+    // cppcheck-suppress objectIndex ; fields() points at distinct members of c
     SetBkColor(hdc, to_ref(*fields(c)[static_cast<std::size_t>(it - kSwatches.begin())]));
     return reinterpret_cast<INT_PTR>(st.brushes[static_cast<std::size_t>(it - kSwatches.begin())].get());
 }
