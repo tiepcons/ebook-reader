@@ -115,7 +115,7 @@ target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cp
 target_link_libraries(EbookReader PRIVATE eb_doc d2d1)
 target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)
 
-target_sources(eb_tts PRIVATE src/tts/winrt/WinRtTts.cpp)
+target_sources(eb_tts PRIVATE src/tts/winrt/WinRtTts.cpp src/tts/winrt/WinRtPlayer.cpp)
 target_link_libraries(eb_tts PUBLIC windowsapp)
 
 target_sources(eb_base PRIVATE src/base/SecretStore.cpp src/base/PathSafety.cpp)
@@ -130,8 +130,7 @@ target_link_libraries(EbookReader PRIVATE dwmapi comdlg32 uuid)
 add_custom_command(TARGET EbookReader POST_BUILD COMMAND ${CMAKE_COMMAND}
   -DSRC=${CMAKE_SOURCE_DIR}/fonts -DDST=${CMAKE_BINARY_DIR}/fonts -P ${CMAKE_SOURCE_DIR}/cmake/copy_fonts.cmake)
 
-target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp src/tts/piper/PiperProc.cpp src/tts/piper/PiperText.cpp
-  src/tts/piper/player/PiperPlayer.cpp)
+target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp src/tts/piper/PiperProc.cpp src/tts/piper/PiperText.cpp)
 target_link_libraries(eb_tts PUBLIC advapi32)
 
 target_sources(eb_tts PRIVATE src/tts/azure/AzureTts.cpp src/tts/azure/AzureHttp.cpp src/tts/azure/AzureProto.cpp
