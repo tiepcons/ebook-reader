@@ -237,9 +237,7 @@ TEST_CASE("tts piper prepared utterance starts within 300 ms")
     };
     REQUIRE(tts.speak(1, "One two three four five six.", kEn, 1.0, 0.0));
     tts.prepare(2, next, kEn, 1.0);
-    const bool st = sink.wait_for(2, eb::TtsEvent::Started, 60000);
-    for (const auto& g : sink.got) MESSAGE("ev id=", g.id, " ev=", int(g.ev), " v=", g.value);
-    REQUIRE(st);
+    REQUIRE(sink.wait_for(2, eb::TtsEvent::Started, 60000));
     const Got* started = nullptr;
     for (const auto& g : sink.got)
         if (g.id == 2 && g.ev == eb::TtsEvent::Started)
