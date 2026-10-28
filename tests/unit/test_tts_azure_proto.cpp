@@ -105,3 +105,24 @@ TEST_CASE("tts azure voices json rejects malformed and hostile input")
     REQUIRE(surrogate.size() == 1);
     CHECK(surrogate[0].name == L"\U0001F600");
 }
+
+TEST_CASE("tts azure bills the prosody element inside voice")
+{
+    CHECK(eb::ssml_voice_body("a<b", -50) == "<prosody rate=\"-50%\">a&lt;b</prosody>");
+    const std::string ssml = eb::build_ssml("a<b", "en-US-JennyNeural", -50);
+    CHECK(ssml.find("<voice name=\"en-US-JennyNeural\">" + eb::ssml_voice_body("a<b", -50) + "</voice>") != std::string::npos);
+}
+
+TEST_CASE("tts azure voice labels from the network are stripped of controls and bidi marks and capped")
+{
+    const std::string json = "[{\"ShortName\":\"vi-VN-Aaa\",\"Locale\":\"vi-VN\","
+                             "\"LocalName\":\"A\\u202eB\\u200fC\\u0001D\\u0085E\\u2067F\"}]";
+    const auto v = eb::parse_voices(json, L"");
+    REQUIRE(v.size() == 1);
+    CHECK(v[0].name == L"ABCDEF");
+
+    const std::string longname = "[{\"ShortName\":\"vi-VN-Aaa\",\"Locale\":\"vi-VN\",\"LocalName\":\"" + std::string(200, 'x') + "\"}]";
+    const auto w = eb::parse_voices(longname, L"");
+    REQUIRE(w.size() == 1);
+    CHECK(w[0].name.size() == 64);
+}

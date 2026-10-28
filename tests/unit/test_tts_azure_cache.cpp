@@ -5,6 +5,7 @@
 #include <doctest/doctest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 
 namespace {
@@ -32,6 +33,12 @@ void age(const ebtest::TempDir& t, const std::string& k, int hours_ago)
     std::error_code ec;
     fs::last_write_time(file_of(t, k), fs::file_time_type::clock::now() - hours(hours_ago), ec);
     REQUIRE_FALSE(ec);
+}
+
+bool make_junction(const fs::path& link, const fs::path& target)
+{
+    const std::string cmd = "cmd /c mklink /J \"" + link.string() + "\" \"" + target.string() + "\" >nul 2>&1";
+    return std::system(cmd.c_str()) == 0;
 }
 
 size_t count_files(const fs::path& dir)
@@ -121,4 +128,44 @@ TEST_CASE("tts azure cache enforces the cap at startup and drops leftover temp f
     CHECK_FALSE(reopened.get(k3).has_value());
     CHECK(count_files(t.path()) == 2);
     CHECK(fs::exists(t.path() / L"notes.txt"));
+}
+
+TEST_CASE("tts azure cache is disabled when its directory is a junction")
+{
+    ebtest::TempDir t;
+    const fs::path real = t.path() / L"real";
+    const fs::path link = t.path() / L"link";
+    fs::create_directories(real);
+    REQUIRE(make_junction(link, real));
+    const auto k = key(1);
+    {
+        eb::AudioCache direct(real, 1000);
+        REQUIRE(direct.put(k, blob(10, 1)));
+    }
+    eb::AudioCache cache(link, 1000);
+    CHECK_FALSE(cache.put(key(2), blob(10, 2)));
+    CHECK_FALSE(cache.get(k).has_value());
+    CHECK(cache.total_bytes() == 0);
+    CHECK(count_files(real) == 1);
+}
+
+TEST_CASE("tts azure cache touches only its own file names")
+{
+    ebtest::TempDir t;
+    const auto k = key(1);
+    const std::string foreign = "precious.mp3";
+    std::ofstream(t.path() / foreign, std::ios::binary) << std::string(500, 'x');
+    std::ofstream(t.path() / (std::wstring(k.begin(), k.end()) + L".mp3.tmp"), std::ios::binary) << "no digits";
+    std::ofstream(t.path() / L"other.tmp7", std::ios::binary) << "foreign temp";
+    const auto dir_key = key(9);
+    fs::create_directories(t.path() / (std::wstring(dir_key.begin(), dir_key.end()) + L".mp3"));
+    eb::AudioCache cache(t.path(), 100);
+    CHECK(cache.total_bytes() == 0);
+    CHECK(fs::exists(t.path() / foreign));
+    CHECK(fs::exists(t.path() / L"other.tmp7"));
+    CHECK(fs::exists(t.path() / (std::wstring(k.begin(), k.end()) + L".mp3.tmp")));
+    REQUIRE(cache.put(key(2), blob(80, 2)));
+    REQUIRE(cache.put(key(3), blob(80, 3)));
+    CHECK(fs::exists(t.path() / foreign));
+    CHECK(count_files(t.path()) == 4);
 }

@@ -18,6 +18,8 @@ bool valid_azure_voice(std::string_view voice) noexcept;
 int rate_percent(double rate) noexcept;
 // Escapes & < > " ' and replaces control characters and ill-formed UTF-8 so the result is valid XML 1.0 text.
 std::string xml_escape(std::string_view utf8);
+// Everything Azure bills for a request: the <prosody> element inside <voice>.
+std::string ssml_voice_body(std::string_view utf8, int rate_pct);
 // Empty when the voice is invalid.
 std::string build_ssml(std::string_view utf8, std::string_view voice, int rate_pct);
 // Keeps vi-VN, en-* and the voice with id == keep. Voice::id is ShortName, name is LocalName, lang is Locale.

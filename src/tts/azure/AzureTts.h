@@ -21,14 +21,16 @@ struct AzureConfig {
     uint64_t cache_cap_bytes = kDefaultAudioCacheBytes;
     HWND notify = nullptr; // receives WM_APP_AZURE_WARN
     std::wstring picked_voice; // always listed by voices()
-    std::chrono::milliseconds backoff_unit{500}; // retries wait 1x, 2x, 4x
+    std::chrono::milliseconds backoff_unit{500}; // retries wait 1x, 2x, 4x (429 with Retry-After: that, at most 10 s)
+    std::chrono::milliseconds voices_cooldown{60000}; // pause after a failed voice-list fetch
     std::function<Result<SecretString>()> key_source; // default: the Credential Manager entry
     std::unique_ptr<HttpClient> http;                 // default: WinHTTP
 };
 
 // Azure Speech REST engine. Errors: kTtsAuth (no key, 401/403), kTtsNetwork (no answer, 429/5xx after retries),
-// kTtsQuota (monthly counter at 100%), kTtsSynthFailed (other HTTP statuses), kTtsPlayFailed (undecodable audio).
-// voices() blocks on the network the first time; call it off the UI thread.
+// kTtsQuota (monthly counter at 100%, or unavailable: the gate fails closed), kTtsSynthFailed (other HTTP statuses), kTtsPlayFailed (undecodable audio).
+// voices() never blocks: it returns the cached list and, while that is empty, starts one background fetch on the
+// network worker (retried at most once per voices_cooldown after a failure). Poll it until it is non-empty.
 class AzureTts final : public TtsEngine {
 public:
     explicit AzureTts(AzureConfig cfg);
