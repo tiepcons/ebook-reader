@@ -19,7 +19,7 @@ void remove_leftovers()
         return;
     for (DWORD i = 0; i < count; ++i)
         CredDeleteW(list[i]->TargetName, list[i]->Type, 0);
-    CredFree(list);
+    CredFree(static_cast<void*>(list));
 }
 
 eb::SecretString make(std::wstring_view s)
@@ -41,7 +41,7 @@ struct CredGuard {
     CredGuard() { remove_leftovers(); }
     CredGuard(const CredGuard&) = delete;
     CredGuard& operator=(const CredGuard&) = delete;
-    ~CredGuard() { (void)eb::secret_delete(target); }
+    ~CredGuard() { [[maybe_unused]] const auto r = eb::secret_delete(target); }
 };
 
 }

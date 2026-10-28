@@ -1,4 +1,7 @@
 # Tests inherit the project checks. doctest's REQUIRE() aborts the test case on failure, but clang-tidy's
 # optional-access dataflow cannot see that, so this one check is disabled for test code only.
+# bugprone-exception-escape is also off: test fakes implement noexcept interfaces and may allocate (OOM = abort is fine).
+# bugprone-use-after-move: move-semantics tests deliberately inspect moved-from objects (same for the clang-analyzer Move checker).
+# bugprone-macro-parentheses: REQUIRE_PIPER declares a variable from its argument, which cannot be parenthesized.
 InheritParentConfig: true
-Checks: '-bugprone-unchecked-optional-access'
+Checks: '-bugprone-unchecked-optional-access,-bugprone-exception-escape,-bugprone-use-after-move,-bugprone-macro-parentheses,-clang-analyzer-cplusplus.Move'

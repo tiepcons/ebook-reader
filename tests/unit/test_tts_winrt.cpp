@@ -201,7 +201,7 @@ TEST_CASE("tts winrt back-to-back prepared utterance starts within 150 ms")
 
 TEST_CASE("tts winrt stop and destruction cancel a long pending synthesis quickly")
 {
-    Sink sink;
+    const Sink sink;
     const auto t0 = Clock::now();
     {
         eb::WinRtTts tts;

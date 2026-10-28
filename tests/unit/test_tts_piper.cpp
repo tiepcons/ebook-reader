@@ -113,7 +113,7 @@ const std::wstring kEn = L"en_US-lessac-medium";
 std::vector<DWORD> piper_children()
 {
     std::vector<DWORD> out;
-    const HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    const auto snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE)
         return out;
     PROCESSENTRY32W pe{};
@@ -201,6 +201,7 @@ TEST_CASE("tts piper speaks Vietnamese and English")
     REQUIRE(tts.speak(2, "The quick brown fox jumps over the lazy dog.", kEn, 1.0, 0.0));
     REQUIRE(sink.wait_for(2, eb::TtsEvent::Finished, 60000));
     std::vector<eb::TtsEvent> seq;
+    seq.reserve(sink.got.size());
     for (const auto& g : sink.got)
         seq.push_back(g.ev);
     const std::vector<eb::TtsEvent> want = {eb::TtsEvent::Started, eb::TtsEvent::Finished, eb::TtsEvent::Started,
@@ -290,7 +291,7 @@ TEST_CASE("tts piper recovers after the child process is killed")
     REQUIRE(wait_children(true, 10000));
     sink.pump_ms(800);
     for (const DWORD pid : piper_children()) {
-        const HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        const auto h = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
         REQUIRE(h != nullptr);
         TerminateProcess(h, 1);
         CloseHandle(h);

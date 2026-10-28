@@ -450,7 +450,7 @@ TEST_CASE("tts azure honours Retry-After on 429 within the cap")
 
 TEST_CASE("tts azure never writes the key into the log")
 {
-    ebtest::TempDir lt;
+    const ebtest::TempDir lt;
     const auto log_path = lt.path() / L"app.log";
     eb::log::init(log_path);
     {
@@ -463,7 +463,7 @@ TEST_CASE("tts azure never writes the key into the log")
         REQUIRE(wait_until([&] { return h.tts->voices().size() == 1; }));
     }
     eb::log::shutdown();
-    std::ifstream f(log_path, std::ios::binary);
+    const std::ifstream f(log_path, std::ios::binary);
     std::stringstream ss;
     ss << f.rdbuf();
     const std::string text = ss.str();
@@ -475,7 +475,7 @@ TEST_CASE("tts azure never writes the key into the log")
 
 TEST_CASE("tts azure live service lists voices with the stored key" * doctest::skip(env_value("EB_AZURE_LIVE") != "1"))
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     eb::AzureConfig cfg;
     cfg.region = env_value("EB_AZURE_REGION");
     cfg.cache_dir = t.path() / L"cache";

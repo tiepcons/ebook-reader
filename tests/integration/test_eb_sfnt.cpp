@@ -152,7 +152,7 @@ TEST_CASE("eb_sfnt rejects truncated directories and out-of-range tables")
 
 TEST_CASE("eb_sfnt caps a hostile collection face count")
 {
-    Bytes ttc = {'t', 't', 'c', 'f', 0, 1, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
+    const Bytes ttc = {'t', 't', 'c', 'f', 0, 1, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
     Mem m{ttc};
     CHECK(eb_sfnt_face_count(mem_read, &m, m.data.size()) == EB_SFNT_MAX_FACES);
     eb_sfnt_face f{};

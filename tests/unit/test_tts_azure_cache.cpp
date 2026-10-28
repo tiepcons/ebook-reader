@@ -65,7 +65,7 @@ TEST_CASE("tts azure cache key hashes voice, rate and text")
 
 TEST_CASE("tts azure cache stores atomically and rejects bad keys")
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     eb::AudioCache cache(t.path(), 1000);
     const auto k = key(1);
     CHECK_FALSE(cache.get(k).has_value());
@@ -87,7 +87,7 @@ TEST_CASE("tts azure cache stores atomically and rejects bad keys")
 
 TEST_CASE("tts azure cache evicts the least recently used entry after a write")
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     eb::AudioCache cache(t.path(), 250);
     const auto k1 = key(1);
     const auto k2 = key(2);
@@ -106,7 +106,7 @@ TEST_CASE("tts azure cache evicts the least recently used entry after a write")
 
 TEST_CASE("tts azure cache enforces the cap at startup and drops leftover temp files")
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     const auto k1 = key(1);
     const auto k2 = key(2);
     const auto k3 = key(3);
@@ -132,7 +132,7 @@ TEST_CASE("tts azure cache enforces the cap at startup and drops leftover temp f
 
 TEST_CASE("tts azure cache is disabled when its directory is a junction")
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     const fs::path real = t.path() / L"real";
     const fs::path link = t.path() / L"link";
     fs::create_directories(real);
@@ -151,7 +151,7 @@ TEST_CASE("tts azure cache is disabled when its directory is a junction")
 
 TEST_CASE("tts azure cache touches only its own file names")
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     const auto k = key(1);
     const std::string foreign = "precious.mp3";
     std::ofstream(t.path() / foreign, std::ios::binary) << std::string(500, 'x');

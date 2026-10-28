@@ -43,7 +43,9 @@ eb_status set_dirs(const std::vector<fs::path>& dirs)
 {
     std::vector<std::wstring> keep;
     std::vector<const wchar_t*> ptrs;
+    keep.reserve(dirs.size());
     for (const auto& d : dirs) keep.push_back(d.wstring());
+    ptrs.reserve(keep.size());
     for (const auto& s : keep) ptrs.push_back(s.c_str());
     return eb_set_font_dirs(ptrs.data(), static_cast<int32_t>(ptrs.size()));
 }
@@ -54,6 +56,7 @@ std::vector<std::string> families()
     int32_t n = -1;
     REQUIRE(eb_font_families(&names, &n) == EB_OK);
     std::vector<std::string> out;
+    out.reserve(static_cast<size_t>(n));
     for (int32_t i = 0; i < n; ++i) out.emplace_back(names[i]);
     eb_font_families_free(names, n);
     return out;
@@ -95,7 +98,7 @@ BitmapPtr render_with_css(const char* css, const eb_render_opts& o)
 {
     eb_doc* raw = nullptr;
     REQUIRE(eb_open(epub().c_str(), &raw) == EB_OK);
-    DocPtr d(raw);
+    const DocPtr d(raw);
     REQUIRE(eb_layout(d.get(), 400, 600, 14, css) == EB_OK);
     return render_page(d.get(), body_page(d.get()), o);
 }
@@ -124,7 +127,8 @@ TEST_CASE("eb_mupdf reflowable text colour comes from user_css")
     for (int32_t y = 0; y < b->height; ++y) {
         const uint8_t* row = b->bgra + static_cast<size_t>(y) * static_cast<size_t>(b->stride);
         for (int32_t x = 0; x < b->width; ++x) {
-            const uint8_t bl = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
+            const uint8_t* px = row + static_cast<size_t>(x) * 4;
+            const uint8_t bl = px[0], g = px[1], r = px[2];
             if (r > 200 && g < 80 && bl < 80) ++reddish;
             if (r < 60 && g < 60 && bl < 60) ++darkish;
             if (g > 200 && r < 80 && bl < 80) ++greenish;
@@ -146,7 +150,8 @@ TEST_CASE("eb_mupdf tint maps a reflowable page black to fg and white to bg")
     for (int32_t y = 0; y < b->height; ++y) {
         const uint8_t* row = b->bgra + static_cast<size_t>(y) * static_cast<size_t>(b->stride);
         for (int32_t x = 0; x < b->width; ++x) {
-            if (std::abs(row[x * 4] - 0xD0) <= 16 && std::abs(row[x * 4 + 1] - 0xD0) <= 16 && std::abs(row[x * 4 + 2] - 0xD0) <= 16) ++textlike;
+            const uint8_t* px = row + static_cast<size_t>(x) * 4;
+            if (std::abs(px[0] - 0xD0) <= 16 && std::abs(px[1] - 0xD0) <= 16 && std::abs(px[2] - 0xD0) <= 16) ++textlike;
         }
     }
     CHECK(textlike > 50);
@@ -208,7 +213,7 @@ TEST_CASE("eb_mupdf font dirs skip corrupt and oversized files")
         std::ofstream big(dir.path / "big.ttf", std::ios::binary);
         const std::string chunk(1 << 20, '\0');
         for (int i = 0; i < 33; ++i) big << chunk;
-        std::ofstream empty(dir.path / "empty.otf", std::ios::binary);
+        const std::ofstream empty(dir.path / "empty.otf", std::ios::binary);
     }
     CHECK(set_dirs({dir.path, dir.path / "missing"}) == EB_OK);
     CHECK(families().empty());
@@ -259,7 +264,7 @@ TEST_CASE("eb_mupdf renders concurrently with fonts registered")
             ++failures;
             return;
         }
-        DocPtr d(raw);
+        const DocPtr d(raw);
         int32_t n = 0;
         if (eb_layout(d.get(), 400, 600, 14, css) != EB_OK || eb_page_count(d.get(), &n) != EB_OK) ++failures;
         for (int32_t p = 0; p < std::min<int32_t>(n, 6); ++p) {
@@ -270,6 +275,7 @@ TEST_CASE("eb_mupdf renders concurrently with fonts registered")
         }
     };
     std::vector<std::thread> threads;
+    threads.reserve(4);
     for (int i = 0; i < 4; ++i) threads.emplace_back(work, i);
     for (auto& t : threads) t.join();
     CHECK(failures.load() == 0);

@@ -131,7 +131,7 @@ TEST_CASE("fonts: style combines theme and font css")
 
 TEST_CASE("theme: settings round-trip through kv and bad values fall back")
 {
-    ebtest::TempDir t;
+    const ebtest::TempDir t;
     auto db = fresh(t);
     CHECK(eb::load_reader_prefs(db) == eb::ReaderPrefs{});
     eb::ReaderPrefs p;

@@ -73,7 +73,7 @@ TEST_CASE("close dialog answers map buttons and the remember box")
 
 TEST_CASE("close action is stored in kv")
 {
-    ebtest::TempDir dir;
+    const ebtest::TempDir dir;
     auto db = eb::Db::open(dir.path() / L"k.db");
     REQUIRE(db.has_value());
     REQUIRE(eb::migrate(*db).has_value());
@@ -105,7 +105,7 @@ TEST_CASE("launch arguments: first plain argument is the file, switches are skip
 
 TEST_CASE("instance key is per directory and case-insensitive")
 {
-    ebtest::TempDir dir;
+    const ebtest::TempDir dir;
     CHECK(eb::instance_key(dir.path()) == eb::instance_key(dir.path()));
     CHECK(eb::instance_key(dir.path()) != eb::instance_key(dir.path() / L"sub"));
     std::wstring upper = dir.path().wstring();
