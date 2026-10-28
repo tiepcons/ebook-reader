@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(EB_CLANG_TIDY "Run clang-tidy during the build" OFF)
 option(EB_ASAN "Build with AddressSanitizer" OFF)
+option(EB_FUZZ "Build the libFuzzer targets instead of the app and the tests (clang-cl)" OFF)
 
 if(EB_CLANG_TIDY)
   set(CMAKE_CXX_CLANG_TIDY clang-tidy --extra-arg=/EHsc)
@@ -17,17 +18,22 @@ add_library(eb_hardening INTERFACE)
 target_compile_definitions(eb_hardening INTERFACE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(eb_hardening INTERFACE
   /utf-8 /sdl /guard:cf
-  $<$<CONFIG:Release>:/GL /Gy /Gw>
+  $<$<AND:$<CONFIG:Release>,$<NOT:$<BOOL:${EB_FUZZ}>>>:/GL /Gy /Gw>
   $<$<BOOL:${EB_ASAN}>:/fsanitize=address>)
 target_link_options(eb_hardening INTERFACE
   /guard:cf /CETCOMPAT
-  $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF>
+  $<$<AND:$<CONFIG:Release>,$<NOT:$<BOOL:${EB_FUZZ}>>>:/LTCG /OPT:REF /OPT:ICF>
   $<$<BOOL:${EB_ASAN}>:/INCREMENTAL:NO>)
 
 add_library(eb_warnings INTERFACE)
 target_compile_options(eb_warnings INTERFACE
   /W4 /WX /permissive-
   $<$<COMPILE_LANGUAGE:CXX>:/EHsc /Zc:__cplusplus>)
+
+if(EB_FUZZ)
+  add_compile_options(-fsanitize=fuzzer-no-link,address)
+  add_compile_definitions(_DISABLE_STRING_ANNOTATION _DISABLE_VECTOR_ANNOTATION)
+endif()
 
 if(EB_ASAN)
   string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
@@ -71,8 +77,9 @@ target_compile_definitions(eb_libmobi PRIVATE USE_XMLWRITER USE_MINIZ MOBI_INLIN
 target_compile_options(eb_libmobi PRIVATE /W0 "/FI${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_mobi_shim.h")
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
-add_library(eb_mupdf SHARED libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
+set(EB_MUPDF_SRC libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
   libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c libs/eb_mupdf/eb_font.c libs/eb_mupdf/eb_sfnt.c)
+add_library(eb_mupdf SHARED ${EB_MUPDF_SRC})
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
@@ -144,5 +151,9 @@ target_sources(eb_tts PRIVATE src/tts/azure/AzureTts.cpp src/tts/azure/AzureHttp
   src/tts/azure/AudioCache.cpp src/tts/azure/AzurePlayer.cpp src/tts/azure/AzureProbe.cpp)
 target_link_libraries(eb_tts PUBLIC eb_lib winhttp PRIVATE bcrypt)
 
-enable_testing()
-add_subdirectory(tests)
+if(EB_FUZZ)
+  add_subdirectory(tests/fuzz)
+else()
+  enable_testing()
+  add_subdirectory(tests)
+endif()

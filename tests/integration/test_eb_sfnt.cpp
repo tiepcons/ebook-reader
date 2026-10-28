@@ -186,3 +186,18 @@ TEST_CASE("eb_sfnt reads the bundled fonts")
         CHECK_FALSE(m.out_of_range);
     }
 }
+
+TEST_CASE("eb_sfnt never reads past a file shorter than a table directory")
+{
+    for (size_t len : {size_t{0}, size_t{1}, size_t{3}, size_t{4}, size_t{11}}) {
+        Mem m{Bytes(len, 0)};
+        eb_sfnt_face f{};
+        CHECK_FALSE(probe(m, 0, &f));
+        CHECK_EQ(eb_sfnt_face_count(mem_read, &m, len), 0);
+        CHECK_FALSE(m.out_of_range);
+    }
+    Mem m{read_file(std::filesystem::path(EB_CORPUS_DIR) / "bad" / "empty.ttf")};
+    eb_sfnt_face f{};
+    CHECK_FALSE(probe(m, 0, &f));
+    CHECK_FALSE(m.out_of_range);
+}
