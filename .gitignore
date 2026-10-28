@@ -22,3 +22,7 @@ CMakeUserPresets.json
 # Claude Code local-only files
 .claude/settings.local.json
 .claude/worktrees/
+
+# Local release output
+/dist/
+/build/downloads/
