@@ -202,7 +202,7 @@ void MainWnd::update_font()
     UniqueFont nf(CreateFontIndirectW(&ncm.lfMessageFont));
     if (!nf)
         return;
-    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_})
+    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_, toc_pane_.hwnd()})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
     font_ = std::move(nf);
     lib_.rebuild_covers(dpi_, false);

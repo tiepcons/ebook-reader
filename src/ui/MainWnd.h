@@ -6,6 +6,7 @@
 #include "ReaderView.h"
 #include "ScanWorker.h"
 #include "SingleInstance.h"
+#include "TocPane.h"
 #include "Tray.h"
 #include "UiMessages.h"
 #include "base/Handle.h"
@@ -92,6 +93,17 @@ private:
     void smoke_step(int page);
     void open_reader_settings();
     void apply_chrome();
+    bool on_reader_command(WPARAM wp);
+    void on_open_failed();
+    void on_shortcut_event(ReaderEvent e);
+    void on_toc_notify(NMHDR& hdr);
+    void toggle_toc_pane();
+    void refresh_toc_pane();
+    void toggle_bookmark();
+    void ask_goto();
+    void jump_to_pick();
+    void smoke_marks();
+    [[nodiscard]] bool toc_shown() const noexcept { return in_reader_ && toc_visible_ && !fullscreen_; }
 
     bool on_tray_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res);
     bool on_tray_command(int id);
@@ -136,9 +148,11 @@ private:
     std::vector<std::wstring> tree_folders_, tree_roots_;
     std::vector<std::string> open_queue_;
     ReaderView reader_;
+    TocPane toc_pane_;
     HWND back_ = nullptr, resume_text_ = nullptr, resume_btn_ = nullptr, aa_ = nullptr;
-    bool in_reader_ = false, fullscreen_ = false, smoke_keys_sent_ = false, smoke_theme_ = false, in_settings_ = false;
+    bool in_reader_ = false, fullscreen_ = false, toc_visible_ = false, smoke_keys_sent_ = false, smoke_theme_ = false, in_settings_ = false;
     int resume_page_ = -1;
+    uint32_t pane_version_ = 0;
     std::string smoke_open_, reading_id_;
     WINDOWPLACEMENT saved_wp_{};
     LONG_PTR saved_style_ = 0;

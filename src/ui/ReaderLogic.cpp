@@ -102,7 +102,18 @@ NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept
             return NavAction::ZoomIn;
         if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)
             return NavAction::ZoomOut;
-        return vk == 'T' ? NavAction::Settings : NavAction::None;
+        switch (vk) {
+        case 'T':
+            return NavAction::Toc;
+        case 'B':
+            return NavAction::Bookmark;
+        case 'G':
+            return NavAction::GoTo;
+        case VK_OEM_COMMA:
+            return NavAction::Settings;
+        default:
+            return NavAction::None;
+        }
     }
     switch (vk) {
     case VK_LEFT:
@@ -126,6 +137,64 @@ NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept
     default:
         return NavAction::None;
     }
+}
+
+double reading_fraction(int32_t page, int32_t count) noexcept
+{
+    return count <= 1 ? 1.0 : static_cast<double>(page) / (count - 1);
+}
+
+int32_t page_for_percent(int percent, int32_t count) noexcept
+{
+    if (count <= 1)
+        return 0;
+    const double f = std::clamp(percent, 0, 100) / 100.0;
+    return static_cast<int32_t>(std::lround(f * (count - 1)));
+}
+
+std::optional<int> parse_percent(std::wstring_view text) noexcept
+{
+    while (!text.empty() && text.front() == L' ')
+        text.remove_prefix(1);
+    while (!text.empty() && text.back() == L' ')
+        text.remove_suffix(1);
+    if (!text.empty() && text.back() == L'%')
+        text.remove_suffix(1);
+    while (!text.empty() && text.back() == L' ')
+        text.remove_suffix(1);
+    if (text.empty() || text.size() > 3)
+        return std::nullopt;
+    int v = 0;
+    for (const wchar_t c : text) {
+        if (c < L'0' || c > L'9')
+            return std::nullopt;
+        v = v * 10 + (c - L'0');
+    }
+    return v <= 100 ? std::optional<int>(v) : std::nullopt;
+}
+
+std::vector<int> toc_parents(std::span<const int32_t> levels)
+{
+    std::vector<int> parents;
+    parents.reserve(levels.size());
+    std::vector<int> open; // indices of the entries on the path from the root to the previous entry
+    for (std::size_t i = 0; i < levels.size(); ++i) {
+        while (!open.empty() && levels[static_cast<std::size_t>(open.back())] >= levels[i])
+            open.pop_back();
+        parents.push_back(open.empty() ? -1 : open.back());
+        open.push_back(static_cast<int>(i));
+    }
+    return parents;
+}
+
+std::vector<std::size_t> marks_on_page(std::span<const uint64_t> marks, uint64_t start, uint64_t end)
+{
+    std::vector<std::size_t> hits;
+    for (std::size_t i = 0; i < marks.size(); ++i) {
+        if (marks[i] >= start && marks[i] < end)
+            hits.push_back(i);
+    }
+    return hits;
 }
 
 NavAction nav_for_click(int x, int client_w) noexcept

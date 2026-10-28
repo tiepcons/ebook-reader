@@ -98,6 +98,12 @@ std::vector<RenderResult> RenderWorker::take()
     return std::exchange(out_, {});
 }
 
+std::vector<TocItem> RenderWorker::toc() const
+{
+    const std::lock_guard lock(toc_mu_);
+    return toc_;
+}
+
 void RenderWorker::post(RenderResult r)
 {
     {
@@ -374,6 +380,8 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
         if (const eb_status st = eb_bookmark_of_page(doc_, page, &r.mark); st != EB_OK)
             return st;
         r.chapter = chapter_of(r.mark);
+        if (page + 1 < count_ && eb_bookmark_of_page(doc_, page + 1, &r.end_mark) != EB_OK)
+            r.end_mark = r.mark + 1;
     }
     const auto t = std::chrono::steady_clock::now();
     if (with_bitmap) {
@@ -403,17 +411,20 @@ bool RenderWorker::load_toc()
     int32_t n = 0;
     if (eb_toc(doc_, &items, &n) != EB_OK)
         return false;
-    toc_.reserve(static_cast<std::size_t>(std::min(n, kMaxTocItems)));
+    std::vector<TocItem> list;
+    list.reserve(static_cast<std::size_t>(std::min(n, kMaxTocItems)));
     for (int32_t i = 0; i < n && i < kMaxTocItems; ++i)
-        toc_.push_back({items[i].target, trim_utf8(items[i].title)});
+        list.push_back({items[i].level, items[i].target, trim_utf8(items[i].title)});
     eb_toc_free(items, n);
+    const std::lock_guard lock(toc_mu_);
+    toc_ = std::move(list);
     return !toc_.empty();
 }
 
 std::string RenderWorker::chapter_of(uint64_t mark) const
 {
-    const TocEntry* best = nullptr;
-    for (const TocEntry& e : toc_) {
+    const TocItem* best = nullptr;
+    for (const TocItem& e : toc_) {
         if (e.target <= mark && (best == nullptr || e.target >= best->target))
             best = &e;
     }

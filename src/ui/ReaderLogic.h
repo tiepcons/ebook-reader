@@ -9,8 +9,12 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stop_token>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace eb {
 
@@ -58,11 +62,30 @@ struct ZoomState {
 [[nodiscard]] int axis_origin(int viewport, int content, int pan) noexcept;
 [[nodiscard]] std::size_t bitmap_bytes(int width, int height) noexcept;
 
-enum class NavAction : uint8_t { None, Prev, Next, First, Last, ZoomIn, ZoomOut, ToggleFitWidth, Fullscreen, Close, Settings };
+enum class NavAction : uint8_t {
+    None, Prev, Next, First, Last, ZoomIn, ZoomOut, ToggleFitWidth, Fullscreen, Close, Settings, Toc, Bookmark, GoTo
+};
 
 [[nodiscard]] NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept;
 // The outer quarters of the page turn it.
 [[nodiscard]] NavAction nav_for_click(int x, int client_w) noexcept;
+
+struct TocItem {
+    int32_t level = 0; // 0 = top level
+    uint64_t target = 0; // eb_bookmark
+    std::string title;   // UTF-8
+};
+
+// Position of a page in the book, 0..1; a one-page book counts as finished.
+[[nodiscard]] double reading_fraction(int32_t page, int32_t count) noexcept;
+// Page for a reading percentage (0..100) in a book of `count` pages; the inverse of page / (count - 1).
+[[nodiscard]] int32_t page_for_percent(int percent, int32_t count) noexcept;
+// Whole number 0..100 with an optional trailing '%' and surrounding spaces.
+[[nodiscard]] std::optional<int> parse_percent(std::wstring_view text) noexcept;
+// Parent index of every outline entry (-1 for top level); jumps of more than one level attach to the nearest shallower entry.
+[[nodiscard]] std::vector<int> toc_parents(std::span<const int32_t> levels);
+// Indices of the bookmarks inside the page [start, end); `marks` need not be sorted.
+[[nodiscard]] std::vector<std::size_t> marks_on_page(std::span<const uint64_t> marks, uint64_t start, uint64_t end);
 
 struct ViewParams {
     int32_t client_w = 0, client_h = 0;
