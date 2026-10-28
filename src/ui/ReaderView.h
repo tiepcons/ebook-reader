@@ -85,6 +85,7 @@ private:
     void record_progress(const RenderResult& r) noexcept;
     void store_text(const RenderResult& r);
     [[nodiscard]] std::vector<D2D1_RECT_F> highlight_rects(int origin_x, int origin_y) const;
+    void relayout();
     void check_epoch();
     void set_shown(BitmapRef b);
     void rebuild_style();
@@ -128,7 +129,7 @@ private:
     uint64_t mark_ = kNoAnchor;
     int32_t page_ = 0, count_ = 0;
     float scale_ = 0;
-    bool reflowable_ = false, awaiting_first_ = false;
+    bool reflowable_ = false, awaiting_first_ = false, relaid_ = false;
     double saved_percent_ = 0;
     int resume_percent_ = -1;
     int pan_x_ = 0, pan_y_ = 0;

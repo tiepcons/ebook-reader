@@ -86,6 +86,7 @@ void TtsController::start(int32_t page, int64_t char_offset)
         return;
     }
     start_offset_ = char_offset;
+    synced_ = host_.shown_page();
     empty_run_ = 0;
     fell_back_ = false;
     wait_page_ = next_requested_ = page;
@@ -100,6 +101,8 @@ void TtsController::toggle()
     } else if (state_ == TtsState::Paused) {
         engine()->resume();
         set_state(TtsState::Playing);
+        if (std::exchange(pending_advance_, false))
+            advance();
     } else if (wait_page_ >= 0) {
         stop();
     } else {
@@ -110,6 +113,7 @@ void TtsController::toggle()
 
 void TtsController::stop()
 {
+    restart_ = pending_advance_ = false;
     if (state_ == TtsState::Idle)
         return;
     if (engine() != nullptr)
@@ -156,10 +160,15 @@ void TtsController::on_text(int32_t page, std::string utf8)
 void TtsController::enter_page(Page p, int64_t offset)
 {
     for (;;) {
+        if (host_.shown_page() != synced_) {
+            restart_at_shown();
+            return;
+        }
         page_ = std::move(p);
         next_ = Page{};
         next_requested_ = -1;
         host_.turn_to(page_.number);
+        synced_ = page_.number;
         if (!page_.sentences.empty())
             break;
         if (++empty_run_ > kMaxEmptyPages) {
@@ -252,17 +261,50 @@ void TtsController::prefetch()
 
 void TtsController::on_event(uint32_t utterance, LPARAM lp)
 {
-    if (state_ != TtsState::Playing || utterance == 0 || utterance != current_)
+    if (state_ == TtsState::Idle || utterance == 0 || utterance != current_)
         return;
     const TtsEvent ev = tts_event(lp);
     if (ev == TtsEvent::Error) {
         on_error(tts_value(lp));
     } else if (ev == TtsEvent::Finished) {
-        if (++idx_ < page_.sentences.size())
-            speak_current();
+        if (state_ == TtsState::Paused)
+            pending_advance_ = true;
         else
-            go_next_page();
+            advance();
     }
+}
+
+void TtsController::advance()
+{
+    if (++idx_ < page_.sentences.size())
+        speak_current();
+    else
+        go_next_page();
+}
+
+void TtsController::restart_at_shown()
+{
+    start(host_.shown_page(), -1);
+}
+
+void TtsController::relayout()
+{
+    if (state_ == TtsState::Idle)
+        return;
+    stop();
+    restart_ = true;
+}
+
+void TtsController::relaid()
+{
+    if (std::exchange(restart_, false))
+        start(host_.shown_page(), host_.resume_offset());
+}
+
+void TtsController::page_shown()
+{
+    if (state_ != TtsState::Idle && host_.shown_page() != synced_)
+        restart_at_shown();
 }
 
 void TtsController::on_error(uint32_t code)
@@ -291,6 +333,7 @@ void TtsController::step(int delta)
     if (state_ == TtsState::Idle || wait_page_ >= 0 || page_.sentences.empty() || delta == 0)
         return;
     engine()->stop();
+    pending_advance_ = false;
     if (delta > 0) {
         if (++idx_ >= page_.sentences.size()) {
             set_state(TtsState::Playing);

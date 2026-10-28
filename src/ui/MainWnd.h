@@ -134,6 +134,7 @@ private:
     void tts_toggle();
     void tts_stop();
     void on_tts_text(int page);
+    void on_tts_reader_event(ReaderEvent e, int page);
     bool on_tts_command(WPARAM wp);
     bool tts_button(int id);
     bool on_tts_msg(UINT msg, WPARAM wp, LPARAM lp);

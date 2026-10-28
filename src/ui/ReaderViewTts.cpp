@@ -16,6 +16,19 @@ int64_t unix_now() noexcept
 
 }
 
+void ReaderView::relayout()
+{
+    ++view_id_;
+    if (!reflowable_)
+        return;
+    texts_.clear();
+    highlight_.clear();
+    highlight_page_ = tts_page_ = -1;
+    tts_char_ = -1;
+    relaid_ = true;
+    notify(ReaderEvent::Relayout);
+}
+
 void ReaderView::request_text(int32_t page)
 {
     if (worker_)

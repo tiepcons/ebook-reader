@@ -185,6 +185,8 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
     const bool smoke_run = smoke_ && !smoke_open_.empty();
     switch (e) {
     case ReaderEvent::PageShown:
+        on_tts_reader_event(e, page);
+        [[fallthrough]];
     case ReaderEvent::PageSettled:
         SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
         if (resume_page_ >= 0 && page != resume_page_)
@@ -221,9 +223,25 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
         on_shortcut_event(e);
         break;
     case ReaderEvent::Text:
-        on_tts_text(page);
+    case ReaderEvent::Relayout:
+    case ReaderEvent::Relaid:
+        on_tts_reader_event(e, page);
         break;
     }
+}
+
+void MainWnd::on_tts_reader_event(ReaderEvent e, int page)
+{
+    if (e == ReaderEvent::Text)
+        on_tts_text(page);
+    else if (!tts_)
+        return;
+    else if (e == ReaderEvent::Relayout)
+        tts_->relayout();
+    else if (e == ReaderEvent::Relaid)
+        tts_->relaid();
+    else
+        tts_->page_shown();
 }
 
 void MainWnd::on_open_failed()

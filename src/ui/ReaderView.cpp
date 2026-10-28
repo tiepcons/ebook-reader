@@ -210,7 +210,7 @@ void ReaderView::check_epoch()
     epoch_ = canvas_.epoch();
     cache_.clear();
     set_shown({});
-    ++view_id_;
+    relayout();
     send_want();
 }
 
@@ -261,7 +261,7 @@ void ReaderView::apply_view()
     if (v == view_)
         return;
     view_ = v;
-    ++view_id_;
+    relayout();
     cache_.clear();
     send_want();
 }
@@ -327,6 +327,7 @@ void ReaderView::close() noexcept
     highlight_.clear();
     highlight_page_ = tts_page_ = -1;
     tts_char_ = saved_tts_char_ = -1;
+    relaid_ = false;
     saved_mark_ = kNoAnchor;
 }
 
@@ -417,6 +418,8 @@ void ReaderView::show_primary(const RenderResult& r)
     anchor_ = kNoAnchor;
     record_progress(r);
     notify(ReaderEvent::PageSettled);
+    if (std::exchange(relaid_, false))
+        notify(ReaderEvent::Relaid);
 }
 
 void ReaderView::record_progress(const RenderResult& r) noexcept
@@ -477,7 +480,7 @@ void ReaderView::set_prefs(const ReaderPrefs& p, bool persist)
     if (!worker_)
         return;
     cache_.clear();
-    ++view_id_;
+    relayout();
     send_want();
 }
 

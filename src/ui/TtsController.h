@@ -61,6 +61,11 @@ public:
     void set_rate(double rate);
     void on_text(int32_t page, std::string utf8);
     void on_event(uint32_t utterance, LPARAM lp);
+    // The view changed layout: the page numbers and texts are stale, so stop now and restart once the new page is shown.
+    void relayout();
+    void relaid();
+    // The reader reports a page turn; one the controller did not make restarts reading at the shown page.
+    void page_shown();
 
     void preview(TtsKind k, const std::wstring& voice, Lang lang, double rate);
     void end_preview();
@@ -77,6 +82,8 @@ private:
     bool take_next_page(Page& out);
     bool speak_sentence();
     void speak_current();
+    void advance();
+    void restart_at_shown();
     void prepare_sentence(const Page& p, std::size_t i);
     void prefetch();
     void on_error(uint32_t code);
@@ -95,11 +102,11 @@ private:
     std::array<std::vector<Voice>, kTtsKinds> voices_;
     Page page_, next_;
     std::size_t idx_ = 0;
-    int32_t wait_page_ = -1, next_requested_ = -1;
+    int32_t wait_page_ = -1, next_requested_ = -1, synced_ = -1;
     int64_t start_offset_ = -1;
     uint32_t counter_ = 0, current_ = 0;
     int empty_run_ = 0;
-    bool fell_back_ = false;
+    bool fell_back_ = false, pending_advance_ = false, restart_ = false;
     std::optional<TtsKind> previewing_;
 };
 

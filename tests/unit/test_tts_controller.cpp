@@ -56,7 +56,11 @@ struct FakeHost final : eb::TtsHost {
     int32_t shown_page() const noexcept override { return shown; }
     int32_t page_count() const noexcept override { return pages; }
     int64_t resume_offset() const noexcept override { return resume; }
-    void turn_to(int32_t page) override { turns.push_back(page); }
+    void turn_to(int32_t page) override
+    {
+        turns.push_back(page);
+        shown = page;
+    }
     void highlight(int32_t, uint32_t b, uint32_t e) override { marks.emplace_back(b, e); }
     void clear_highlight() override { ++cleared; }
     void save_position(int32_t page, uint32_t off) override { saved.emplace_back(page, off); }
@@ -114,6 +118,86 @@ TEST_CASE("tts controller: stale, foreign and paused-time events are ignored")
     CHECK(r.winrt.resumes == 1);
     r.ctl.on_event(1, finished());
     CHECK(r.winrt.spoken.size() == 2);
+}
+
+TEST_CASE("tts controller: a sentence that ends while paused is spoken on resume")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One. Two.");
+    r.ctl.toggle();
+    r.ctl.on_event(1, finished());
+    REQUIRE(r.winrt.spoken.size() == 1);
+    r.ctl.toggle();
+    REQUIRE(r.winrt.spoken.size() == 2);
+    CHECK(r.winrt.spoken[1].text == "Two.");
+    CHECK(r.ctl.state() == TtsState::Playing);
+}
+
+TEST_CASE("tts controller: a relayout stops reading and restarts at the page shown afterwards")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One. Two.");
+    r.ctl.relayout();
+    CHECK(r.ctl.state() == TtsState::Idle);
+    r.ctl.on_text(0, "Stale text.");
+    CHECK(r.winrt.spoken.size() == 1);
+    r.host.shown = 4;
+    r.host.pages = 9;
+    r.host.resume = 14;
+    r.ctl.relaid();
+    CHECK(r.ctl.state() == TtsState::Playing);
+    CHECK(r.host.requests.back() == 4);
+    r.ctl.on_text(4, "Fresh start. Fresh end.");
+    REQUIRE(r.winrt.spoken.size() == 2);
+    CHECK(r.winrt.spoken[1].text == "Fresh end.");
+    CHECK(r.host.turns.back() == 4);
+}
+
+TEST_CASE("tts controller: relaid does nothing when the user stopped meanwhile or nothing was playing")
+{
+    Rig r;
+    r.ctl.relaid();
+    CHECK(r.host.requests.empty());
+    r.ctl.start(0, -1);
+    r.ctl.relayout();
+    r.ctl.start(0, -1);
+    r.ctl.stop();
+    r.ctl.relaid();
+    CHECK(r.ctl.state() == TtsState::Idle);
+    CHECK(r.host.requests.size() == 2);
+}
+
+TEST_CASE("tts controller: a page turn by the user restarts reading at the shown page")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One. Two.");
+    r.ctl.page_shown();
+    CHECK(r.winrt.spoken.size() == 1);
+    r.host.shown = 2;
+    r.ctl.page_shown();
+    CHECK(r.host.requests.back() == 2);
+    CHECK(r.ctl.state() == TtsState::Playing);
+    r.ctl.on_text(2, "Third page.");
+    REQUIRE(r.winrt.spoken.size() == 2);
+    CHECK(r.winrt.spoken[1].text == "Third page.");
+    CHECK(r.host.turns.back() == 2);
+}
+
+TEST_CASE("tts controller: a late text never pulls the view back after a user page turn")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.host.shown = 2;
+    r.ctl.on_text(0, "Old page.");
+    CHECK(r.host.turns.empty());
+    CHECK(r.host.requests.back() == 2);
+    CHECK(r.winrt.spoken.empty());
+    r.ctl.on_text(2, "New page.");
+    CHECK(r.winrt.spoken.size() == 1);
+    CHECK(r.host.turns.back() == 2);
 }
 
 TEST_CASE("tts controller: the last sentence asks for the next page and turns the page when it ends")
