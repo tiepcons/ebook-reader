@@ -63,7 +63,7 @@ switch ($Target) {
 }
 
 $log = "$bdir/$Target.log"
-$fuzzArgs = @($corpus, "-max_len=$maxLen", "-timeout=30", "-rss_limit_mb=3072", "-max_total_time=$Seconds", '-print_final_stats=1',
+$fuzzArgs = @($corpus, "-max_len=$maxLen", "-timeout=30", "-rss_limit_mb=2048", "-max_total_time=$Seconds", '-print_final_stats=1',
     "-artifact_prefix=$crashes/", '-close_fd_mask=3')
 $env:ASAN_OPTIONS = 'detect_leaks=0:detect_odr_violation=0:allocator_may_return_null=1:abort_on_error=0'
 $sw = [Diagnostics.Stopwatch]::StartNew()
