@@ -139,6 +139,9 @@ private:
     bool tts_button(int id);
     bool on_tts_msg(UINT msg, WPARAM wp, LPARAM lp);
     void open_tts_settings();
+    void refresh_azure_quota();
+    void on_azure_warn(Warn level);
+    void rebuild_azure_engine();
     void smoke_tts_event(uint32_t id, LPARAM lp);
     void layout_tts_bar(const RECT& rc, int status_h, int margin, int bar_h);
     [[nodiscard]] std::string book_lang_tag() const;
@@ -156,6 +159,9 @@ private:
     std::vector<Voice> voices(TtsKind k) override;
     void preview(TtsKind k, const std::wstring& voice, Lang lang, double rate) override;
     void end_preview() override;
+    AzureView azure_view() override;
+    bool azure_save(const AzureEdits& e) override;
+    bool azure_reset_used() override;
 
     HINSTANCE inst_;
     Db& db_;
@@ -201,7 +207,7 @@ private:
     TtsPrefs tts_prefs_;
     std::unique_ptr<TtsEngines> tts_engines_;
     std::unique_ptr<TtsController> tts_;
-    bool tts_prefs_loaded_ = false, tts_lang_pending_ = false, smoke_tts_ = false, smoke_tts_run_ = false;
+    bool tts_prefs_loaded_ = false, tts_lang_pending_ = false, smoke_tts_ = false, smoke_tts_run_ = false, azure_dirty_ = false;
 };
 
 }

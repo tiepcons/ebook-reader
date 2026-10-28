@@ -75,3 +75,4 @@ set_target_properties(eb_fake_piper PROPERTIES OUTPUT_NAME piper RUNTIME_OUTPUT_
 add_dependencies(eb_tests eb_fake_piper)
 target_compile_definitions(eb_tests PRIVATE EB_FAKE_PIPER_DIR="${CMAKE_BINARY_DIR}/tests/fake_piper")
 target_sources(eb_tests PRIVATE unit/test_tts_controller.cpp ${CMAKE_SOURCE_DIR}/src/ui/TtsController.cpp ${CMAKE_SOURCE_DIR}/src/ui/TtsPrefs.cpp)
+target_sources(eb_tests PRIVATE unit/test_azure_settings.cpp ${CMAKE_SOURCE_DIR}/src/ui/AzureSettings.cpp)

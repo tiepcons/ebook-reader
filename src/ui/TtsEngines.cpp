@@ -30,6 +30,19 @@ std::unique_ptr<AzureTts> make_azure(const AppPaths& paths, Db& db, HWND sink)
 
 }
 
+void reload_azure_engine(TtsEngines& e, const AppPaths& paths, Db& db, HWND sink) noexcept
+{
+    e.azure.reset();
+    try {
+        e.azure = make_azure(paths, db, sink);
+        if (e.azure)
+            e.azure->set_sink(sink, WM_APP_TTS_EVENT);
+    } catch (...) {
+        e.azure.reset();
+        log::error("tts: the Azure engine could not start");
+    }
+}
+
 TtsEngines make_tts_engines(const AppPaths& paths, Db& db, HWND sink) noexcept
 {
     TtsEngines e;

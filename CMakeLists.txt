@@ -127,7 +127,7 @@ target_sources(EbookReader PRIVATE src/ui/Tray.cpp src/ui/CloseAsk.cpp src/ui/Si
 
 target_sources(EbookReader PRIVATE src/ui/Theme.cpp src/ui/FontPrefs.cpp src/ui/ReaderSettings.cpp)
 target_sources(EbookReader PRIVATE src/ui/TtsPrefs.cpp src/ui/TtsController.cpp src/ui/TtsBar.cpp src/ui/TtsEngines.cpp
-  src/ui/TtsSettings.cpp src/ui/MainWndTts.cpp)
+  src/ui/TtsSettings.cpp src/ui/MainWndTts.cpp src/ui/TtsAzurePage.cpp src/ui/AzureSettings.cpp src/ui/MainWndAzure.cpp)
 target_link_libraries(EbookReader PRIVATE dwmapi comdlg32 uuid)
 add_custom_command(TARGET EbookReader POST_BUILD COMMAND ${CMAKE_COMMAND}
   -DSRC=${CMAKE_SOURCE_DIR}/fonts -DDST=${CMAKE_BINARY_DIR}/fonts -P ${CMAKE_SOURCE_DIR}/cmake/copy_fonts.cmake)
@@ -136,7 +136,7 @@ target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp src/tts/piper/PiperProc
 target_link_libraries(eb_tts PUBLIC advapi32)
 
 target_sources(eb_tts PRIVATE src/tts/azure/AzureTts.cpp src/tts/azure/AzureHttp.cpp src/tts/azure/AzureProto.cpp
-  src/tts/azure/AudioCache.cpp src/tts/azure/AzurePlayer.cpp)
+  src/tts/azure/AudioCache.cpp src/tts/azure/AzurePlayer.cpp src/tts/azure/AzureProbe.cpp)
 target_link_libraries(eb_tts PUBLIC eb_lib winhttp PRIVATE bcrypt)
 
 enable_testing()

@@ -1,4 +1,5 @@
 #pragma once
+#include "AzureSettings.h"
 #include "TtsPrefs.h"
 #include "tts/TtsEngine.h"
 
@@ -19,6 +20,9 @@ public:
     virtual std::vector<Voice> voices(TtsKind k) = 0;
     virtual void preview(TtsKind k, const std::wstring& voice, Lang lang, double rate) = 0;
     virtual void end_preview() = 0;
+    virtual AzureView azure_view() = 0;
+    virtual bool azure_save(const AzureEdits& e) = 0;
+    virtual bool azure_reset_used() = 0;
 };
 
 // Modal. Returns the accepted settings, or nullopt after Cancel.

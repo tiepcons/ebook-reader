@@ -2,8 +2,10 @@
 
 #include "Kv.h"
 #include "base/Log.h"
+#include "base/SecretStore.h"
 #include "base/Text.h"
 #include "resource.h"
+#include "tts/azure/AzureMessages.h"
 
 #include <cmath>
 #include <utility>
@@ -34,6 +36,7 @@ bool MainWnd::ensure_tts()
         return false;
     }
     tts_->set_prefs(tts_prefs_);
+    refresh_azure_quota();
     return true;
 }
 
@@ -118,11 +121,19 @@ bool MainWnd::on_tts_msg(UINT msg, WPARAM wp, LPARAM lp)
         if (tts_) {
             tts_->on_event(static_cast<uint32_t>(wp), lp);
             smoke_tts_event(static_cast<uint32_t>(wp), lp);
+            if (wp != 0 && tts_event(lp) == TtsEvent::Started)
+                refresh_azure_quota();
         }
+        return true;
+    }
+    if (msg == WM_APP_AZURE_WARN) {
+        on_azure_warn(static_cast<Warn>(wp));
         return true;
     }
     if (msg != WM_APP_TTS_CMD)
         return false;
+    if (in_settings_)
+        return true;
     const auto cmd = static_cast<TtsCmd>(wp);
     if (cmd == TtsCmd::PlayPause)
         tts_toggle();
@@ -137,20 +148,26 @@ void MainWnd::open_tts_settings()
 {
     if (!in_reader_ || in_settings_)
         return;
-    reset_tts();
     if (!ensure_tts()) {
         show_notice(L"Không khởi động được bộ máy đọc.");
         return;
     }
+    const bool had_key = secret_get(kAzureSecretTarget).has_value();
+    azure_dirty_ = false;
     in_settings_ = true;
-    if (const auto accepted = show_tts_settings(inst_, hwnd_, tts_prefs_, *this)) {
+    const auto accepted = show_tts_settings(inst_, hwnd_, tts_prefs_, *this);
+    in_settings_ = false;
+    if (accepted) {
         tts_prefs_ = *accepted;
-        tts_->set_prefs(tts_prefs_);
         tts_bar_.set_speed(tts_prefs_.rate);
         if (!save_tts_prefs(db_, tts_prefs_))
             log::error("tts: cannot save the voice settings");
     }
-    in_settings_ = false;
+    if (azure_dirty_ || had_key != secret_get(kAzureSecretTarget).has_value())
+        rebuild_azure_engine();
+    else if (accepted && tts_)
+        tts_->set_prefs(tts_prefs_);
+    refresh_azure_quota();
     SetFocus(reader_.hwnd());
 }
 
@@ -200,6 +217,7 @@ void MainWnd::state_changed(TtsState s)
 {
     set_tts_state(s);
     tts_bar_.set_state(s);
+    refresh_azure_quota();
     if (s == TtsState::Idle)
         tts_bar_.set_info(L"");
     else

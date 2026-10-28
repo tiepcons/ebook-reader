@@ -9,7 +9,7 @@
 namespace eb {
 namespace {
 
-constexpr int kStepW = 96, kPlayW = 104, kStopW = 70, kSpeedW = 78, kSettingsW = 86;
+constexpr int kStepW = 96, kPlayW = 104, kStopW = 70, kSpeedW = 78, kSettingsW = 86, kQuotaW = 84, kIdTtsQuota = 120;
 constexpr int kSpeedDropH = 200;
 
 HWND make(HINSTANCE inst, HWND parent, const wchar_t* cls, const wchar_t* text, DWORD style, int id)
@@ -40,7 +40,8 @@ bool TtsBar::create(HINSTANCE inst, HWND parent) noexcept
     speed_ = make(inst, parent, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, kIdTtsSpeed);
     settings_ = make(inst, parent, L"BUTTON", L"Giọng đọc…", kBtn, kIdTtsSettings);
     info_ = make(inst, parent, L"STATIC", L"", SS_CENTERIMAGE | SS_ENDELLIPSIS, kIdTtsInfo);
-    for (HWND h : {prev_, play_, stop_, next_, speed_, settings_, info_}) {
+    quota_ = make(inst, parent, L"STATIC", L"", SS_CENTERIMAGE | SS_CENTER, kIdTtsQuota);
+    for (HWND h : {prev_, play_, stop_, next_, speed_, settings_, info_, quota_}) {
         if (h == nullptr)
             return false;
     }
@@ -64,18 +65,19 @@ void TtsBar::layout(int x, int y, int w, int h, int gap, UINT dpi) noexcept
     put(next_, px(kStepW), h);
     put(speed_, px(kSpeedW), h + px(kSpeedDropH));
     put(settings_, px(kSettingsW), h);
+    put(quota_, px(kQuotaW), h);
     MoveWindow(info_, cx, y, std::max(0, x + w - cx), h, TRUE);
 }
 
 void TtsBar::show(int cmd) noexcept
 {
-    for (HWND h : {prev_, play_, stop_, next_, speed_, settings_, info_})
+    for (HWND h : {prev_, play_, stop_, next_, speed_, settings_, info_, quota_})
         ShowWindow(h, cmd);
 }
 
 void TtsBar::set_font(HFONT font) noexcept
 {
-    for (HWND h : {prev_, play_, stop_, next_, speed_, settings_, info_})
+    for (HWND h : {prev_, play_, stop_, next_, speed_, settings_, info_, quota_})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
 
@@ -90,6 +92,11 @@ void TtsBar::set_state(TtsState s) noexcept
 void TtsBar::set_info(const std::wstring& text) noexcept
 {
     SetWindowTextW(info_, text.c_str());
+}
+
+void TtsBar::set_quota(const std::wstring& text) noexcept
+{
+    SetWindowTextW(quota_, text.c_str());
 }
 
 void TtsBar::set_speed(double rate) noexcept

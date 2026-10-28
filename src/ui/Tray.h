@@ -16,6 +16,7 @@ inline constexpr int kIdTrayPlayPause = 501;
 inline constexpr int kIdTrayNext = 502;
 inline constexpr int kIdTrayStop = 503;
 inline constexpr int kIdTrayExit = 504;
+inline constexpr int kIdTrayQuota = 505;
 
 struct TrayItems {
     bool play_pause, next, stop;
@@ -58,6 +59,8 @@ public:
     bool update() noexcept;
     bool balloon(const wchar_t* text) noexcept;
     void set_tts_state(TtsState s) noexcept { tts_ = s; }
+    // Shown as a disabled first line of the menu; empty hides it.
+    void set_quota_text(std::wstring text) noexcept { quota_ = std::move(text); }
     void show_menu(WPARAM anchor) noexcept;
 
     static UINT taskbar_created_message() noexcept;
@@ -70,6 +73,7 @@ private:
     bool present_ = false;
     TtsState tts_ = TtsState::Unavailable;
     std::wstring tip_ = L"Ebook Reader";
+    std::wstring quota_;
     UniqueIcon icon_;
 };
 

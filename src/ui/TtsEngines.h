@@ -27,5 +27,7 @@ struct TtsEngines {
 
 // Engine events go to `sink` as WM_APP_TTS_EVENT; Azure quota warnings go to `sink` too.
 [[nodiscard]] TtsEngines make_tts_engines(const AppPaths& paths, Db& db, HWND sink) noexcept;
+// Replaces only the Azure engine (after its key or region changed). No controller may hold the old one.
+void reload_azure_engine(TtsEngines& e, const AppPaths& paths, Db& db, HWND sink) noexcept;
 
 }

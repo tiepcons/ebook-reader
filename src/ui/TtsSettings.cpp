@@ -1,12 +1,14 @@
 #include "TtsSettings.h"
 
+#include "TtsAzurePage.h"
 #include "TtsBar.h"
+#include "TtsController.h"
 #include "base/Log.h"
 #include "resource.h"
+#include "tts/azure/AzureMessages.h"
 
 #include <algorithm>
 #include <array>
-#include <cwctype>
 #include <string>
 
 namespace eb {
@@ -22,6 +24,7 @@ constexpr std::array<int, 2> kPreviewButtons{IDC_TTS_PREVIEW_EN, IDC_TTS_PREVIEW
 struct DlgState {
     TtsPrefs prefs;
     TtsDialogApi* api = nullptr;
+    AzurePage azure;
     std::vector<TtsKind> kinds;
     std::array<std::vector<std::wstring>, 2> ids; // voice id behind each item of the voice combos
     int polls = 0;
@@ -33,12 +36,6 @@ TtsKind selected_kind(HWND dlg, const DlgState& st) noexcept
 {
     const LRESULT i = SendDlgItemMessageW(dlg, IDC_TTS_ENGINE, CB_GETCURSEL, 0, 0);
     return i >= 0 && static_cast<std::size_t>(i) < st.kinds.size() ? st.kinds[static_cast<std::size_t>(i)] : st.prefs.engine;
-}
-
-bool is_lang(const Voice& v, std::size_t lang) noexcept
-{
-    const wchar_t* want = lang == 1 ? L"vi" : L"en";
-    return v.lang.size() >= 2 && std::towlower(v.lang[0]) == want[0] && std::towlower(v.lang[1]) == want[1];
 }
 
 void add_item(HWND box, const std::wstring& text)
@@ -54,7 +51,7 @@ void fill_voice_combo(HWND dlg, DlgState& st, std::size_t lang, const std::vecto
     ids.assign(1, std::wstring{});
     add_item(box, L"(Tự chọn)");
     for (const Voice& v : all) {
-        if (is_lang(v, lang)) {
+        if (voice_has_lang(v, lang == 1 ? Lang::Vi : Lang::En)) {
             ids.push_back(v.id);
             add_item(box, v.name.empty() ? v.id : v.name);
         }
@@ -114,11 +111,14 @@ void init_dialog(HWND dlg, DlgState& st)
         add_item(GetDlgItem(dlg, IDC_TTS_RATE), label);
     SendDlgItemMessageW(dlg, IDC_TTS_RATE, CB_SETCURSEL, static_cast<WPARAM>(nearest_speed_index(st.prefs.rate)), 0);
     fill_voices(dlg, st);
+    st.azure.init(dlg, *st.api);
     st.loading = false;
 }
 
 void close_dialog(HWND dlg, DlgState& st, int id)
 {
+    if (id == IDOK && !st.azure.commit(dlg))
+        return;
     KillTimer(dlg, kVoicePollTimer);
     st.api->end_preview();
     if (id == IDOK) {
@@ -162,6 +162,8 @@ INT_PTR on_command(HWND dlg, DlgState& st, WPARAM wp)
         st.prefs.engine = selected_kind(dlg, st);
         return TRUE;
     }
+    if (st.azure.on_command(dlg, id, code))
+        return TRUE;
     if (code == BN_CLICKED && (id == IDC_TTS_PREVIEW_EN || id == IDC_TTS_PREVIEW_VI)) {
         on_preview(dlg, st, id == IDC_TTS_PREVIEW_VI ? 1 : 0);
         return TRUE;
@@ -182,6 +184,10 @@ INT_PTR CALLBACK dialog_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) noexcept
             return FALSE;
         if (msg == WM_COMMAND)
             return on_command(dlg, *st, wp);
+        if (msg == WM_APP_AZURE_PROBE) {
+            st->azure.on_probe(dlg, static_cast<int>(wp));
+            return TRUE;
+        }
         if (msg == WM_TIMER && wp == kVoicePollTimer) {
             ++st->polls;
             fill_voices(dlg, *st);
