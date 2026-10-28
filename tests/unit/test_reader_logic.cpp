@@ -232,6 +232,20 @@ TEST_CASE("reader: sentence lines merge the characters of a line and skip blanks
     CHECK(eb::sentence_lines(eb::PageText{}, 0, 9).empty());
 }
 
+TEST_CASE("reader: outline entry following the reading position")
+{
+    using eb::TocItem;
+    CHECK(eb::toc_index_at({}, 50) == -1);
+    const std::vector<TocItem> toc{{0, 10, "a"}, {1, 20, "a.1"}, {1, 30, "a.2"}, {0, 40, "b"}};
+    CHECK(eb::toc_index_at(toc, 5) == -1);
+    CHECK(eb::toc_index_at(toc, 10) == 0);
+    CHECK(eb::toc_index_at(toc, 25) == 1);
+    CHECK(eb::toc_index_at(toc, 30) == 2);
+    CHECK(eb::toc_index_at(toc, 1000) == 3);
+    const std::vector<TocItem> same{{0, 10, "part"}, {1, 10, "first chapter"}};
+    CHECK(eb::toc_index_at(same, 12) == 1);
+}
+
 TEST_CASE("reader: link hit-test picks the smallest containing link")
 {
     const std::vector<eb::PageLink> links{{{0, 0, 100, 20}, 11}, {{10, 5, 30, 15}, 22}};

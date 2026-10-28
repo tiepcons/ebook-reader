@@ -20,6 +20,7 @@ namespace {
 
 constexpr int kBarMargin = 6, kBarH = 26;
 constexpr int kTocW = 260;
+constexpr int kChapterMaxW = 360, kChapterListRows = 14, kMaxIndent = 8;
 constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80, kAaW = 44;
 constexpr UINT kResumeBarMs = 6000;
 constexpr UINT kReaderTickMs = 500;
@@ -43,7 +44,9 @@ bool MainWnd::create_reader_children()
     resume_text_ = child(L"STATIC", L"", SS_CENTERIMAGE, kIdResumeText);
     resume_btn_ = child(L"BUTTON", L"Về đầu", BS_PUSHBUTTON | WS_TABSTOP, kIdResumeStart);
     aa_ = child(L"BUTTON", L"Aa", BS_PUSHBUTTON | WS_TABSTOP, kIdReaderSettings);
-    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && reader_.create(inst_, hwnd_)
+    chapter_combo_ = child(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, kIdChapterCombo);
+    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && chapter_combo_ != nullptr
+        && reader_.create(inst_, hwnd_)
         && toc_pane_.create(inst_, hwnd_, kIdTocPane) && tts_bar_.create(inst_, hwnd_);
 }
 
@@ -66,6 +69,11 @@ void MainWnd::layout_reader()
     MoveWindow(resume_text_, tx, m, px(kResumeTextW), ch, TRUE);
     MoveWindow(resume_btn_, tx + px(kResumeTextW) + m, m, px(kResumeBtnW), ch, TRUE);
     MoveWindow(aa_, std::max(0L, rc.right - m - px(kAaW)), m, px(kAaW), ch, TRUE);
+    const int cx = tx + px(kResumeTextW) + m + px(kResumeBtnW) + m;
+    const int cw = std::min(px(kChapterMaxW), static_cast<int>(rc.right) - m - px(kAaW) - m - cx);
+    const bool chapters = !fullscreen_ && chapter_count_ >= 2 && cw > px(kAaW);
+    MoveWindow(chapter_combo_, cx, m, std::max(cw, 0), ch * kChapterListRows, TRUE);
+    ShowWindow(chapter_combo_, chapters ? SW_SHOW : SW_HIDE);
     const int pane_w = toc_shown() ? std::min(px(kTocW), static_cast<int>(rc.right) / 2) : 0;
     const int bar_h = fullscreen_ ? 0 : ch + 2 * m;
     const int body_h = static_cast<int>(std::max(0L, rc.bottom - top - status_h - bar_h));
@@ -139,10 +147,12 @@ void MainWnd::close_book()
     hide_resume();
     tts_stop();
     reader_.close();
+    SendMessageW(chapter_combo_, CB_RESETCONTENT, 0, 0);
+    chapter_count_ = 0;
     set_tts_state(TtsState::Unavailable);
     in_reader_ = false;
     apply_chrome();
-    show_all({back_, aa_, reader_.hwnd(), toc_pane_.hwnd()}, SW_HIDE);
+    show_all({back_, aa_, chapter_combo_, reader_.hwnd(), toc_pane_.hwnd()}, SW_HIDE);
     tts_bar_.show(SW_HIDE);
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_SHOW);
     layout();
@@ -160,16 +170,7 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
         on_tts_reader_event(e, page);
         [[fallthrough]];
     case ReaderEvent::PageSettled:
-        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
-        if (resume_page_ >= 0 && page != resume_page_)
-            hide_resume();
-        if (toc_visible_ && reader_.content_version() != pane_version_)
-            refresh_toc_pane();
-        if (e == ReaderEvent::PageSettled) {
-            if (const int p = reader_.take_resume_percent(); p >= 0)
-                show_resume(p, page);
-            smoke_step(page);
-        }
+        on_page_event(e, page);
         break;
     case ReaderEvent::OpenFailed:
         on_open_failed();
@@ -200,6 +201,21 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
         on_tts_reader_event(e, page);
         break;
     }
+}
+
+void MainWnd::on_page_event(ReaderEvent e, int page)
+{
+    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
+    if (resume_page_ >= 0 && page != resume_page_)
+        hide_resume();
+    if (toc_visible_ && reader_.content_version() != pane_version_)
+        refresh_toc_pane();
+    if (e != ReaderEvent::PageSettled)
+        return;
+    sync_chapter_combo();
+    if (const int p = reader_.take_resume_percent(); p >= 0)
+        show_resume(p, page);
+    smoke_step(page);
 }
 
 void MainWnd::on_tts_reader_event(ReaderEvent e, int page)
@@ -277,6 +293,10 @@ bool MainWnd::on_reader_command(WPARAM wp)
     const int id = LOWORD(wp);
     if (on_tts_command(wp))
         return true;
+    if (id == kIdChapterCombo) {
+        on_chapter_combo(HIWORD(wp));
+        return true;
+    }
     if (HIWORD(wp) != BN_CLICKED) // menu commands carry 0 here as well
         return false;
     if (id == kIdBack) {
@@ -344,12 +364,46 @@ void MainWnd::ask_goto()
     SetFocus(reader_.hwnd());
 }
 
+void MainWnd::jump_to_mark(uint64_t mark)
+{
+    reader_.go_to_mark(mark);
+    SetFocus(reader_.hwnd());
+}
+
 void MainWnd::jump_to_pick()
 {
-    if (const auto pick = toc_pane_.selected()) {
-        reader_.go_to_mark(pick->mark);
-        SetFocus(reader_.hwnd());
+    if (const auto pick = toc_pane_.selected())
+        jump_to_mark(pick->mark);
+}
+
+void MainWnd::sync_chapter_combo()
+{
+    const std::vector<TocItem>& toc = reader_.toc();
+    if (toc.size() != chapter_count_) {
+        SendMessageW(chapter_combo_, CB_RESETCONTENT, 0, 0);
+        for (const TocItem& it : toc) {
+            const std::wstring title = utf8_to_wide(it.title).value_or(std::wstring{});
+            const std::wstring label = std::wstring(2 * static_cast<std::size_t>(std::clamp(it.level, 0, kMaxIndent)), L' ') + title;
+            SendMessageW(chapter_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        chapter_count_ = toc.size();
+        layout();
     }
+    const uint64_t mark = reader_.mark();
+    const int idx = mark == kNoAnchor ? -1 : toc_index_at(toc, mark);
+    if (idx >= 0 && idx != static_cast<int>(SendMessageW(chapter_combo_, CB_GETCURSEL, 0, 0)))
+        SendMessageW(chapter_combo_, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
+}
+
+void MainWnd::on_chapter_combo(int code)
+{
+    const bool dropped = SendMessageW(chapter_combo_, CB_GETDROPPEDSTATE, 0, 0) != 0;
+    if (code != CBN_SELENDOK && !(code == CBN_SELCHANGE && !dropped))
+        return;
+    const LRESULT sel = SendMessageW(chapter_combo_, CB_GETCURSEL, 0, 0);
+    const std::vector<TocItem>& toc = reader_.toc();
+    if (sel >= 0 && static_cast<std::size_t>(sel) < toc.size())
+        jump_to_mark(toc[static_cast<std::size_t>(sel)].target);
 }
 
 void MainWnd::on_toc_notify(NMHDR& hdr)

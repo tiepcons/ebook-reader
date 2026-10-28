@@ -204,7 +204,7 @@ void MainWnd::update_font()
     UniqueFont nf(CreateFontIndirectW(&ncm.lfMessageFont));
     if (!nf)
         return;
-    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_, toc_pane_.hwnd()})
+    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_, chapter_combo_, toc_pane_.hwnd()})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
     tts_bar_.set_font(nf.get());
     font_ = std::move(nf);

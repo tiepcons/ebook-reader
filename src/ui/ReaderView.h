@@ -60,6 +60,8 @@ public:
     // Colour for the sentence the text-to-speech engine is reading.
     [[nodiscard]] uint32_t highlight_color() const noexcept { return colors().highlight; }
     [[nodiscard]] int32_t page() const noexcept { return page_; }
+    // Bookmark of the shown page, kNoAnchor while unknown.
+    [[nodiscard]] uint64_t mark() const noexcept { return mark_; }
     [[nodiscard]] int32_t page_count() const noexcept { return count_; }
     // Text-to-speech support. The text of a page arrives with ReaderEvent::Text (lParam = page).
     void request_text(int32_t page);

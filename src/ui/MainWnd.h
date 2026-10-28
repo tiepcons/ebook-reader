@@ -109,6 +109,10 @@ private:
     void toggle_bookmark();
     void ask_goto();
     void jump_to_pick();
+    void jump_to_mark(uint64_t mark);
+    void on_page_event(ReaderEvent e, int page);
+    void sync_chapter_combo();
+    void on_chapter_combo(int code);
     void smoke_marks();
     [[nodiscard]] bool toc_shown() const noexcept { return in_reader_ && toc_visible_ && !fullscreen_; }
 
@@ -190,7 +194,8 @@ private:
     std::vector<std::string> open_queue_;
     ReaderView reader_;
     TocPane toc_pane_;
-    HWND back_ = nullptr, resume_text_ = nullptr, resume_btn_ = nullptr, aa_ = nullptr;
+    HWND back_ = nullptr, resume_text_ = nullptr, resume_btn_ = nullptr, aa_ = nullptr, chapter_combo_ = nullptr;
+    std::size_t chapter_count_ = 0;
     bool in_reader_ = false, fullscreen_ = false, toc_visible_ = false, smoke_keys_sent_ = false, smoke_theme_ = false, in_settings_ = false;
     int resume_page_ = -1;
     uint32_t pane_version_ = 0;

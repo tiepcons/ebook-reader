@@ -76,6 +76,9 @@ struct TocItem {
     std::string title;   // UTF-8
 };
 
+// Index of the outline entry that contains `mark`: the one with the largest target <= mark (the later one on a tie), -1 if none.
+[[nodiscard]] int toc_index_at(std::span<const TocItem> toc, uint64_t mark) noexcept;
+
 // Position of a page in the book, 0..1; a one-page book counts as finished.
 [[nodiscard]] double reading_fraction(int32_t page, int32_t count) noexcept;
 // Page for a reading percentage (0..100) in a book of `count` pages; the inverse of page / (count - 1).

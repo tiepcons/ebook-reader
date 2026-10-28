@@ -222,6 +222,16 @@ std::vector<TextBox> sentence_lines(const PageText& t, uint32_t begin, uint32_t 
     return out;
 }
 
+int toc_index_at(std::span<const TocItem> toc, uint64_t mark) noexcept
+{
+    int best = -1;
+    for (std::size_t i = 0; i < toc.size(); ++i) {
+        if (toc[i].target <= mark && (best < 0 || toc[i].target >= toc[static_cast<std::size_t>(best)].target))
+            best = static_cast<int>(i);
+    }
+    return best;
+}
+
 const PageLink* link_at(std::span<const PageLink> links, float x, float y) noexcept
 {
     const PageLink* best = nullptr;

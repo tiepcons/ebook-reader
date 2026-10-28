@@ -30,6 +30,7 @@ inline constexpr int kIdResumeText = 109;
 inline constexpr int kIdResumeStart = 110;
 inline constexpr int kIdReaderSettings = 111;
 inline constexpr int kIdTocPane = 112;
+inline constexpr int kIdChapterCombo = 113;
 inline constexpr int kIdTtsPlay = 113;
 inline constexpr int kIdTtsStop = 114;
 inline constexpr int kIdTtsPrev = 115;
