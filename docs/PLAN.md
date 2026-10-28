@@ -311,9 +311,9 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T9.1 | `tools/package.ps1` tạo **zip portable cơ bản** (exe, `libs\eb_mupdf.dll`, 2 font, thư mục `ebooks\` rỗng, `licenses\`) và **zip gói Piper** riêng | DEV | P8 | 0,3 | Zip cơ bản ≤ 10 MB, chạy được trên máy Windows sạch | ⬜ |
+| T9.1 | `tools/package.ps1` tạo **zip portable cơ bản** (exe, `libs\eb_mupdf.dll`, 2 font, thư mục `ebooks\` rỗng, `licenses\`) và **zip gói Piper** riêng | DEV | P8 | 0,3 | Zip cơ bản ≤ 10 MB, chạy được trên máy Windows sạch | ✅ |
 | T9.2 | Tuân thủ license: AGPL (công bố mã nguồn), MuPDF, SQLite, Piper/espeak-ng (GPL), onnxruntime (MIT), font OFL | DEV + SEC | T9.1 | 0,2 | | ⬜ |
-| T9.3 | `release.yml`: push tag `v*` thì đăng 2 file zip lên GitHub Releases | DEV → CI | T9.1 | 0,2 | | ⬜ |
+| T9.3 | `release.yml`: push tag `v*` thì đăng 2 file zip lên GitHub Releases | DEV → CI | T9.1 | 0,2 | | ✅ |
 | T9.4 | *(Tùy chọn)* Ký số code miễn phí qua SignPath.io Foundation cho OSS | **PO** + DEV | T9.3 | 0,3 | | ⬜ |
 
 ---
