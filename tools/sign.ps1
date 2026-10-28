@@ -18,15 +18,16 @@ if (-not $cert) {
         -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(2)
 }
 if ($Trust) {
-    $cer = Join-Path $env:TEMP 'eb-alpha-public.cer'
-    Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-    Import-Certificate -FilePath $cer -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-    Remove-Item $cer
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+    $store.Open('ReadWrite')
+    try { $store.Add($cert) } finally { $store.Close() }
 }
 
+$distRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot) 'dist')).TrimEnd('\') + '\'
 $bad = 0
 foreach ($p in $Path) {
     $f = Get-Item -LiteralPath $p
+    if (-not $f.FullName.StartsWith($distRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "refusing to sign outside dist\: $($f.FullName)" }
     if ($allowed -notcontains $f.Name) { throw "refusing to sign third-party or unknown file: $($f.Name)" }
     & $signtool sign /sha1 $cert.Thumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $f.FullName | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($f.Name)" }
