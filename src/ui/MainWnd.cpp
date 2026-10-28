@@ -112,6 +112,8 @@ bool MainWnd::create(int show) noexcept
     wc.lpfnWndProc = &MainWnd::wnd_proc;
     wc.hInstance = inst_;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    LoadIconMetric(inst_, MAKEINTRESOURCEW(1), LIM_LARGE, &wc.hIcon); // icon 1 in app.rc
+    LoadIconMetric(inst_, MAKEINTRESOURCEW(1), LIM_SMALL, &wc.hIconSm);
     wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     wc.lpszClassName = kClassName;
     if (RegisterClassExW(&wc) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
