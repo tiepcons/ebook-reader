@@ -134,11 +134,13 @@ TEST_CASE("reader: a newer request replaces the pending one and stale generation
     const auto g2 = q.post(want(2));
     CHECK(g2 > g1);
     CHECK(aborts == 0); // nothing was in flight
-    eb::RenderWant w;
+    eb::RenderQueue::Job job;
     const std::stop_source src;
-    REQUIRE(q.pop(w, src.get_token()));
-    CHECK(w.page == 2);
-    CHECK(w.generation == g2);
+    REQUIRE(q.pop(job, src.get_token()));
+    REQUIRE(job.render);
+    CHECK(job.render->page == 2);
+    CHECK(job.render->generation == g2);
+    CHECK_FALSE(job.text_page);
     CHECK(q.current(g2));
     const auto g3 = q.post(want(3));
     CHECK(aborts == 1); // the render in flight is cancelled
@@ -157,8 +159,8 @@ TEST_CASE("reader: supersede makes earlier requests stale and drops the pending 
     CHECK_FALSE(q.current(g));
     std::stop_source src;
     src.request_stop();
-    eb::RenderWant w;
-    CHECK_FALSE(q.pop(w, src.get_token()));
+    eb::RenderQueue::Job job;
+    CHECK_FALSE(q.pop(job, src.get_token()));
 }
 
 TEST_CASE("reader: pop returns on stop and wakes on a late post")
@@ -166,12 +168,47 @@ TEST_CASE("reader: pop returns on stop and wakes on a late post")
     eb::RenderQueue q([] {});
     std::stop_source src;
     src.request_stop();
-    eb::RenderWant w;
-    CHECK_FALSE(q.pop(w, src.get_token()));
+    eb::RenderQueue::Job job;
+    CHECK_FALSE(q.pop(job, src.get_token()));
     const std::stop_source live;
     const std::jthread poster([&] { q.post(want(7)); });
-    REQUIRE(q.pop(w, live.get_token()));
-    CHECK(w.page == 7);
+    REQUIRE(q.pop(job, live.get_token()));
+    REQUIRE(job.render);
+    CHECK(job.render->page == 7);
+}
+
+TEST_CASE("reader: a text request wakes the worker without a render and survives a newer one only as the latest")
+{
+    eb::RenderQueue q([] {});
+    q.post_text(3);
+    q.post_text(4);
+    eb::RenderQueue::Job job;
+    const std::stop_source src;
+    REQUIRE(q.pop(job, src.get_token()));
+    CHECK_FALSE(job.render);
+    CHECK(job.text_page == 4);
+    q.post(want(1));
+    q.post_text(5);
+    REQUIRE(q.pop(job, src.get_token()));
+    CHECK(job.render);
+    CHECK(job.text_page == 5);
+}
+
+TEST_CASE("reader: sentence lines merge the characters of a line and skip blanks")
+{
+    eb::PageText t;
+    t.utf8 = "ab cd";
+    t.offset = {0, 1, 2, 3, 4};
+    t.box = {{0, 0, 5, 10}, {5, 0, 10, 10}, {0, 0, 0, 0}, {0, 20, 5, 30}, {5, 21, 10, 31}};
+    const auto one = eb::sentence_lines(t, 0, 2);
+    REQUIRE(one.size() == 1);
+    CHECK(one[0].x0 == 0);
+    CHECK(one[0].x1 == 10);
+    const auto two = eb::sentence_lines(t, 0, 5);
+    REQUIRE(two.size() == 2);
+    CHECK(two[1].y1 == 31);
+    CHECK(eb::sentence_lines(t, 5, 9).empty());
+    CHECK(eb::sentence_lines(eb::PageText{}, 0, 9).empty());
 }
 
 TEST_CASE("reader: go-to percent maps to a page")

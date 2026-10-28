@@ -56,6 +56,20 @@ public:
     [[nodiscard]] ThemeColors colors() const noexcept { return resolve_theme(prefs_.theme); }
     // Colour for the sentence the text-to-speech engine is reading.
     [[nodiscard]] uint32_t highlight_color() const noexcept { return colors().highlight; }
+    [[nodiscard]] int32_t page() const noexcept { return page_; }
+    [[nodiscard]] int32_t page_count() const noexcept { return count_; }
+    // Text-to-speech support. The text of a page arrives with ReaderEvent::Text (lParam = page).
+    void request_text(int32_t page);
+    [[nodiscard]] std::shared_ptr<const PageText> text_of(int32_t page) const;
+    void turn_to(int32_t page) { go_to(page); }
+    // Marks the sentence [begin, end) of a page's text; painted while that page is shown. Returns the number of rectangles.
+    std::size_t set_highlight(int32_t page, uint32_t begin, uint32_t end);
+    void clear_highlight();
+    // Records the reading position inside a page as tts_char, together with the page bookmark.
+    void save_tts_position(int32_t page, uint32_t offset);
+    // Sentence offset to continue from on the shown page, -1 when none was saved.
+    [[nodiscard]] int64_t resume_tts_char() const noexcept;
+
     // Applies theme and font settings at once: the cache is dropped and the current page is requested first.
     void set_prefs(const ReaderPrefs& p, bool persist);
 
@@ -69,6 +83,8 @@ private:
     void show_primary(const RenderResult& r);
     void fail_open(const RenderResult& r);
     void record_progress(const RenderResult& r) noexcept;
+    void store_text(const RenderResult& r);
+    [[nodiscard]] std::vector<D2D1_RECT_F> highlight_rects(int origin_x, int origin_y) const;
     void check_epoch();
     void set_shown(BitmapRef b);
     void rebuild_style();
@@ -121,6 +137,11 @@ private:
     POINT drag_start_{}, drag_last_{};
     int64_t last_flush_ms_ = 0;
     std::wstring chapter_, note_, error_;
+    std::vector<std::shared_ptr<const PageText>> texts_;
+    std::vector<TextBox> highlight_;
+    int32_t highlight_page_ = -1, tts_page_ = -1;
+    int64_t tts_char_ = -1, saved_tts_char_ = -1;
+    uint64_t saved_mark_ = kNoAnchor;
 };
 
 }

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace eb {
 namespace {
@@ -197,6 +198,30 @@ std::vector<std::size_t> marks_on_page(std::span<const uint64_t> marks, uint64_t
     return hits;
 }
 
+std::vector<TextBox> sentence_lines(const PageText& t, uint32_t begin, uint32_t end)
+{
+    std::vector<TextBox> out;
+    const std::size_t n = std::min(t.offset.size(), t.box.size());
+    auto i = static_cast<std::size_t>(std::lower_bound(t.offset.begin(), t.offset.begin() + static_cast<std::ptrdiff_t>(n), begin) - t.offset.begin());
+    for (; i < n && t.offset[i] < end; ++i) {
+        const TextBox& b = t.box[i];
+        if (!(b.x1 > b.x0) || !(b.y1 > b.y0))
+            continue;
+        if (!out.empty()) {
+            TextBox& cur = out.back();
+            const float overlap = std::min(cur.y1, b.y1) - std::max(cur.y0, b.y0);
+            if (overlap >= 0.5F * std::min(cur.y1 - cur.y0, b.y1 - b.y0)) {
+                cur = {std::min(cur.x0, b.x0), std::min(cur.y0, b.y0), std::max(cur.x1, b.x1), std::max(cur.y1, b.y1)};
+                continue;
+            }
+        }
+        if (out.size() >= kMaxHighlightRects)
+            break;
+        out.push_back(b);
+    }
+    return out;
+}
+
 NavAction nav_for_click(int x, int client_w) noexcept
 {
     if (client_w <= 0 || x < 0 || x >= client_w)
@@ -230,14 +255,23 @@ void RenderQueue::supersede() noexcept
     pending_.reset();
 }
 
-bool RenderQueue::pop(RenderWant& out, std::stop_token st)
+void RenderQueue::post_text(int32_t page)
+{
+    {
+        const std::lock_guard lock(mu_);
+        text_page_ = page;
+    }
+    cv_.notify_one();
+}
+
+bool RenderQueue::pop(Job& out, std::stop_token st)
 {
     std::unique_lock lock(mu_);
-    if (!cv_.wait(lock, std::move(st),[this] { return pending_.has_value(); }))
+    if (!cv_.wait(lock, std::move(st), [this] { return pending_.has_value() || text_page_.has_value(); }))
         return false;
-    out = *pending_;
-    pending_.reset();
-    in_flight_ = true;
+    out.render = std::exchange(pending_, std::nullopt);
+    out.text_page = std::exchange(text_page_, std::nullopt);
+    in_flight_ = out.render.has_value();
     return true;
 }
 

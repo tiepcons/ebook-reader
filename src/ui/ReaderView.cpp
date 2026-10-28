@@ -194,7 +194,8 @@ void ReaderView::on_paint()
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
     const SIZE c = content_size(), v = client_size();
-    canvas_.paint(shown_.Get(), axis_origin(v.cx, c.cx, pan_x_), axis_origin(v.cy, c.cy, pan_y_), colors().bg);
+    const int ox = axis_origin(v.cx, c.cx, pan_x_), oy = axis_origin(v.cy, c.cy, pan_y_);
+    canvas_.paint(shown_.Get(), ox, oy, colors().bg, highlight_rects(ox, oy), highlight_color());
     EndPaint(hwnd_, &ps);
     if (canvas_.epoch() != epoch_) {
         check_epoch();
@@ -282,6 +283,8 @@ bool ReaderView::open(OpenJob job)
     if (p.mark != 0) {
         anchor_ = p.mark;
         saved_percent_ = p.percent;
+        saved_mark_ = p.mark;
+        saved_tts_char_ = p.tts_char;
     }
     epoch_ = canvas_.epoch();
     view_ = current_view();
@@ -320,6 +323,11 @@ void ReaderView::close() noexcept
     toc_.clear();
     content_version_ = 0;
     end_mark_ = UINT64_MAX;
+    texts_.clear();
+    highlight_.clear();
+    highlight_page_ = tts_page_ = -1;
+    tts_char_ = saved_tts_char_ = -1;
+    saved_mark_ = kNoAnchor;
 }
 
 void ReaderView::flush() noexcept
@@ -346,7 +354,9 @@ void ReaderView::on_results()
         return;
     for (RenderResult& r : worker_->take()) {
         check_epoch();
-        if (r.kind == RenderResult::Kind::OpenFailed)
+        if (r.kind == RenderResult::Kind::Text)
+            store_text(r);
+        else if (r.kind == RenderResult::Kind::OpenFailed)
             fail_open(r);
         else if (r.view_id == view_id_)
             store_result(r);
@@ -413,7 +423,8 @@ void ReaderView::record_progress(const RenderResult& r) noexcept
 {
     if (!saver_)
         return;
-    saver_->update(Progress{r.mark, reading_fraction(r.page, r.page_count), -1, unix_now()});
+    const int64_t tts = tts_page_ == r.page ? tts_char_ : -1;
+    saver_->update(Progress{r.mark, reading_fraction(r.page, r.page_count), tts, unix_now()});
 }
 
 void ReaderView::notify(ReaderEvent e) const noexcept

@@ -8,6 +8,10 @@
 #include "SingleInstance.h"
 #include "TocPane.h"
 #include "Tray.h"
+#include "TtsBar.h"
+#include "TtsController.h"
+#include "TtsEngines.h"
+#include "TtsSettings.h"
 #include "UiMessages.h"
 #include "base/Handle.h"
 #include "base/Paths.h"
@@ -30,7 +34,7 @@ struct FontTraits {
 };
 using UniqueFont = Unique<FontTraits>;
 
-class MainWnd {
+class MainWnd : private TtsHost, private TtsDialogApi {
 public:
     MainWnd(HINSTANCE inst, Db& db, const AppPaths& paths, bool smoke, bool smoke_scan,
         std::chrono::steady_clock::time_point start)
@@ -39,7 +43,7 @@ public:
     }
     MainWnd(const MainWnd&) = delete;
     MainWnd& operator=(const MainWnd&) = delete;
-    ~MainWnd();
+    ~MainWnd() override;
 
     bool create(int show) noexcept;
     [[nodiscard]] HWND hwnd() const noexcept { return hwnd_; }
@@ -124,6 +128,34 @@ private:
     void shutdown_tray();
     void smoke_tray_check();
 
+    bool ensure_tts();
+    void load_tts_prefs_once();
+    void reset_tts();
+    void tts_toggle();
+    void tts_stop();
+    void on_tts_text(int page);
+    bool on_tts_command(WPARAM wp);
+    bool tts_button(int id);
+    bool on_tts_msg(UINT msg, WPARAM wp, LPARAM lp);
+    void open_tts_settings();
+    void smoke_tts_event(uint32_t id, LPARAM lp);
+    void layout_tts_bar(const RECT& rc, int status_h, int margin, int bar_h);
+    [[nodiscard]] std::string book_lang_tag() const;
+    void request_text(int32_t page) override;
+    [[nodiscard]] int32_t shown_page() const noexcept override;
+    [[nodiscard]] int32_t page_count() const noexcept override;
+    [[nodiscard]] int64_t resume_offset() const noexcept override;
+    void turn_to(int32_t page) override;
+    void highlight(int32_t page, uint32_t begin, uint32_t end) override;
+    void clear_highlight() override;
+    void save_position(int32_t page, uint32_t offset) override;
+    void state_changed(TtsState s) override;
+    void notice(const wchar_t* text) override;
+    std::vector<TtsKind> available() override;
+    std::vector<Voice> voices(TtsKind k) override;
+    void preview(TtsKind k, const std::wstring& voice, Lang lang, double rate) override;
+    void end_preview() override;
+
     HINSTANCE inst_;
     Db& db_;
     const AppPaths& paths_;
@@ -164,6 +196,11 @@ private:
     std::deque<std::wstring> pending_paths_;
     TtsState tts_state_ = TtsState::Unavailable;
     bool in_tray_ = false, asking_ = false;
+    TtsBar tts_bar_;
+    TtsPrefs tts_prefs_;
+    std::unique_ptr<TtsEngines> tts_engines_;
+    std::unique_ptr<TtsController> tts_;
+    bool tts_prefs_loaded_ = false, tts_lang_pending_ = false, smoke_tts_ = false, smoke_tts_run_ = false;
 };
 
 }

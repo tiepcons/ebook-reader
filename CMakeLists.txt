@@ -111,7 +111,7 @@ target_link_libraries(eb_book PUBLIC eb_lib eb_doc eb_tts eb_mupdf PRIVATE windo
 target_link_libraries(EbookReader PRIVATE eb_book)
 
 target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cpp src/ui/ReaderCanvas.cpp src/ui/ReaderView.cpp
-  src/ui/MainWndReader.cpp src/ui/ReaderViewMarks.cpp src/ui/TocPane.cpp src/ui/GotoPercent.cpp)
+  src/ui/MainWndReader.cpp src/ui/ReaderViewMarks.cpp src/ui/ReaderViewTts.cpp src/ui/TocPane.cpp src/ui/GotoPercent.cpp)
 target_link_libraries(EbookReader PRIVATE eb_doc d2d1)
 target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)
 
@@ -126,6 +126,8 @@ target_sources(EbookReader PRIVATE src/ui/Tray.cpp src/ui/CloseAsk.cpp src/ui/Si
   src/ui/MainWndTray.cpp)
 
 target_sources(EbookReader PRIVATE src/ui/Theme.cpp src/ui/FontPrefs.cpp src/ui/ReaderSettings.cpp)
+target_sources(EbookReader PRIVATE src/ui/TtsPrefs.cpp src/ui/TtsController.cpp src/ui/TtsBar.cpp src/ui/TtsEngines.cpp
+  src/ui/TtsSettings.cpp src/ui/MainWndTts.cpp)
 target_link_libraries(EbookReader PRIVATE dwmapi comdlg32 uuid)
 add_custom_command(TARGET EbookReader POST_BUILD COMMAND ${CMAKE_COMMAND}
   -DSRC=${CMAKE_SOURCE_DIR}/fonts -DDST=${CMAKE_BINARY_DIR}/fonts -P ${CMAKE_SOURCE_DIR}/cmake/copy_fonts.cmake)
