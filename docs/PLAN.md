@@ -195,7 +195,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T0.6 | **Spike định dạng**: mở EPUB, PDF, MOBI, **AZW3**, FB2, CBZ, và TXT→HTML qua MuPDF | DEV | T0.5 | 0,4 | Có báo cáo. Nếu AZW3 không được thì kích hoạt T1.9 | ✅ (AZW3 ✗, xem D16) |
 | T0.7 | Vendor SQLite amalgamation và doctest | DEV | T0.4 | 0,1 | | ✅ |
 | T0.8 | **Spike Piper**: onnxruntime (bản prebuilt từ GitHub release) + espeak-ng, đọc thử `vi_VN` và `en_US` | DEV | T0.4 | 0,5 | Ra được file wav tiếng Việt | ✅ RTF ~0,1 (D19) |
-| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV | T0.5 | 0,4 | **CI chạy local** (`tools/ci.ps1`: debug, asan, lint, release, kiểm tra kích thước), theo yêu cầu của PO, không dùng GitHub Actions | ⬜ |
+| T0.9 | CI: build Debug/Release, chạy test, clang-tidy, **cảnh báo nếu exe hoặc DLL vượt ngưỡng kích thước** | DEV | T0.5 | 0,4 | **CI chạy local** (`tools/ci.ps1`: debug, asan, lint, release, kiểm tra kích thước), theo yêu cầu của PO, không dùng GitHub Actions | ✅ |
 | T0.10 | Corpus test: Project Gutenberg, Standard Ebooks, truyện tiếng Việt public domain. Mỗi định dạng ít nhất 3 file, cộng 5 file cố tình làm hỏng | RUN + **PO** | — | 0,3 | Có `tests/corpus/` | ✅ 8 MB |
 | T0.11 | Script **im lặng** `tools/build.ps1` và `tools/test.ps1` (tham số preset): chỉ in lỗi đầu tiên của mỗi file, số test pass/fail và kích thước exe/DLL | LEAD | T0.4 | 0,2 | Build thành công chỉ in 1 dòng | ✅ |
 
@@ -217,22 +217,22 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T2.1 | Schema và migration: `books` (id = hash nội dung theo D8, path, folder, title, author, title_nd/author_nd đã bỏ dấu, lang, fmt, size, mtime, status), `progress`, `bookmarks`, `tts_usage`, `kv` (cài đặt). Không có bảng `pending` (dùng file marker, xem T1.3) | DEV | T1.2 | 0,5 | Có test migration | ⬜ |
-| T2.2 | `Scanner`: quét **đệ quy**, lọc phần mở rộng, chạy trên thread ưu tiên thấp, **quét tăng dần** (so mtime và size), khớp file di chuyển qua hash, file mất thì đặt `missing` | DEV | T2.1, T1.3 | 1 | Quét 1000 sách lần đầu ≤ 20 giây, quét lại ≤ 1 giây, UI không đơ | ⬜ |
-| T2.3 | `Metadata`: lấy tên sách, tác giả, ngôn ngữ qua `eb_mupdf`. Không có thì lấy theo tên file | DEV | T1.6 | 0,4 | Test từng định dạng | ⬜ |
-| T2.4 | `CoverCache`: lấy ảnh bìa nhúng trong sách hoặc render trang 1, thu nhỏ còn 320px (cạnh dài), mã hóa JPEG q85 bằng **WIC**. TXT thì dùng bìa mặc định | DEV | T2.3 | 0,6 | 100% sách trong corpus có ảnh bìa | ⬜ |
-| T2.5 | REV + SEC review (path traversal, symlink, zip bomb) | REV, SEC | T2.1–T2.4 | 0,2 | | ⬜ |
+| T2.1 | Schema và migration: `books` (id = hash nội dung theo D8, path, folder, title, author, title_nd/author_nd đã bỏ dấu, lang, fmt, size, mtime, status), `progress`, `bookmarks`, `tts_usage`, `kv` (cài đặt). Không có bảng `pending` (dùng file marker, xem T1.3) | DEV | T1.2 | 0,5 | Có test migration | ✅ |
+| T2.2 | `Scanner`: quét **đệ quy**, lọc phần mở rộng, chạy trên thread ưu tiên thấp, **quét tăng dần** (so mtime và size), khớp file di chuyển qua hash, file mất thì đặt `missing` | DEV | T2.1, T1.3 | 1 | Quét 1000 sách lần đầu ≤ 20 giây, quét lại ≤ 1 giây, UI không đơ | ✅ |
+| T2.3 | `Metadata`: lấy tên sách, tác giả, ngôn ngữ qua `eb_mupdf`. Không có thì lấy theo tên file | DEV | T1.6 | 0,4 | Test từng định dạng | ✅ |
+| T2.4 | `CoverCache`: lấy ảnh bìa nhúng trong sách hoặc render trang 1, thu nhỏ còn 320px (cạnh dài), mã hóa JPEG q85 bằng **WIC**. TXT thì dùng bìa mặc định | DEV | T2.3 | 0,6 | 100% sách trong corpus có ảnh bìa | ✅ |
+| T2.5 | REV + SEC review (path traversal, symlink, zip bomb) | REV, SEC | T2.1–T2.4 | 0,2 | | ✅ |
 
 ### PHASE 3: Khung Win32 và giao diện thư viện (4–5 ngày)
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T3.1 | `App`: WinMain, vòng lặp message, khởi tạo COM/WinRT, CrashGuard, xử lý DPI theo từng màn hình | DEV | T1.3 | 0,5 | Khởi động ≤ 0,3 giây | ⬜ |
-| T3.2 | `MainWnd`: bố cục có splitter, thanh trên gồm ô tìm kiếm, sắp xếp và nút "Quét lại", "Mở thư mục ebooks" | DEV | T3.1 | 0,6 | | ⬜ |
-| T3.3 | `LibraryPane` phần **cây thư mục**: TreeView dựng từ cấu trúc thư mục con của `ebooks\` | DEV | T2.2 | 0,5 | Bấm thư mục nào thì lọc sách trong thư mục đó | ⬜ |
-| T3.4 | `LibraryPane` phần **lưới ảnh bìa**: ListView ảo (`LVS_OWNERDATA`), ảnh bìa nạp bất đồng bộ, chỉ nạp các ô đang hiện | DEV | T2.4 | 1 | Cuộn mượt với 5000 sách, RAM ≤ 40 MB | ⬜ |
-| T3.5 | Tìm kiếm không phân biệt dấu ("kim dung" khớp "Kim Dung"), sắp xếp, bộ lọc **"Đang đọc dở"** có hiện % | DEV | T2.1 | 0,5 | Kết quả ≤ 30 ms | ⬜ |
-| T3.6 | Menu chuột phải (Mở, Mở thư mục chứa, Xóa khỏi thư viện), quét lại khi cửa sổ được focus | DEV | T3.4 | 0,3 | | ⬜ |
+| T3.1 | `App`: WinMain, vòng lặp message, khởi tạo COM/WinRT, CrashGuard, xử lý DPI theo từng màn hình | DEV | T1.3 | 0,5 | Khởi động ≤ 0,3 giây | ✅ |
+| T3.2 | `MainWnd`: bố cục có splitter, thanh trên gồm ô tìm kiếm, sắp xếp và nút "Quét lại", "Mở thư mục ebooks" | DEV | T3.1 | 0,6 | | ✅ |
+| T3.3 | `LibraryPane` phần **cây thư mục**: TreeView dựng từ cấu trúc thư mục con của `ebooks\` | DEV | T2.2 | 0,5 | Bấm thư mục nào thì lọc sách trong thư mục đó | ✅ |
+| T3.4 | `LibraryPane` phần **lưới ảnh bìa**: ListView ảo (`LVS_OWNERDATA`), ảnh bìa nạp bất đồng bộ, chỉ nạp các ô đang hiện | DEV | T2.4 | 1 | Cuộn mượt với 5000 sách, RAM ≤ 40 MB | ✅ |
+| T3.5 | Tìm kiếm không phân biệt dấu ("kim dung" khớp "Kim Dung"), sắp xếp, bộ lọc **"Đang đọc dở"** có hiện % | DEV | T2.1 | 0,5 | Kết quả ≤ 30 ms | ✅ |
+| T3.6 | Menu chuột phải (Mở, Mở thư mục chứa, Xóa khỏi thư viện), quét lại khi cửa sổ được focus | DEV | T3.4 | 0,3 | | ✅ |
 | T3.7 | REV review và **PO nghiệm thu**: thả 100 sách nhiều tầng thư mục | REV, **PO** | T3.1–T3.6 | 0,3 | | ⬜ |
 
 ### PHASE 4: Đọc sách, vị trí đọc, theme, font (6–7 ngày)
@@ -254,20 +254,20 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T5.1 | `Tray`: `Shell_NotifyIcon`, tooltip, menu (Mở, ▶/⏸ Đọc, ⏭ Câu tiếp, ⏹ Dừng, Thoát). Double-click để mở. Tự đăng ký lại icon khi Explorer khởi động lại (`TaskbarCreated`) | DEV | T3.1 | 0,5 | | ⬜ |
-| T5.2 | **`CloseAsk`**: bấm X thì hiện `TaskDialogIndirect` với 3 nút **[Thoát hẳn] [Xuống khay] [Hủy]** và ô ☐ *Ghi nhớ lựa chọn* (verification checkbox). Đổi lại được trong Settings | DEV | T5.1 | 0,3 | Cả 3 lựa chọn và ô ghi nhớ đều đúng | ⬜ |
-| T5.3 | Xuống khay: lưu tiến độ, giải phóng cache và Direct2D, giảm working set. **TTS vẫn đọc tiếp** | DEV | T5.2, T4.4 | 0,3 | RAM ở khay ≤ 20 MB | ⬜ |
-| T5.4 | Chỉ chạy 1 instance: named mutex, gửi đường dẫn file sang instance đang chạy bằng `WM_COPYDATA` | DEV | T3.1 | 0,3 | | ⬜ |
+| T5.1 | `Tray`: `Shell_NotifyIcon`, tooltip, menu (Mở, ▶/⏸ Đọc, ⏭ Câu tiếp, ⏹ Dừng, Thoát). Double-click để mở. Tự đăng ký lại icon khi Explorer khởi động lại (`TaskbarCreated`) | DEV | T3.1 | 0,5 | | ✅ |
+| T5.2 | **`CloseAsk`**: bấm X thì hiện `TaskDialogIndirect` với 3 nút **[Thoát hẳn] [Xuống khay] [Hủy]** và ô ☐ *Ghi nhớ lựa chọn* (verification checkbox). Đổi lại được trong Settings | DEV | T5.1 | 0,3 | Cả 3 lựa chọn và ô ghi nhớ đều đúng | ✅ |
+| T5.3 | Xuống khay: lưu tiến độ, giải phóng cache và Direct2D, giảm working set. **TTS vẫn đọc tiếp** | DEV | T5.2, T4.4 | 0,3 | RAM ở khay ≤ 20 MB | ✅ |
+| T5.4 | Chỉ chạy 1 instance: named mutex, gửi đường dẫn file sang instance đang chạy bằng `WM_COPYDATA` | DEV | T3.1 | 0,3 | | ✅ |
 | T5.5 | REV review và **PO nghiệm thu** | REV, **PO** | T5.1–T5.4 | 0,2 | | ⬜ |
 
 ### PHASE 6: TTS tiếng Anh/Việt bằng WinRT và Piper (5–6 ngày)
 
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
-| T6.1 | `ITtsEngine`: liệt kê giọng, đọc, tạm dừng, đọc tiếp, dừng, tốc độ, âm lượng, callback (bắt đầu câu, từng từ, kết thúc). Mọi callback chuyển về thread UI bằng `PostMessage` | DEV | T1.1 | 0,3 | | ⬜ |
-| T6.2 | `Segmenter`: tách câu Anh và Việt, xử lý chữ viết tắt và số, bỏ header/footer và số trang của PDF | DEV | T1.6 | 0,7 | ≥ 30 test case | ⬜ |
-| T6.3 | `LangDetect`: lấy ngôn ngữ từ metadata. Nếu không có thì đoán theo từng câu dựa vào tỉ lệ ký tự có dấu tiếng Việt. Người dùng chọn cố định được | DEV | T6.2 | 0,3 | Đúng ≥ 95% | ⬜ |
-| T6.4 | **`WinRtTts`**: C++/WinRT `SpeechSynthesizer` + `MediaPlayer`, dùng giọng OneCore (Microsoft An, David, Zira...), lấy word boundary để tô sáng. Thiếu giọng Việt thì hướng dẫn cài | DEV | T6.1 | 1,2 | Đọc được cả tiếng Anh và tiếng Việt | ⬜ |
+| T6.1 | `ITtsEngine`: liệt kê giọng, đọc, tạm dừng, đọc tiếp, dừng, tốc độ, âm lượng, callback (bắt đầu câu, từng từ, kết thúc). Mọi callback chuyển về thread UI bằng `PostMessage` | DEV | T1.1 | 0,3 | | ✅ |
+| T6.2 | `Segmenter`: tách câu Anh và Việt, xử lý chữ viết tắt và số, bỏ header/footer và số trang của PDF | DEV | T1.6 | 0,7 | ≥ 30 test case | ✅ |
+| T6.3 | `LangDetect`: lấy ngôn ngữ từ metadata. Nếu không có thì đoán theo từng câu dựa vào tỉ lệ ký tự có dấu tiếng Việt. Người dùng chọn cố định được | DEV | T6.2 | 0,3 | Đúng ≥ 95% | ✅ |
+| T6.4 | **`WinRtTts`**: C++/WinRT `SpeechSynthesizer` + `MediaPlayer`, dùng giọng OneCore (Microsoft An, David, Zira...), lấy word boundary để tô sáng. Thiếu giọng Việt thì hướng dẫn cài | DEV | T6.1 | 1,2 | Đọc được cả tiếng Anh và tiếng Việt | ✅ |
 | T6.5 | `TtsController`: tô sáng câu đang đọc, **tự lật trang**, lưu vị trí câu vào ProgressStore, chạy tiếp khi app ở khay | DEV | T6.4, T4.4 | 0,9 | Đọc liên tục hết 1 chương | ✅ |
 | T6.6 | `TtsBar` và trang TTS trong Settings: chọn engine, giọng Anh, giọng Việt, tốc độ, nghe thử | DEV | T6.5 | 0,4 | | ✅ |
 | T6.7 | **`PiperTts`**: chạy `libs\piper\piper.exe` dưới dạng tiến trình con, mỗi giọng một tiến trình, giữ tiến trình sống giữa các câu, dùng `--json-input`, mỗi câu ra một file WAV tạm trong `data\tts-cache\piper\`. Phát bằng `MediaPlayer`, tô sáng theo cả câu. Chỉ bật khi có `libs\piper\` và giọng trong `voices\`. Tổng hợp trước câu tiếp theo | DEV | T0.8, T6.1 | 1,3 | Khoảng lặng giữa 2 câu ≤ 300 ms. Thiếu Piper thì engine này bị ẩn | ✅ |
@@ -286,10 +286,10 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
 | T7.1 | **PO tạo Azure Speech gói Free F0** và lấy Key 1 cùng Region | **PO** | — | 0,2 | | ⬜ |
-| T7.2 | `SecretStore`: lưu key bằng **Windows Credential Manager** (`CredWriteW`). Không ghi vào DB, cài đặt hay log | DEV + SEC | T1.1 | 0,3 | Grep thư mục `data\` không thấy key | ⬜ |
+| T7.2 | `SecretStore`: lưu key bằng **Windows Credential Manager** (`CredWriteW`). Không ghi vào DB, cài đặt hay log | DEV + SEC | T1.1 | 0,3 | Grep thư mục `data\` không thấy key | ✅ |
 | T7.3 | Trang Azure trong Settings (file .rc): ô key (ẩn ký tự), region, tier F0/S0, quota/tháng, nút **Kiểm tra kết nối** (`GET voices/list`), chọn giọng Việt (HoaiMy, NamMinh) và giọng Anh | DEV | T7.2 | 0,6 | Key sai thì báo lỗi 401 rõ ràng | ✅ |
 | T7.4 | `AzureTts`: gọi `POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1` qua **WinHTTP** (bất đồng bộ), dùng SSML, nhận `audio-24khz-48kbitrate-mono-mp3` (MediaPlayer giải mã sẵn, không cần thêm codec). Prefetch 2 câu. Gặp 429/5xx thì thử lại theo backoff, sau đó chuyển sang WinRT | DEV | T6.1, T7.3 | 0,9 | Mất mạng thì tự chuyển engine, không crash | ✅ |
-| T7.5 | **`AzureUsage`**: đếm ký tự, ghi trong transaction, tính %, ngày reset, xử lý sang tháng mới | DEV | T2.1 | 0,4 | Unit test: đếm đúng, đổi tháng đúng, Unicode tiếng Việt đúng | ⬜ |
+| T7.5 | **`AzureUsage`**: đếm ký tự, ghi trong transaction, tính %, ngày reset, xử lý sang tháng mới | DEV | T2.1 | 0,4 | Unit test: đếm đúng, đổi tháng đúng, Unicode tiếng Việt đúng | ✅ |
 | T7.6 | Hiện **% còn lại** trong Settings, trên TtsBar ("Azure 75%") và trong menu tray. Cảnh báo và xử lý khi đạt 100% | DEV | T7.5 | 0,4 | | ✅ |
 | T7.7 | Audio cache và chức năng hiệu chỉnh hoặc đặt lại bộ đếm | DEV | T7.4, T7.5 | 0,3 | Đọc lại 1 chương thì bộ đếm không tăng | ✅ |
 | T7.8 | SEC + REV review và **PO nghiệm thu** (so số đếm của app với Azure Portal) | SEC, REV, **PO** | T7.1–T7.7 | 0,3 | Sai lệch < 5% | ⬜ |
