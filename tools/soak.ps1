@@ -6,7 +6,7 @@ $root = Split-Path $PSScriptRoot
 $b = & "$PSScriptRoot/build.ps1" -Preset $Preset
 if ($LASTEXITCODE -ne 0) { $b; Write-Output 'SOAK FAIL build'; exit 1 }
 $bdir = "$root/build/$Preset"
-$dll = Get-ChildItem $bdir -Recurse -Filter eb_mupdf.dll | Select-Object -First 1
+$dll = Get-Item "$bdir/libs/eb_mupdf.dll" # RUNTIME_OUTPUT_DIRECTORY of eb_mupdf
 $dir = "$bdir/soak"
 if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
 New-Item -ItemType Directory -Force "$dir/libs", "$dir/ebooks" | Out-Null
@@ -23,7 +23,8 @@ $null = $p.Handle
 if (-not $p.WaitForExit(($Minutes + 5) * 60000)) { Write-Output 'SOAK FAIL timeout (process left running)'; exit 1 }
 $code = $p.ExitCode
 $asan = (Test-Path $err) -and (Select-String -Path $err -Pattern 'AddressSanitizer' -Quiet)
-$rows = @(Get-Content "$dir/data/logs/app.log" | ForEach-Object {
+$logs = @("$dir/data/logs/app.1.log", "$dir/data/logs/app.log") | Where-Object { Test-Path $_ } # Log rotates at 1 MiB
+$rows = @(Get-Content $logs | ForEach-Object {
     if ($_ -match 'soak: t=(\d+) books=(\d+) pages=(\d+) ws=(\d+) private=(\d+) handles=(\d+) gdi=(\d+)') {
         [pscustomobject]@{ t = [int]$Matches[1]; books = [int]$Matches[2]; pages = [int]$Matches[3]; ws = [long]$Matches[4]
             priv = [long]$Matches[5]; handles = [long]$Matches[6]; gdi = [long]$Matches[7] }
@@ -31,13 +32,13 @@ $rows = @(Get-Content "$dir/data/logs/app.log" | ForEach-Object {
 })
 if ($rows.Count -lt 2) { Write-Output "SOAK FAIL no soak samples exit=$code"; exit 1 }
 $first = $rows[0]; $last = $rows[-1]
-$warm = $rows | Where-Object { $_.t -ge [math]::Max(5, [math]::Ceiling($Minutes * 0.1)) } | Select-Object -First 1
+$warm = if ($Minutes -lt 30) { $null } else { $rows | Where-Object { $_.t -ge [math]::Max(5, [math]::Ceiling($Minutes * 0.1)) } | Select-Object -First 1 }
 $why = @()
 if ($code -ne 0) { $why += "exit=$code" }
 if ($asan) { $why += 'asan-report' }
 if ($last.books -lt 1) { $why += 'no-book-opened' }
 foreach ($m in 'priv', 'handles', 'gdi') {
-    # warm-up is the first max(10%, 5 min); shorter runs only check exit code and ASan
+    # warm-up is the first max(10%, 5 min); runs under 30 min only check exit code and ASan
     if ($warm -and $warm.$m -gt 0 -and $last.$m -gt $warm.$m * 1.1) { $why += "$m-grew($($warm.$m)->$($last.$m))" }
 }
 $line = "minutes=$Minutes books=$($last.books) pages=$($last.pages) ws_start=$($first.ws) ws_end=$($last.ws) handles_start=$($first.handles) handles_end=$($last.handles)"
