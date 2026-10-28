@@ -46,8 +46,11 @@ bool make_stdin_pipe(Pipes& p) noexcept
             + std::to_wstring(serial.fetch_add(1));
         p.in_w.reset(CreateNamedPipeW(name.c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
             PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, kStdinBuffer, 0, 0, nullptr));
+        if (!p.in_w.valid())
+            return false; // never connect to a pipe another process created under our name
         SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
-        p.in_r.reset(CreateFileW(name.c_str(), GENERIC_READ, 0, &sa, OPEN_EXISTING, 0, nullptr));
+        p.in_r.reset(CreateFileW(name.c_str(), GENERIC_READ, 0, &sa, OPEN_EXISTING,
+            SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr));
         return p.in_w.valid() && p.in_r.valid();
     } catch (...) {
         return false;
@@ -350,8 +353,15 @@ bool Proc::send(const std::string& line, const Cancel& cancel) noexcept
                 && GetLastError() != ERROR_IO_PENDING))
             return false;
         const auto deadline = std::chrono::steady_clock::now() + kWriteLimit;
+        const auto stop = [&]() noexcept {
+            try {
+                return cancel() || std::chrono::steady_clock::now() > deadline;
+            } catch (...) {
+                return true; // the pending write must still be cancelled and drained before ov goes away
+            }
+        };
         while (WaitForSingleObject(done.get(), static_cast<DWORD>(kPoll.count())) == WAIT_TIMEOUT) {
-            if (cancel() || std::chrono::steady_clock::now() > deadline) {
+            if (stop()) {
                 CancelIoEx(in_w_.get(), &ov);
                 break;
             }
