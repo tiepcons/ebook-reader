@@ -26,7 +26,7 @@ struct BitmapFree {
 using BitmapPtr = std::unique_ptr<eb_bitmap, BitmapFree>;
 
 struct RenderResult {
-    enum class Kind : uint8_t { Page, OpenFailed, Text };
+    enum class Kind : uint8_t { Page, OpenFailed, Text, Links };
     Kind kind = Kind::Page;
     uint64_t generation = 0;
     uint32_t view_id = 0;
@@ -40,8 +40,7 @@ struct RenderResult {
     BitmapPtr bmp;          // null when the UI already holds it or on failure (status != EB_OK)
     std::string chapter;    // UTF-8, primary only
     std::string detail;     // UTF-8, OpenFailed only
-    bool has_links = false; // links is valid for this page (fetched once per primary request)
-    std::vector<PageLink> links;
+    std::vector<PageLink> links; // Links only: internal links of `page`, may be empty
     std::shared_ptr<const PageText> text; // Text only; null when the page has none or reading it failed
 };
 
@@ -83,6 +82,7 @@ private:
     eb_status render_bitmap(const RenderWant& w, int32_t page, RenderResult& r);
     bool load_toc();
     eb_status load_links(int32_t page, RenderResult& r);
+    eb_status serve_links(const RenderWant& w, int32_t page);
     [[nodiscard]] std::string chapter_of(uint64_t mark) const;
     void post(RenderResult r);
     void fail_open(eb_status st, std::string detail) noexcept;

@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <deque>
+#include <span>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -112,6 +113,7 @@ private:
     void jump_to_mark(uint64_t mark);
     void on_page_event(ReaderEvent e, int page);
     void sync_chapter_combo();
+    void fill_chapter_combo(std::span<const TocItem> toc);
     void on_chapter_combo(int code);
     void smoke_marks();
     [[nodiscard]] bool toc_shown() const noexcept { return in_reader_ && toc_visible_ && !fullscreen_; }

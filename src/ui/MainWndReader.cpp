@@ -14,6 +14,7 @@
 #include <format>
 #include <initializer_list>
 #include <memory>
+#include <span>
 
 namespace eb {
 namespace {
@@ -21,6 +22,7 @@ namespace {
 constexpr int kBarMargin = 6, kBarH = 26;
 constexpr int kTocW = 260;
 constexpr int kChapterMaxW = 360, kChapterListRows = 14, kMaxIndent = 8;
+constexpr std::size_t kMaxChapterItems = 2000;
 constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80, kAaW = 44;
 constexpr UINT kResumeBarMs = 6000;
 constexpr UINT kReaderTickMs = 500;
@@ -376,19 +378,29 @@ void MainWnd::jump_to_pick()
         jump_to_mark(pick->mark);
 }
 
+void MainWnd::fill_chapter_combo(std::span<const TocItem> toc)
+{
+    SendMessageW(chapter_combo_, WM_SETREDRAW, FALSE, 0);
+    SendMessageW(chapter_combo_, CB_RESETCONTENT, 0, 0);
+    SendMessageW(chapter_combo_, CB_INITSTORAGE, toc.size(), static_cast<LPARAM>(toc.size() * 64));
+    for (const TocItem& it : toc) {
+        const std::wstring title = utf8_to_wide(it.title).value_or(std::wstring{});
+        const std::wstring label = std::wstring(2 * static_cast<std::size_t>(std::clamp(it.level, 0, kMaxIndent)), L' ') + title;
+        SendMessageW(chapter_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+    }
+    SendMessageW(chapter_combo_, WM_SETREDRAW, TRUE, 0);
+    chapter_count_ = toc.size();
+    layout();
+}
+
 void MainWnd::sync_chapter_combo()
 {
-    const std::vector<TocItem>& toc = reader_.toc();
-    if (toc.size() != chapter_count_) {
-        SendMessageW(chapter_combo_, CB_RESETCONTENT, 0, 0);
-        for (const TocItem& it : toc) {
-            const std::wstring title = utf8_to_wide(it.title).value_or(std::wstring{});
-            const std::wstring label = std::wstring(2 * static_cast<std::size_t>(std::clamp(it.level, 0, kMaxIndent)), L' ') + title;
-            SendMessageW(chapter_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
-        }
-        chapter_count_ = toc.size();
-        layout();
-    }
+    if (SendMessageW(chapter_combo_, CB_GETDROPPEDSTATE, 0, 0) != 0)
+        return;
+    const std::vector<TocItem>& all = reader_.toc();
+    const std::span<const TocItem> toc = std::span(all).first(std::min(all.size(), kMaxChapterItems));
+    if (toc.size() != chapter_count_)
+        fill_chapter_combo(toc);
     const uint64_t mark = reader_.mark();
     const int idx = mark == kNoAnchor ? -1 : toc_index_at(toc, mark);
     if (idx >= 0 && idx != static_cast<int>(SendMessageW(chapter_combo_, CB_GETCURSEL, 0, 0)))

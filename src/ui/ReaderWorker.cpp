@@ -376,6 +376,11 @@ eb_status RenderWorker::serve_once(const RenderWant& w)
             post_error(w, st, page);
         return st;
     }
+    if (links_gen_ != w.generation) {
+        st = serve_links(w, page);
+        if (st != EB_OK)
+            return st;
+    }
     return prefetch(w, page);
 }
 
@@ -444,9 +449,6 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
         if (const eb_status st = render_bitmap(w, page, r); st != EB_OK)
             return primary ? st : (st == EB_E_ABORTED ? st : EB_OK);
     }
-    const bool fetch_links = primary && links_gen_ != w.generation;
-    if (fetch_links && load_links(page, r) == EB_E_ABORTED)
-        return EB_E_ABORTED;
     if (!queue_.current(w.generation))
         return EB_E_ABORTED;
     if (primary) {
@@ -458,8 +460,22 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
         }
     }
     post(std::move(r));
-    if (fetch_links)
-        links_gen_ = w.generation;
+    return EB_OK;
+}
+
+eb_status RenderWorker::serve_links(const RenderWant& w, int32_t page)
+{
+    RenderResult r;
+    r.kind = RenderResult::Kind::Links;
+    r.generation = w.generation;
+    r.view_id = w.view_id;
+    r.page = page;
+    if (const eb_status st = load_links(page, r); st == EB_E_ABORTED)
+        return st;
+    if (!queue_.current(w.generation))
+        return EB_E_ABORTED;
+    post(std::move(r));
+    links_gen_ = w.generation;
     return EB_OK;
 }
 
@@ -469,7 +485,6 @@ eb_status RenderWorker::load_links(int32_t page, RenderResult& r)
     int32_t n = 0;
     const eb_status st = eb_page_links(doc_, page, &raw, &n);
     const std::unique_ptr<eb_link, LinksFree> items(raw);
-    r.has_links = true;
     if (st != EB_OK)
         return st;
     const auto count = std::min(static_cast<std::size_t>(std::max(n, 0)), kMaxPageLinks);

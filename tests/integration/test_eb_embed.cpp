@@ -374,3 +374,37 @@ TEST_CASE("eb_page_links returns internal links only, with resolvable targets")
     CHECK(eb_page_links(d.get(), pages, &none, &zero) == EB_E_RANGE);
     CHECK(eb_page_links(nullptr, 0, &none, &zero) == EB_E_ARG);
 }
+
+TEST_CASE("eb_page_links and eb_page_text report boxes relative to a non-zero page origin")
+{
+    const Lib lib;
+    const std::string stream = "BT /F1 12 Tf 110 280 Td (Hello) Tj ET";
+    const std::string pdf =
+        "%PDF-1.4\n"
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        "2 0 obj<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2/MediaBox[100 100 300 300]>>endobj\n"
+        "3 0 obj<</Type/Page/Parent 2 0 R/Contents 5 0 R/Resources<</Font<</F1 6 0 R>>>>/Annots[7 0 R]>>endobj\n"
+        "4 0 obj<</Type/Page/Parent 2 0 R>>endobj\n"
+        "5 0 obj<</Length " + std::to_string(stream.size()) + ">>stream\n" + stream + "\nendstream endobj\n"
+        "6 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
+        "7 0 obj<</Type/Annot/Subtype/Link/Rect[110 110 150 150]/Border[0 0 0]/Dest[4 0 R/Fit]>>endobj\n"
+        "trailer<</Root 1 0 R/Size 8>>\n";
+    const DocPtr d = open_bytes(pdf, ".pdf");
+    eb_text* t = nullptr;
+    REQUIRE(eb_page_text(d.get(), 0, &t) == EB_OK);
+    const TextPtr text(t);
+    REQUIRE(text->char_count > 0);
+    for (int32_t i = 0; i < text->char_count; ++i) {
+        CHECK(text->box[i].x0 >= 0);
+        CHECK(text->box[i].x1 <= 200);
+        CHECK(text->box[i].y1 <= 200);
+    }
+    eb_link* raw = nullptr;
+    int32_t n = 0;
+    REQUIRE(eb_page_links(d.get(), 0, &raw, &n) == EB_OK);
+    const std::unique_ptr<eb_link, LinksDeleter> links(raw);
+    REQUIRE(n == 1);
+    CHECK(links.get()[0].area.x0 == doctest::Approx(10.0F));
+    CHECK(links.get()[0].area.x1 == doctest::Approx(50.0F));
+    CHECK(links.get()[0].page == 1);
+}

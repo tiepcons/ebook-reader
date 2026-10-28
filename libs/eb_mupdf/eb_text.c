@@ -1,5 +1,6 @@
 #include "eb_internal.h"
 
+#include <math.h>
 #include <string.h>
 
 #define EB_MAX_TEXT_CHARS 4000000
@@ -9,6 +10,7 @@
 
 typedef struct sink {
     int fill, over;
+    float ox, oy; /* page bound origin: the renderer shifts it to (0,0) */
     size_t bytes;
     int32_t n;
     char* utf8;
@@ -45,7 +47,7 @@ static void walk(const fz_stext_page* st, sink* s)
             first = 0;
             for (const fz_stext_char* ch = l->first_char; ch; ch = ch->next) {
                 fz_rect q = fz_rect_from_quad(ch->quad);
-                last = (eb_rect){q.x0, q.y0, q.x1, q.y1};
+                last = (eb_rect){q.x0 - s->ox, q.y0 - s->oy, q.x1 - s->ox, q.y1 - s->oy};
                 put(s, ch->c, last);
             }
         }
@@ -70,9 +72,11 @@ static void alloc_text(fz_context* ctx, eb_text* t, const sink* count)
     if (!t->utf8 || !t->utf8_offset || !t->box) eb_throw_oom(ctx);
 }
 
-static void extract(fz_context* ctx, const fz_stext_page* st, eb_text* t)
+static void extract(fz_context* ctx, const fz_stext_page* st, fz_rect bound, eb_text* t)
 {
     sink s = {0};
+    s.ox = bound.x0;
+    s.oy = bound.y0;
     walk(st, &s);
     if (s.over) fz_throw(ctx, FZ_ERROR_LIMIT, "page text too large");
     alloc_text(ctx, t, &s);
@@ -110,7 +114,7 @@ eb_status eb_page_text(eb_doc* doc, int32_t page, eb_text** out)
         pg = fz_load_page(doc->ctx, doc->doc, page);
         st = fz_new_stext_page_from_page_with_cookie(doc->ctx, pg, &opts, &doc->cookie);
         eb_check_abort(doc);
-        extract(doc->ctx, st, t);
+        extract(doc->ctx, st, fz_bound_page(doc->ctx, pg), t);
     }
     fz_always(doc->ctx)
     {
@@ -128,24 +132,51 @@ void eb_links_free(eb_link* links)
     free(links);
 }
 
-static int link_target(eb_doc* d, const fz_link* l, eb_link* out)
+static int finite_rect(fz_rect r)
 {
-    fz_location loc = fz_resolve_link(d->ctx, d->doc, l->uri, NULL, NULL);
+    return isfinite(r.x0) && isfinite(r.y0) && isfinite(r.x1) && isfinite(r.y1);
+}
+
+static int link_target(eb_doc* d, const fz_link* l, fz_rect bound, int32_t npages, eb_link* out)
+{
+    fz_location loc;
+    fz_rect a = l->rect;
+    if (!finite_rect(a)) return 0;
+    a = fz_transform_rect(a, fz_translate(-bound.x0, -bound.y0));
+    a = fz_intersect_rect(a, (fz_rect){0, 0, bound.x1 - bound.x0, bound.y1 - bound.y0});
+    if (fz_is_empty_rect(a)) return 0;
+    loc = fz_resolve_link(d->ctx, d->doc, l->uri, NULL, NULL);
     if (loc.chapter < 0 || loc.page < 0) return 0;
     out->page = fz_page_number_from_location(d->ctx, d->doc, loc);
-    if (out->page < 0) return 0;
+    if (out->page < 0 || out->page >= npages) return 0;
     out->target = eb_encode_bookmark(d, loc);
-    out->area = (eb_rect){l->rect.x0, l->rect.y0, l->rect.x1, l->rect.y1};
+    out->area = (eb_rect){a.x0, a.y0, a.x1, a.y1};
     return 1;
 }
 
-static int32_t collect_links(eb_doc* d, const fz_link* head, eb_link* arr)
+static int32_t count_links(const fz_link* head)
 {
     int32_t n = 0;
-    for (const fz_link* l = head; l && n < EB_MAX_LINKS; l = l->next) {
+    for (; head && n < EB_MAX_LINKS; head = head->next) n++;
+    return n;
+}
+
+static int32_t collect_links(eb_doc* d, const fz_link* head, fz_rect bound, int32_t npages, eb_link* arr, int32_t cap)
+{
+    fz_context* ctx = d->ctx;
+    int32_t n = 0;
+    for (const fz_link* l = head; l && n < cap; l = l->next) {
         eb_check_abort(d);
-        if (!l->uri || fz_is_external_link(d->ctx, l->uri)) continue;
-        if (link_target(d, l, &arr[n])) n++;
+        if (!l->uri || fz_is_external_link(ctx, l->uri)) continue;
+        fz_try(ctx)
+        {
+            if (link_target(d, l, bound, npages, &arr[n])) n++;
+        }
+        fz_catch(ctx)
+        {
+            if (fz_caught(ctx) == FZ_ERROR_ABORT) fz_rethrow(ctx);
+            fz_ignore_error(ctx);
+        }
     }
     return n;
 }
@@ -155,12 +186,13 @@ eb_status eb_page_links(eb_doc* doc, int32_t page, eb_link** links, int32_t* cou
     fz_page* pg = NULL;
     fz_link* head = NULL;
     eb_link* arr = NULL;
-    int32_t n = 0;
+    int32_t n = 0, npages = 0;
     eb_status status = EB_OK;
     if (!doc || !links || !count) return eb_fail_msg(EB_E_ARG, "null argument");
     *links = NULL;
     *count = 0;
-    status = eb_check_page(doc, page);
+    status = eb_count_pages(doc, &npages);
+    if (status == EB_OK) status = eb_check_page(doc, page);
     if (status != EB_OK) return status;
     eb_begin_call(doc);
     fz_var(pg);
@@ -169,11 +201,13 @@ eb_status eb_page_links(eb_doc* doc, int32_t page, eb_link** links, int32_t* cou
     fz_var(n);
     fz_try(doc->ctx)
     {
+        int32_t cap;
         pg = fz_load_page(doc->ctx, doc->doc, page);
         head = fz_load_links(doc->ctx, pg);
-        arr = calloc(EB_MAX_LINKS, sizeof *arr);
-        if (!arr) eb_throw_oom(doc->ctx);
-        n = collect_links(doc, head, arr);
+        cap = count_links(head);
+        arr = cap ? calloc((size_t)cap, sizeof *arr) : NULL;
+        if (cap && !arr) eb_throw_oom(doc->ctx);
+        n = collect_links(doc, head, fz_bound_page(doc->ctx, pg), npages, arr, cap);
     }
     fz_always(doc->ctx)
     {

@@ -20,9 +20,7 @@ namespace {
 constexpr wchar_t kClass[] = L"EbookReaderView";
 constexpr UINT_PTR kResizeTimer = 1;
 constexpr UINT kResizeDebounceMs = 150;
-constexpr int kDragSlop = 5;
 constexpr int kPanEnd = 1 << 28;
-constexpr int kMaxWheelSteps = 10;
 constexpr int64_t kFlushEveryMs = 30000;
 
 int64_t steady_ms() noexcept
@@ -163,48 +161,6 @@ LRESULT ReaderView::handle(UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     default:
         return DefWindowProcW(hwnd_, msg, wp, lp);
-    }
-}
-
-bool ReaderView::on_mouse(UINT msg, WPARAM wp, LPARAM lp)
-{
-    const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-    switch (msg) {
-    case WM_LBUTTONDOWN:
-        SetFocus(hwnd_);
-        SetCapture(hwnd_);
-        dragging_ = true;
-        moved_ = false;
-        drag_start_ = drag_last_ = pt;
-        return true;
-    case WM_MOUSEMOVE:
-        if (dragging_) {
-            moved_ = moved_ || std::abs(pt.x - drag_start_.x) > kDragSlop || std::abs(pt.y - drag_start_.y) > kDragSlop;
-            if (moved_)
-                pan_by(drag_last_.x - pt.x, drag_last_.y - pt.y);
-            drag_last_ = pt;
-        }
-        return true;
-    case WM_LBUTTONUP:
-        if (dragging_) {
-            dragging_ = false;
-            ReleaseCapture();
-            if (moved_)
-                return true;
-            if (const PageLink* link = link_at_point(pt))
-                go_to_mark(link->target);
-            else
-                on_action(nav_for_click(pt.x, client_size().cx));
-        }
-        return true;
-    case WM_CAPTURECHANGED:
-        dragging_ = false;
-        return true;
-    case WM_MOUSEWHEEL:
-        on_wheel(GET_WHEEL_DELTA_WPARAM(wp), (GET_KEYSTATE_WPARAM(wp) & MK_CONTROL) != 0);
-        return true;
-    default:
-        return false;
     }
 }
 
@@ -393,6 +349,12 @@ void ReaderView::on_results()
         check_epoch();
         if (r.kind == RenderResult::Kind::Text)
             store_text(r);
+        else if (r.kind == RenderResult::Kind::Links) {
+            if (r.view_id == view_id_) {
+                links_ = std::move(r.links);
+                links_page_ = r.page;
+            }
+        }
         else if (r.kind == RenderResult::Kind::OpenFailed)
             fail_open(r);
         else if (r.view_id == view_id_)
@@ -438,10 +400,6 @@ void ReaderView::show_primary(const RenderResult& r)
     if (r.page != page_)
         pan_x_ = pan_y_ = 0;
     page_ = r.page;
-    if (r.has_links) {
-        links_ = r.links;
-        links_page_ = r.page;
-    }
     mark_ = r.mark;
     end_mark_ = r.end_mark;
     chapter_ = wide(r.chapter);
@@ -592,42 +550,6 @@ void ReaderView::on_action(NavAction a)
     case NavAction::None:
         break;
     }
-}
-
-void ReaderView::pan_by(int dx, int dy)
-{
-    const SIZE c = content_size(), v = client_size();
-    pan_x_ = clamp_pan(pan_x_ + dx, c.cx, v.cx);
-    pan_y_ = clamp_pan(pan_y_ + dy, c.cy, v.cy);
-    InvalidateRect(hwnd_, nullptr, FALSE);
-}
-
-void ReaderView::on_wheel(int delta, bool ctrl)
-{
-    if (ctrl) {
-        zoom(delta > 0 ? 1 : -1);
-        return;
-    }
-    wheel_acc_ += delta;
-    const int steps = std::clamp(wheel_acc_ / WHEEL_DELTA, -kMaxWheelSteps, kMaxWheelSteps);
-    wheel_acc_ -= steps * WHEEL_DELTA;
-    for (int i = 0; i < std::abs(steps); ++i)
-        wheel_step(steps > 0 ? -1 : 1);
-}
-
-void ReaderView::wheel_step(int direction)
-{
-    const SIZE c = content_size(), v = client_size();
-    const int max_pan = static_cast<int>(std::max(0L, c.cy - v.cy));
-    if (max_pan == 0 || (direction > 0 && pan_y_ >= max_pan)) {
-        go_to(page_ + direction);
-        return;
-    }
-    if (direction < 0 && pan_y_ <= 0) {
-        go_to(page_ - 1, true);
-        return;
-    }
-    pan_by(0, direction * std::max(1, static_cast<int>(v.cy / 4)));
 }
 
 int ReaderView::take_resume_percent() noexcept
