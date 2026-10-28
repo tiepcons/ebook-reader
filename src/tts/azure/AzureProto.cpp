@@ -14,6 +14,7 @@ constexpr double kMinRate = 0.5;
 constexpr double kMaxRate = 3.0;
 constexpr size_t kMaxVoiceId = 64;
 constexpr size_t kMaxJsonString = 512;
+constexpr size_t kMaxLabelCodePoints = 64;
 constexpr int kMaxJsonDepth = 32;
 
 bool is_alnum(char c) noexcept
@@ -161,6 +162,28 @@ private:
     size_t pos_ = 0;
 };
 
+bool display_unsafe(char32_t cp) noexcept
+{
+    return cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x2028 && cp <= 0x202E)
+        || (cp >= 0x2060 && cp <= 0x2069) || cp == 0x061C || cp == 0xFEFF;
+}
+
+std::string sanitize_label(std::string_view utf8)
+{
+    std::string out;
+    size_t count = 0;
+    for (size_t i = 0; i < utf8.size() && count < kMaxLabelCodePoints;) {
+        const auto c = u8::decode(utf8, i);
+        const std::string_view raw = utf8.substr(i, c.len);
+        i += c.len;
+        if ((c.cp == 0xFFFD && c.len == 1) || display_unsafe(c.cp))
+            continue;
+        out += raw;
+        ++count;
+    }
+    return out;
+}
+
 struct Entry {
     std::string short_name, locale, local_name;
 };
@@ -228,8 +251,8 @@ private:
         std::wstring id;
         if (!wanted(cur_, keep_, id))
             return;
-        auto lang = utf8_to_wide(cur_.locale);
-        auto name = utf8_to_wide(cur_.local_name);
+        auto lang = utf8_to_wide(sanitize_label(cur_.locale));
+        auto name = utf8_to_wide(sanitize_label(cur_.local_name));
         out.push_back({std::move(id), name ? std::move(*name) : std::wstring(), lang ? std::move(*lang) : std::wstring()});
     }
 
@@ -302,8 +325,13 @@ std::string build_ssml(std::string_view utf8, std::string_view voice, int rate_p
         return {};
     const size_t d2 = voice.find('-', voice.find('-') + 1);
     return std::format("<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"{}\">"
-                       "<voice name=\"{}\"><prosody rate=\"{:+d}%\">{}</prosody></voice></speak>",
-        voice.substr(0, d2), voice, rate_pct, xml_escape(utf8));
+                       "<voice name=\"{}\">{}</voice></speak>",
+        voice.substr(0, d2), voice, ssml_voice_body(utf8, rate_pct));
+}
+
+std::string ssml_voice_body(std::string_view utf8, int rate_pct)
+{
+    return std::format("<prosody rate=\"{:+d}%\">{}</prosody>", rate_pct, xml_escape(utf8));
 }
 
 std::vector<Voice> parse_voices(std::string_view json, std::wstring_view keep)

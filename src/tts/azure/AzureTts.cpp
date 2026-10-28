@@ -8,6 +8,8 @@
 #include "tts/azure/AzurePlayer.h"
 #include "tts/azure/AzureProto.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -16,6 +18,7 @@ namespace eb {
 namespace {
 
 constexpr int kMaxRetries = 3;
+constexpr std::chrono::milliseconds kMaxRetryAfter{10000};
 constexpr std::wstring_view kHostSuffix = L".tts.speech.microsoft.com";
 constexpr std::wstring_view kSynthPath = L"/cognitiveservices/v1";
 constexpr std::wstring_view kVoicesPath = L"/cognitiveservices/voices/list";
@@ -23,6 +26,8 @@ constexpr std::wstring_view kSynthHeaders = L"Content-Type: application/ssml+xml
                                             L"X-Microsoft-OutputFormat: audio-24khz-48kbitrate-mono-mp3\r\n"
                                             L"User-Agent: EbookReader";
 constexpr std::wstring_view kVoicesHeaders = L"User-Agent: EbookReader";
+
+using Clock = std::chrono::steady_clock;
 
 struct Req {
     bool speak = false;
@@ -72,6 +77,8 @@ struct AzureTts::Impl {
     AzurePlayer player;
     std::mutex voices_mutex;
     std::vector<Voice> voice_list;
+    bool voices_pending = false;
+    Clock::time_point voices_retry_at{};
     AzureTaskThread net;
 
     explicit Impl(AzureConfig c)
@@ -109,25 +116,40 @@ struct AzureTts::Impl {
     uint8_t quota_gate(const Req& r)
     {
         if (!db)
-            return 0;
+            return kTtsQuota;
         const auto st = AzureUsage(*db).status(now_unix());
-        if (!st || !st->over_quota)
+        if (!st) {
+            log::error("azure: usage counter unreadable");
+            return kTtsQuota;
+        }
+        if (!st->over_quota)
             return 0;
         if (cfg.on_quota == AzureOnQuota::Ask && r.speak)
             warn(Warn::P100);
         return kTtsQuota;
     }
 
-    void record_usage(std::string_view text)
+    bool record_usage(std::string_view text, int pct)
     {
         if (!db)
-            return;
+            return false;
         AzureUsage usage(*db);
         const int64_t now = now_unix();
-        if (!usage.add(now, billable_chars(text)))
+        const uint64_t chars = billable_chars(ssml_voice_body(text, pct));
+        if (!usage.add(now, chars) && !usage.add(now, chars)) {
             log::error("azure: usage counter update failed");
+            return false;
+        }
         if (const auto w = usage.check_warning(now); w && *w != Warn::None)
             warn(*w);
+        return true;
+    }
+
+    std::chrono::milliseconds retry_delay(const HttpResponse& resp, int attempt) const noexcept
+    {
+        if (resp.status == 429 && resp.retry_after_s > 0)
+            return std::min<std::chrono::milliseconds>(std::chrono::seconds(resp.retry_after_s), kMaxRetryAfter);
+        return cfg.backoff_unit * (1 << attempt);
     }
 
     HttpResponse send_with_retry(const HttpRequest& rq, const Req& r)
@@ -135,10 +157,10 @@ struct AzureTts::Impl {
         HttpResponse resp;
         for (int attempt = 0; attempt <= kMaxRetries; ++attempt) {
             resp = cfg.http->send(rq);
-            log::info("azure: synth http status {} attempt {}", resp.status, attempt);
+            log::debug("azure: synth http status {} attempt {}", resp.status, attempt);
             if (!retryable(resp.status) || attempt == kMaxRetries)
                 break;
-            if (!sink->sleep_while_valid(cfg.backoff_unit * (1 << attempt), r.speak, r.gen, r.epoch))
+            if (!sink->sleep_while_valid(retry_delay(resp, attempt), r.speak, r.gen, r.epoch))
                 return {};
         }
         return resp;
@@ -152,10 +174,16 @@ struct AzureTts::Impl {
         HttpRequest rq = base_request(kSynthPath, true, kSynthHeaders);
         rq.body = build_ssml(r.text, voice, pct);
         rq.key = &*secret;
+        bool billed = true;
+        rq.on_status = [&](int status) {
+            if (status == 200)
+                billed = record_usage(r.text, pct);
+        };
         const HttpResponse resp = send_with_retry(rq, r);
+        if (!billed)
+            return {kTtsQuota, nullptr};
         if (const uint8_t err = status_error(resp); err != 0)
             return {err, nullptr};
-        record_usage(r.text);
         auto bytes = std::make_shared<std::vector<std::byte>>(resp.body.size());
         std::memcpy(bytes->data(), resp.body.data(), resp.body.size());
         cache.put(cache_key, *bytes);
@@ -208,9 +236,18 @@ struct AzureTts::Impl {
 
     std::vector<Voice> list_voices()
     {
-        const std::scoped_lock lk(voices_mutex);
-        if (!voice_list.empty() || !ok)
-            return voice_list;
+        {
+            const std::scoped_lock lk(voices_mutex);
+            if (!voice_list.empty() || !ok || voices_pending || Clock::now() < voices_retry_at)
+                return voice_list;
+            voices_pending = true;
+        }
+        net.push([this] { fetch_voices(); });
+        return {};
+    }
+
+    std::vector<Voice> download_voices()
+    {
         const auto secret = cfg.key_source();
         if (!secret || !validate_api_key(*secret))
             return {};
@@ -219,9 +256,21 @@ struct AzureTts::Impl {
         rq.key = &*secret;
         const HttpResponse resp = cfg.http->send(rq);
         log::info("azure: voices http status {}", resp.status);
-        if (resp.status == 200)
-            voice_list = parse_voices(resp.body, cfg.picked_voice);
-        return voice_list;
+        return resp.status == 200 ? parse_voices(resp.body, cfg.picked_voice) : std::vector<Voice>{};
+    }
+
+    void fetch_voices()
+    {
+        std::vector<Voice> list;
+        try {
+            list = download_voices();
+        } catch (...) { // NOLINT(bugprone-empty-catch): a failed fetch is retried after the cooldown
+        }
+        const std::scoped_lock lk(voices_mutex);
+        voice_list = std::move(list);
+        voices_pending = false;
+        if (voice_list.empty())
+            voices_retry_at = Clock::now() + cfg.voices_cooldown;
     }
 };
 
@@ -231,7 +280,7 @@ AzureTts::~AzureTts()
 {
     impl_->sink->invalidate();
     if (impl_->cfg.http)
-        impl_->cfg.http->cancel();
+        impl_->cfg.http->shutdown();
     impl_->sink->clear();
 }
 

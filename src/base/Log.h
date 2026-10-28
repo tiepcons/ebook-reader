@@ -29,4 +29,16 @@ void info(std::format_string<Args...> fmt, Args&&... args) noexcept
     }
 }
 
+// Compiled out of release builds.
+template <class... Args>
+void debug([[maybe_unused]] std::format_string<Args...> fmt, [[maybe_unused]] Args&&... args) noexcept
+{
+#ifndef NDEBUG
+    try {
+        write("DEBUG", std::format(fmt, std::forward<Args>(args)...));
+    } catch (...) { // NOLINT(bugprone-empty-catch): logging must never throw
+    }
+#endif
+}
+
 }

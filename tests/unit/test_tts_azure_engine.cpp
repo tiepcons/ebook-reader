@@ -5,6 +5,7 @@
 #include "lib/Schema.h"
 #include "test_base_tmp.h"
 #include "tts/azure/AzureMessages.h"
+#include "tts/azure/AzureProto.h"
 
 #include <doctest/doctest.h>
 
@@ -16,6 +17,7 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <thread>
 
 namespace {
 
@@ -62,6 +64,9 @@ public:
     eb::HttpResponse send(const eb::HttpRequest& r) noexcept override
     {
         std::unique_lock lk(m);
+        const eb::HttpResponse peek = script.empty() ? eb::HttpResponse{200, kBody} : script.front();
+        if (r.on_status && !hold)
+            r.on_status(peek.status);
         seen.push_back({r.post, r.cancellable, r.host, r.path, r.headers, r.key ? std::wstring(r.key->view()) : L"", r.body});
         eb::HttpResponse out = script.empty() ? eb::HttpResponse{200, kBody} : script.front();
         if (!script.empty())
@@ -78,6 +83,10 @@ public:
     void cancel() noexcept override
     {
         ++cancels;
+        cancelled = true;
+    }
+    void shutdown() noexcept override
+    {
         cancelled = true;
     }
     size_t calls()
@@ -136,6 +145,11 @@ std::string env_value(const char* name)
     return n > 0 && n < sizeof buf ? std::string(buf, n) : std::string();
 }
 
+uint64_t billed(std::string_view text, int pct = 0)
+{
+    return eb::billable_chars(eb::ssml_voice_body(text, pct));
+}
+
 int64_t now_s()
 {
     return static_cast<int64_t>(std::time(nullptr));
@@ -150,7 +164,8 @@ struct Harness {
     std::optional<eb::Db> db;
     std::unique_ptr<eb::AzureTts> tts;
 
-    explicit Harness(eb::AzureOnQuota quota = eb::AzureOnQuota::Fallback, std::string region = "southeastasia")
+    explicit Harness(eb::AzureOnQuota quota = eb::AzureOnQuota::Fallback, std::string region = "southeastasia",
+        bool with_db = true)
     {
         WNDCLASSW wc{};
         wc.lpfnWndProc = sink_proc;
@@ -168,10 +183,12 @@ struct Harness {
         eb::AzureConfig cfg;
         cfg.region = std::move(region);
         cfg.on_quota = quota;
-        cfg.db_path = t.path() / L"lib.db";
+        if (with_db)
+            cfg.db_path = t.path() / L"lib.db";
         cfg.cache_dir = t.path() / L"cache";
         cfg.notify = hwnd;
         cfg.backoff_unit = std::chrono::milliseconds(1);
+        cfg.voices_cooldown = std::chrono::milliseconds(300);
         cfg.key_source = [] { return eb::SecretString::copy_of(kKey); };
         auto fake = std::make_unique<FakeHttp>();
         http = fake.get();
@@ -208,7 +225,7 @@ TEST_CASE("tts azure retries 429 with backoff and counts usage once on 200")
     Harness h;
     h.http->script = {{429, ""}, {429, ""}, {200, kBody}};
     REQUIRE(h.tts->speak(1, "xin ch\xC3\xA0o", L"", 1.0, 1.0));
-    REQUIRE(h.wait_used(8));
+    REQUIRE(h.wait_used(billed("xin ch\xC3\xA0o")));
     CHECK(h.http->calls() == 3);
     const Seen s = h.http->first();
     CHECK(s.post);
@@ -257,23 +274,23 @@ TEST_CASE("tts azure connection failure and other statuses map to distinct error
     REQUIRE(h.tts->speak(3, "three", L"", 1.0, 1.0));
     REQUIRE(h.wait_error(3, eb::kTtsSynthFailed));
     CHECK(h.http->calls() == 3);
-    CHECK(h.used() == 0);
+    CHECK(h.used() == billed("three"));
 }
 
 TEST_CASE("tts azure cache hit skips the network and the usage counter")
 {
     Harness h;
     REQUIRE(h.tts->speak(1, "same text", L"", 1.0, 1.0));
-    REQUIRE(h.wait_used(9));
+    REQUIRE(h.wait_used(billed("same text")));
     REQUIRE(h.tts->speak(2, "same text", L"", 1.0, 1.0));
     h.tts->prepare(3, "other text", L"", 1.0);
     REQUIRE(wait_until([&] { return h.http->calls() == 2; }));
-    REQUIRE(h.wait_used(19));
+    REQUIRE(h.wait_used(billed("same text") + billed("other text")));
     CHECK(h.http->calls() == 2);
 
     h.tts->prepare(4, "other text", L"", 1.0);
     h.tts->prepare(5, "sentinel", L"", 1.0);
-    REQUIRE(h.wait_used(27));
+    REQUIRE(h.wait_used(billed("same text") + billed("other text") + billed("sentinel")));
     CHECK(h.http->calls() == 3);
 }
 
@@ -288,7 +305,7 @@ TEST_CASE("tts azure prepare is silent on failure and fills the cache for speak"
 
     h.http->set_script({{200, kBody}});
     h.tts->prepare(2, "prefetch me", L"", 1.5);
-    REQUIRE(h.wait_used(11));
+    REQUIRE(h.wait_used(billed("prefetch me", 50)));
     h.tts->speak(2, "prefetch me", L"", 1.5, 1.0);
     h.tts->prepare(3, "sentinel", L"", 1.0);
     REQUIRE(wait_until([&] { return h.http->calls() == 3; }));
@@ -356,11 +373,13 @@ TEST_CASE("tts azure stop cancels the request in flight and silences its events"
     CHECK(h.used() == 0);
 }
 
-TEST_CASE("tts azure voices are filtered, cached for the session and fetched with GET")
+TEST_CASE("tts azure voices are fetched in the background, cached for the session and fetched with GET")
 {
     Harness h;
     h.http->script = {{200, kVoicesJson}};
-    const auto v = h.tts->voices();
+    CHECK(h.tts->voices().empty());
+    std::vector<eb::Voice> v;
+    REQUIRE(wait_until([&] { return !(v = h.tts->voices()).empty(); }));
     REQUIRE(v.size() == 1);
     CHECK(v[0].id == L"vi-VN-HoaiMyNeural");
     CHECK(v[0].name == L"Hoài My");
@@ -374,12 +393,59 @@ TEST_CASE("tts azure voices are filtered, cached for the session and fetched wit
     CHECK(s.key == kKey);
 }
 
-TEST_CASE("tts azure voices are empty when the service fails")
+TEST_CASE("tts azure failed voice fetches back off for the cooldown")
 {
     Harness h;
-    h.http->script = {{401, ""}, {200, "garbage"}};
+    h.http->script = {{401, ""}, {200, "garbage"}, {200, kVoicesJson}};
     CHECK(h.tts->voices().empty());
+    REQUIRE(wait_until([&] { return h.http->calls() == 1; }));
+    pump_for(20);
     CHECK(h.tts->voices().empty());
+    CHECK(h.http->calls() == 1);
+    pump_for(350);
+    CHECK(h.tts->voices().empty());
+    REQUIRE(wait_until([&] { return h.http->calls() == 2; }));
+    pump_for(350);
+    CHECK(h.tts->voices().empty());
+    REQUIRE(wait_until([&] { return !h.tts->voices().empty(); }));
+    CHECK(h.http->calls() == 3);
+}
+
+TEST_CASE("tts azure destruction does not wait for a hung voice fetch")
+{
+    Harness h;
+    h.http->hold = true;
+    CHECK(h.tts->voices().empty());
+    REQUIRE(wait_until([&] { return h.http->in_flight.load(); }));
+}
+
+TEST_CASE("tts azure quota gate fails closed without a usage database")
+{
+    Harness h(eb::AzureOnQuota::Fallback, "southeastasia", false);
+    REQUIRE(h.tts->speak(1, "no counter", L"", 1.0, 1.0));
+    REQUIRE(h.wait_error(1, eb::kTtsQuota));
+    CHECK(h.http->calls() == 0);
+}
+
+TEST_CASE("tts azure bills the markup Azure counts as soon as the status is 200")
+{
+    Harness h;
+    h.http->script = {{200, ""}};
+    REQUIRE(h.tts->speak(1, "a<b", L"", 2.0, 1.0));
+    REQUIRE(h.wait_error(1, eb::kTtsSynthFailed));
+    CHECK(h.used() == billed("a<b", 100));
+    CHECK(h.used() > 3);
+}
+
+TEST_CASE("tts azure honours Retry-After on 429 within the cap")
+{
+    Harness h;
+    h.http->script = {{429, "", 1}, {200, kBody}};
+    const auto t0 = Clock::now();
+    REQUIRE(h.tts->speak(1, "slow down", L"", 1.0, 1.0));
+    REQUIRE(h.wait_used(billed("slow down")));
+    CHECK(Clock::now() - t0 >= std::chrono::milliseconds(900));
+    CHECK(h.http->calls() == 2);
 }
 
 TEST_CASE("tts azure never writes the key into the log")
@@ -391,10 +457,10 @@ TEST_CASE("tts azure never writes the key into the log")
         Harness h;
         h.http->script = {{429, ""}, {200, kBody}, {401, ""}, {200, kVoicesJson}};
         REQUIRE(h.tts->speak(1, "log check one", L"", 1.0, 1.0));
-        REQUIRE(h.wait_used(13));
+        REQUIRE(h.wait_used(billed("log check one")));
         REQUIRE(h.tts->speak(2, "log check two", L"", 1.0, 1.0));
         REQUIRE(h.wait_error(2, eb::kTtsAuth));
-        CHECK(h.tts->voices().size() == 1);
+        REQUIRE(wait_until([&] { return h.tts->voices().size() == 1; }));
     }
     eb::log::shutdown();
     std::ifstream f(log_path, std::ios::binary);
@@ -415,6 +481,35 @@ TEST_CASE("tts azure live service lists voices with the stored key" * doctest::s
     cfg.cache_dir = t.path() / L"cache";
     eb::AzureTts tts(std::move(cfg));
     REQUIRE(tts.usable());
-    const auto v = tts.voices();
-    CHECK_FALSE(v.empty());
+    CHECK(wait_until([&] { return !tts.voices().empty(); }, 20000));
+}
+
+TEST_CASE("tts azure winhttp client refuses requests once shut down")
+{
+    auto client = eb::make_winhttp_client();
+    REQUIRE(client != nullptr);
+    client->shutdown();
+    eb::HttpRequest rq;
+    rq.host = L"example.com";
+    rq.path = L"/";
+    const auto t0 = Clock::now();
+    CHECK(client->send(rq).status == 0);
+    CHECK(Clock::now() - t0 < std::chrono::seconds(2));
+}
+
+TEST_CASE("tts azure winhttp shutdown aborts a request that is waiting on the network")
+{
+    auto client = eb::make_winhttp_client();
+    REQUIRE(client != nullptr);
+    eb::HttpRequest rq;
+    rq.host = L"10.255.255.1";
+    rq.path = L"/";
+    const auto t0 = Clock::now();
+    std::atomic<int> status{-1};
+    std::thread worker([&] { status = client->send(rq).status; });
+    Sleep(200);
+    client->shutdown();
+    worker.join();
+    CHECK(status.load() == 0);
+    CHECK(Clock::now() - t0 < std::chrono::seconds(3));
 }
