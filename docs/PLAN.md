@@ -246,8 +246,8 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T4.5 | **Khôi phục vị trí**: mở sách thì nhảy về chỗ cũ, hiện thanh nhỏ "Tiếp tục từ … Y% · [Về đầu]". Tùy chọn mở lại sách cuối cùng khi khởi động (có crash-loop guard bảo vệ) | DEV | T4.4 | 0,3 | | ✅ |
 | T4.6 | **Theme**: preset **Trắng** (#FFFFFF/#1A1A1A), **Đen** (#121212/#D0D0D0), **Giấy sách** (#F4ECD8/#3B2F1E), **Tự chỉnh** màu nền, màu chữ, màu link, màu tô sáng TTS qua `ChooseColor`. Mọi định dạng đổi màu qua `fz_tint_pixmap` (render opts tint=1 + fg/bg); user CSS của reflow cố định (nền trong suốt) nên đổi theme không bố trí lại sách. Ảnh trong sách cũng nhuộm theo theme; tùy chọn bỏ qua ảnh → Backlog (hiện chỉ có cho CBZ). Thanh tiêu đề chuyển tối theo theme | DEV | T4.1 | 0,8 | Đổi theme ≤ 100 ms, không cần mở lại sách | ✅ |
 | T4.7 | **FontManager**, 3 chế độ: **Theo sách** (font nhúng + CSS gốc) / **Ghi đè font** / **Ghi đè hết** (font, cỡ chữ, giãn dòng, lề). Kèm sẵn **Literata** và **Be Vietnam Pro** (OFL). Tự nhận font trong `fonts\`. Dùng thêm font hệ thống (Georgia, Cambria, Segoe UI, Times New Roman). Dự phòng bằng Noto khi font sách thiếu dấu tiếng Việt | DEV | T1.6 | 1 | Sách có font thiếu dấu vẫn hiển thị đúng | ✅ |
-| T4.8 | Mục lục (TreeView bên cạnh), bookmark đơn giản, nhảy đến %, thanh tiến độ | DEV | T4.1 | 0,6 | | ⬜ |
-| T4.9 | Phím tắt (←/→, PgUp/PgDn, Space, F11, Ctrl+B, Ctrl+±), toàn màn hình | DEV | T4.1 | 0,2 | | ⬜ |
+| T4.8 | Mục lục (TreeView bên cạnh), bookmark đơn giản, nhảy đến %, thanh tiến độ | DEV | T4.1 | 0,6 | | ✅ |
+| T4.9 | Phím tắt (←/→, PgUp/PgDn, Space, F11, Ctrl+B, Ctrl+±), toàn màn hình | DEV | T4.1 | 0,2 | | ✅ |
 | T4.10 | REV review, đo hiệu năng và **PO nghiệm thu** (đọc dở 3 truyện, đổi theme và font, thoát rồi mở lại) | REV, RUN, **PO** | T4.1–T4.9 | 0,3 | RAM khi đọc ≤ 120 MB | ⬜ |
 
 ### PHASE 5: Khay hệ thống và hộp thoại khi đóng (1,5–2 ngày)
@@ -270,7 +270,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T6.4 | **`WinRtTts`**: C++/WinRT `SpeechSynthesizer` + `MediaPlayer`, dùng giọng OneCore (Microsoft An, David, Zira...), lấy word boundary để tô sáng. Thiếu giọng Việt thì hướng dẫn cài | DEV | T6.1 | 1,2 | Đọc được cả tiếng Anh và tiếng Việt | ⬜ |
 | T6.5 | `TtsController`: tô sáng câu đang đọc, **tự lật trang**, lưu vị trí câu vào ProgressStore, chạy tiếp khi app ở khay | DEV | T6.4, T4.4 | 0,9 | Đọc liên tục hết 1 chương | ⬜ |
 | T6.6 | `TtsBar` và trang TTS trong Settings: chọn engine, giọng Anh, giọng Việt, tốc độ, nghe thử | DEV | T6.5 | 0,4 | | ⬜ |
-| T6.7 | **`PiperTts`**: chạy `libs\piper\piper.exe` dưới dạng tiến trình con, mỗi giọng một tiến trình, giữ tiến trình sống giữa các câu, dùng `--json-input`, mỗi câu ra một file WAV tạm trong `data\tts-cache\piper\`. Phát bằng `MediaPlayer`, tô sáng theo cả câu. Chỉ bật khi có `libs\piper\` và giọng trong `voices\`. Tổng hợp trước câu tiếp theo | DEV | T0.8, T6.1 | 1,3 | Khoảng lặng giữa 2 câu ≤ 300 ms. Thiếu Piper thì engine này bị ẩn | ⬜ |
+| T6.7 | **`PiperTts`**: chạy `libs\piper\piper.exe` dưới dạng tiến trình con, mỗi giọng một tiến trình, giữ tiến trình sống giữa các câu, dùng `--json-input`, mỗi câu ra một file WAV tạm trong `data\tts-cache\piper\`. Phát bằng `MediaPlayer`, tô sáng theo cả câu. Chỉ bật khi có `libs\piper\` và giọng trong `voices\`. Tổng hợp trước câu tiếp theo | DEV | T0.8, T6.1 | 1,3 | Khoảng lặng giữa 2 câu ≤ 300 ms. Thiếu Piper thì engine này bị ẩn | ✅ |
 | T6.8 | REV + SEC review và **PO nghiệm thu** (1 chương tiếng Việt và 1 chương tiếng Anh, có xuống khay giữa chừng) | REV, SEC, **PO** | T6.1–T6.7 | 0,3 | | ⬜ |
 
 ### PHASE 7: Azure Speech và bộ đếm % free (3–4 ngày)
@@ -288,10 +288,10 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T7.1 | **PO tạo Azure Speech gói Free F0** và lấy Key 1 cùng Region | **PO** | — | 0,2 | | ⬜ |
 | T7.2 | `SecretStore`: lưu key bằng **Windows Credential Manager** (`CredWriteW`). Không ghi vào DB, cài đặt hay log | DEV + SEC | T1.1 | 0,3 | Grep thư mục `data\` không thấy key | ⬜ |
 | T7.3 | Trang Azure trong Settings (file .rc): ô key (ẩn ký tự), region, tier F0/S0, quota/tháng, nút **Kiểm tra kết nối** (`GET voices/list`), chọn giọng Việt (HoaiMy, NamMinh) và giọng Anh | DEV | T7.2 | 0,6 | Key sai thì báo lỗi 401 rõ ràng | ⬜ |
-| T7.4 | `AzureTts`: gọi `POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1` qua **WinHTTP** (bất đồng bộ), dùng SSML, nhận `ogg-24khz-16bit-mono-opus`. Prefetch 2 câu. Gặp 429/5xx thì thử lại theo backoff, sau đó chuyển sang WinRT | DEV | T6.1, T7.3 | 0,9 | Mất mạng thì tự chuyển engine, không crash | ⬜ |
+| T7.4 | `AzureTts`: gọi `POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1` qua **WinHTTP** (bất đồng bộ), dùng SSML, nhận `audio-24khz-48kbitrate-mono-mp3` (MediaPlayer giải mã sẵn, không cần thêm codec). Prefetch 2 câu. Gặp 429/5xx thì thử lại theo backoff, sau đó chuyển sang WinRT | DEV | T6.1, T7.3 | 0,9 | Mất mạng thì tự chuyển engine, không crash | 🟨 |
 | T7.5 | **`AzureUsage`**: đếm ký tự, ghi trong transaction, tính %, ngày reset, xử lý sang tháng mới | DEV | T2.1 | 0,4 | Unit test: đếm đúng, đổi tháng đúng, Unicode tiếng Việt đúng | ⬜ |
 | T7.6 | Hiện **% còn lại** trong Settings, trên TtsBar ("Azure 75%") và trong menu tray. Cảnh báo và xử lý khi đạt 100% | DEV | T7.5 | 0,4 | | ⬜ |
-| T7.7 | Audio cache và chức năng hiệu chỉnh hoặc đặt lại bộ đếm | DEV | T7.4, T7.5 | 0,3 | Đọc lại 1 chương thì bộ đếm không tăng | ⬜ |
+| T7.7 | Audio cache và chức năng hiệu chỉnh hoặc đặt lại bộ đếm | DEV | T7.4, T7.5 | 0,3 | Đọc lại 1 chương thì bộ đếm không tăng | 🟨 |
 | T7.8 | SEC + REV review và **PO nghiệm thu** (so số đếm của app với Azure Portal) | SEC, REV, **PO** | T7.1–T7.7 | 0,3 | Sai lệch < 5% | ⬜ |
 
 ### PHASE 8: Củng cố và chống crash (4 ngày, cộng phần làm liên tục trong mọi phase)
