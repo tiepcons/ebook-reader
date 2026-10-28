@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-#define EB_ABI_VERSION 2 /* v2: font directories (eb_set_font_dirs, eb_font_families), render_opts bg for reflow */
+#define EB_ABI_VERSION 3 /* v2: font directories, render_opts bg for reflow; v3: eb_page_links */
 
 typedef enum eb_status {
     EB_OK = 0,
@@ -78,6 +78,12 @@ typedef struct eb_text {
     eb_rect* box;          /* [char_count] bounding box of each code point */
 } eb_text;
 
+typedef struct eb_link {
+    eb_rect area;          /* hot area, points, page space */
+    int32_t page;          /* target page in current layout */
+    eb_bookmark target;
+} eb_link;
+
 typedef struct eb_toc_item {
     int32_t level;         /* 0 = top level */
     int32_t page;          /* page in current layout, -1 if unresolved */
@@ -127,6 +133,10 @@ EB_API eb_status eb_page_text(eb_doc* doc, int32_t page, eb_text** out);
 EB_API void eb_text_free(eb_text* text);
 EB_API eb_status eb_toc(eb_doc* doc, eb_toc_item** items, int32_t* count);
 EB_API void eb_toc_free(eb_toc_item* items, int32_t count);
+/* v3. Internal links of a page (in-book TOC, footnotes). External URIs (http:, mailto:, ...) and unresolvable
+ * targets are skipped. At most 4096 links; *links is NULL when count is 0. Abortable like eb_page_text. */
+EB_API eb_status eb_page_links(eb_doc* doc, int32_t page, eb_link** links, int32_t* count);
+EB_API void eb_links_free(eb_link* links);
 /* key: "title", "author", "language", "format". Writes a NUL-terminated string, truncating to cap; *needed
  * receives the full size including NUL. Missing key -> EB_E_RANGE. */
 EB_API eb_status eb_meta(eb_doc* doc, const char* key, char* buf, size_t cap, size_t* needed);
