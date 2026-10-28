@@ -299,7 +299,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
 | T8.1 | Coverage của `src/` (trừ `ui/`) **≥ 80%**, đo bằng OpenCppCoverage | RUN | mọi phase | 0,8 | | ✅ |
-| T8.2 | Integration test: quét corpus → mở → render → lấy ảnh bìa → lấy text → lưu rồi khôi phục vị trí | RUN | P4 | 0,4 | Toàn bộ pass | ⬜ |
+| T8.2 | Integration test: quét corpus → mở → render → lấy ảnh bìa → lấy text → lưu rồi khôi phục vị trí | RUN | P4 | 0,4 | Toàn bộ pass | ✅ |
 | T8.3 | **Fuzz** bằng libFuzzer (clang-cl) cho `eb_mupdf` (mọi định dạng), `TxtToHtml`, `Segmenter` | RUN | P2 | 1 | Mỗi target chạy 1 giờ, 0 crash | ⬜ |
 | T8.4 | Chạy toàn bộ test với ASan, **chạy thử liên tục 8 giờ** (soak test: tự lật trang qua 50 sách, xuống khay rồi mở lại) | RUN | T8.2 | 0,5 | 0 crash, RAM không tăng dần (không leak) | ⬜ |
 | T8.5 | Phân tích tĩnh: clang-tidy, `/analyze`, cppcheck | RUN, REV | — | 0,3 | 0 cảnh báo | ✅ |
