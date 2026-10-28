@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Reference copy: paste into SignPath (Project > Artifact configuration). Parameter "version" is passed by release.yml. -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true"/>
+  </parameters>
   <zip-file>
     <directory path="EbookReader-${version}">
       <pe-file path="EbookReader.exe"

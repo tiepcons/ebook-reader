@@ -108,6 +108,13 @@ Trên **GitHub** (repo → Settings → Secrets and variables → Actions):
 | Variable | `SIGNPATH_PROJECT_SLUG` | `ebook-reader` |
 | Variable | `SIGNPATH_SIGNING_POLICY_SLUG` | `release-signing` |
 
+Khuyến nghị thêm (một lần):
+
+| Nơi | Cấu hình |
+|---|---|
+| SignPath | Pipeline policy `github-build-policies` với `runners: required_github_hosted` cho signing policy `release-signing` |
+| GitHub | Tag ruleset cho `v*`: chỉ tiepcons được tạo/sửa/xóa tag |
+
 Từ đó, mỗi lần push tag `v*`: workflow build → gửi yêu cầu ký → anh/chị bấm **Approve** trên SignPath → release nháp có zip đã ký → **Publish**.
 Nếu biến `SIGNPATH_ORGANIZATION_ID` còn trống, workflow tự bỏ qua bước ký.
 

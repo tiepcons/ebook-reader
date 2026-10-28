@@ -52,7 +52,7 @@ the person installing or operating it.
   [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). You can switch the engine back or
   delete the key at any time in the voice settings.
 - Your books, reading positions, bookmarks and settings stay in the local data folder described below.
-- Crash dumps are written locally and contain stacks only (no heap, so no book text or API keys).
+- Crash dumps are written locally and contain thread stacks only, no heap memory.
 
 ## System changes
 
