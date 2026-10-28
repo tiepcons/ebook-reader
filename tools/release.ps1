@@ -9,7 +9,7 @@ if (-not $SkipCi) {
     & "$PSScriptRoot/ci.ps1"
     if ($LASTEXITCODE -ne 0) { throw 'CI failed' }
 }
-& "$PSScriptRoot/package.ps1" -Version $Version -Sign
+& "$PSScriptRoot/package.ps1" -Version $Version
 $dist = Join-Path $root 'dist'
 $sums = Join-Path $dist 'SHA256SUMS.txt'
 Get-ChildItem $dist -Filter "EbookReader-$Version-*.zip" |

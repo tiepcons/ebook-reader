@@ -1,6 +1,9 @@
 # Releasing (local alpha)
 
-No GitHub Actions: everything runs locally and nothing is uploaded or tagged automatically.
+Local alpha: `tools/release.ps1` runs locally and nothing is uploaded or tagged automatically (self-signed).
+Public releases: push a tag `v<version>`; `.github/workflows/release.yml` builds, submits the zip to SignPath when the
+repository variable `SIGNPATH_ORGANIZATION_ID` is set, and creates a draft GitHub release. `tools/package.ps1 -NoSign`
+skips the local self-signing. The version comes from `project(VERSION)` in `CMakeLists.txt` plus the tag suffix.
 
 1. `tools/release.ps1 -Version 0.9.0-alpha.1` (add `-SkipCi` to skip `tools/ci.ps1`).
    It builds the release preset, stages `dist/EbookReader-<ver>/`, signs `EbookReader.exe` and `libs\eb_mupdf.dll`

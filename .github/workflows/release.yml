@@ -1,0 +1,125 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Version from tag
+        id: ver
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?)$') { throw "tag '$tag' is not vMAJOR.MINOR.PATCH[-suffix]" }
+          "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          "suffix=$($Matches[2])" >> $env:GITHUB_OUTPUT
+
+      - name: Build (MuPDF and release preset)
+        run: |
+          tools/build.ps1 -Preset release -VersionSuffix '${{ steps.ver.outputs.suffix }}'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Test (release, without desktop UI tests)
+        run: |
+          . tools/env.ps1
+          ctest --preset release -E '^ui_' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Package (unsigned)
+        run: tools/package.ps1 -Version '${{ steps.ver.outputs.version }}' -NoSign
+
+      - name: Upload unsigned zip
+        id: unsigned
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/EbookReader-${{ steps.ver.outputs.version }}-win-x64.zip
+          archive: false
+          if-no-files-found: error
+
+      - name: Sign with SignPath
+        id: sign
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          skip-decompress: true
+          output-artifact-directory: signed
+          parameters: |
+            version: "${{ steps.ver.outputs.version }}"
+
+      - name: Collect release files
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SIGNED: ${{ steps.sign.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = "EbookReader-$env:VERSION"
+          New-Item -ItemType Directory release | Out-Null
+          Copy-Item "dist/$name-piper-pack.zip" release
+          if ($env:SIGNED -eq 'true') {
+            Copy-Item "signed/$name-win-x64.zip" release
+            Expand-Archive "release/$name-win-x64.zip" check
+            foreach ($f in "check/$name/EbookReader.exe", "check/$name/libs/eb_mupdf.dll") {
+              $s = Get-AuthenticodeSignature $f
+              if ($s.Status -ne 'Valid') { throw "$f signature status is $($s.Status)" }
+            }
+          } else {
+            Copy-Item "dist/$name-win-x64.zip" release
+          }
+          Get-ChildItem release -File | ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } |
+            Set-Content release/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: release
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: release
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ghArgs = @('release', 'create', $env:TAG, '--repo', $env:REPO, '--draft', '--verify-tag', '--title', $env:TAG,
+            '--notes', 'See CODE_SIGNING_POLICY.md for signing status and privacy.')
+          if ($env:TAG.Contains('-')) { $ghArgs += '--prerelease' }
+          $ghArgs += (Get-ChildItem release -File | ForEach-Object FullName)
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { exit 1 }

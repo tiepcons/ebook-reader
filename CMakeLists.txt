@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-project(EbookReader LANGUAGES C CXX)
+project(EbookReader VERSION 0.9.0 LANGUAGES C CXX)
+set(EB_VERSION_SUFFIX "" CACHE STRING "Pre-release suffix appended to the version, e.g. -alpha.1")
+if(NOT EB_VERSION_SUFFIX MATCHES "^(-[0-9A-Za-z.]+)?$")
+  message(FATAL_ERROR "EB_VERSION_SUFFIX must be empty or look like -alpha.1")
+endif()
+set(EB_VERSION_STRING "${PROJECT_VERSION}${EB_VERSION_SUFFIX}")
+configure_file(cmake/eb_version.h.in "${CMAKE_BINARY_DIR}/generated/eb_version.h" @ONLY)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -79,11 +85,11 @@ target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
 set(EB_MUPDF_SRC libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
   libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c libs/eb_mupdf/eb_font.c libs/eb_mupdf/eb_sfnt.c)
-add_library(eb_mupdf SHARED ${EB_MUPDF_SRC})
+add_library(eb_mupdf SHARED ${EB_MUPDF_SRC} libs/eb_mupdf/eb_mupdf.rc)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
 target_compile_definitions(eb_mupdf PRIVATE EB_MUPDF_BUILD)
-target_include_directories(eb_mupdf PRIVATE libs/eb_mupdf)
+target_include_directories(eb_mupdf PRIVATE libs/eb_mupdf "${CMAKE_BINARY_DIR}/generated")
 target_include_directories(eb_mupdf SYSTEM INTERFACE libs/eb_mupdf)
 target_include_directories(eb_mupdf SYSTEM PRIVATE third_party/mupdf/include)
 target_link_libraries(eb_mupdf PRIVATE eb_hardening eb_warnings eb_libmobi eb_mupdf_engine)
@@ -111,7 +117,7 @@ target_sources(eb_lib PRIVATE src/lib/LibraryModel.cpp)
 
 target_sources(EbookReader PRIVATE src/ui/MainWndLibrary.cpp src/ui/LibraryView.cpp src/ui/FolderTree.cpp src/ui/Covers.cpp
   src/ui/ScanWorker.cpp src/ui/LibrarySettings.cpp)
-target_include_directories(EbookReader PRIVATE res)
+target_include_directories(EbookReader PRIVATE res "${CMAKE_BINARY_DIR}/generated")
 
 add_library(eb_book STATIC src/lib/Metadata.cpp src/lib/CoverCache.cpp)
 target_link_libraries(eb_book PUBLIC eb_lib eb_doc eb_tts eb_mupdf PRIVATE windowscodecs ole32 oleaut32 uuid)

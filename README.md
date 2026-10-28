@@ -45,6 +45,22 @@ tools\test.ps1  -Preset debug
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security issues: [SECURITY.md](SECURITY.md) (please report privately).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org)
+(application pending; until approved, releases are unsigned). Details, roles and what is signed:
+[CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+
+## Privacy
+
+No telemetry and no update checks. Nothing leaves your machine unless you enable the optional Azure Speech engine, which
+sends the text being read and your own API key to Microsoft. See [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md#privacy-policy).
+
+## Uninstall
+
+Delete the app folder and its `data\` folder (or `%LOCALAPPDATA%\EbookReader`). If you used Azure Speech, also run
+`cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1`. Nothing is written to the registry.
+
 ## License
 
 [AGPL-3.0](LICENSE). Third-party components: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -2,7 +2,7 @@
 # build/downloads and verified against pinned SHA256; they are only extracted, never executed.
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$')][string]$Version,
-    [switch]$Sign
+    [switch]$NoSign
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
@@ -91,19 +91,25 @@ EBOOK READER $Version
 - Chay EbookReader.exe (khong can cai dat).
 - Bo sach (PDF, EPUB, MOBI, ...) vao thu muc ebooks\ canh EbookReader.exe.
 - Doc to offline bang Piper (tuy chon): giai nen goi $name-piper-pack.zip len cung thu muc,
-  roi tu tai giong noi (.onnx va .onnx.json) vao dataoices\ (xem muc VOICES ben duoi). Goi nay KHONG kem giong noi.
-- Ban alpha ky bang chung chi tu ky, nen Windows SmartScreen co the canh bao.
+  roi tu tai giong noi (.onnx va .onnx.json) vao data\voices\ (xem muc VOICES ben duoi). Goi nay KHONG kem giong noi.
+- Ban alpha: neu file khong co chu ky hop le, Windows SmartScreen co the canh bao.
+- Go bo: xoa thu muc ung dung; xoa du lieu o data\ canh EbookReader.exe (hoac %LOCALAPPDATA%\EbookReader neu thu muc
+  ung dung khong ghi duoc); neu da dung Azure Speech: cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1
+- Chinh sach rieng tu va ky so: CODE_SIGNING_POLICY.md tren GitHub.
 - Giay phep: thu muc licenses\. Ma nguon: https://github.com/tiepcons/ebook-reader
 
 [English]
 - Run EbookReader.exe (portable, no installer).
 - Put your books (PDF, EPUB, MOBI, ...) in the ebooks\ folder next to EbookReader.exe.
 - Optional offline read-aloud with Piper: extract $name-piper-pack.zip into the same folder, then download a voice
-  (.onnx and .onnx.json) into dataoices\ yourself (see VOICES below). The pack contains no voices.
-- This alpha is signed with a self-signed certificate, so Windows SmartScreen may warn.
+  (.onnx and .onnx.json) into data\voices\ yourself (see VOICES below). The pack contains no voices.
+- This alpha may be unsigned or self-signed, so Windows SmartScreen may warn.
+- Uninstall: delete the app folder; delete data\ next to EbookReader.exe (or %LOCALAPPDATA%\EbookReader when the app folder
+  is not writable); if you used Azure Speech, also run: cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1
+- Privacy and code signing policy: CODE_SIGNING_POLICY.md on GitHub (no telemetry; network only if you enable Azure Speech).
 - Licenses: licenses\ folder. Source code: https://github.com/tiepcons/ebook-reader
 
-VOICES (download both files of a voice into dataoices\; links are pinned to a fixed revision)
+VOICES (download both files of a voice into data\voices\; links are pinned to a fixed revision)
 - Vietnamese: vi_VN-vais1000-medium
     $hf/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx
     $hf/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json
@@ -172,7 +178,7 @@ function Build-Basic {
     New-Item -ItemType Directory -Force $stage, "$stage/ebooks" | Out-Null
     Copy-To $exe "$stage/EbookReader.exe"
     Copy-To $dll "$stage/libs/eb_mupdf.dll"
-    if ($Sign) {
+    if (-not $NoSign) {
         & "$PSScriptRoot/sign.ps1" -Path "$stage/EbookReader.exe", "$stage/libs/eb_mupdf.dll" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'signing failed' }
     }
@@ -228,8 +234,13 @@ https://github.com/tiepcons/ebook-reader
     $zip
 }
 
-$b = & "$PSScriptRoot/build.ps1" -Preset release
+$suffix = if ($Version -match '^\d+\.\d+\.\d+(-.+)$') { $Matches[1] } else { '' }
+$b = & "$PSScriptRoot/build.ps1" -Preset release -VersionSuffix $suffix
 if ($LASTEXITCODE -ne 0) { $b; throw 'release build failed' }
+foreach ($f in 'EbookReader.exe', 'libs/eb_mupdf.dll') {
+    $pv = (Get-Item (Join-Path $root "build/release/$f")).VersionInfo.ProductVersion
+    if ($pv -ne $Version) { throw "$f has ProductVersion '$pv' but -Version is '$Version'; bump project(VERSION) in CMakeLists.txt" }
+}
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 $zips = @((Build-Basic), (Build-PiperPack))
 foreach ($z in $zips) { 'ARTIFACT {0} {1:N2} MB' -f (Split-Path $z -Leaf), ((Get-Item $z).Length / 1MB) }

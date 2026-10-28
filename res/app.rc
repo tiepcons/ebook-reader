@@ -6,6 +6,12 @@
 1 RT_MANIFEST "app.manifest"
 1 ICON "app.ico"
 
+#define EB_VI_FILETYPE VFT_APP
+#define EB_VI_DESCRIPTION "Ebook Reader"
+#define EB_VI_INTERNAL "EbookReader"
+#define EB_VI_FILENAME "EbookReader.exe"
+#include "eb_versioninfo.rc.inc"
+
 IDR_MAINMENU MENU
 BEGIN
     POPUP "&Đọc"

@@ -1,0 +1,5 @@
+#define EB_VI_FILETYPE VFT_DLL
+#define EB_VI_DESCRIPTION "Ebook Reader document engine (MuPDF)"
+#define EB_VI_INTERNAL "eb_mupdf"
+#define EB_VI_FILENAME "eb_mupdf.dll"
+#include "../../res/eb_versioninfo.rc.inc"

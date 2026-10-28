@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)][ValidateSet('debug', 'release', 'asan', 'lint')][string]$Preset,
-    [string]$Target
+    [string]$Target,
+    [string]$VersionSuffix
 )
 $root = Split-Path $PSScriptRoot
 . "$PSScriptRoot/env.ps1"
@@ -16,8 +17,14 @@ $cache = Get-Item "$bdir/CMakeCache.txt" -ErrorAction SilentlyContinue
 $inputs = @(Get-Item "$root/CMakePresets.json") + @(Get-ChildItem $root -Recurse -Filter CMakeLists.txt |
     Where-Object { $_.FullName -notmatch '[\/](build|third_party)[\/]' })
 $stale = (-not $cache) -or ($inputs | Where-Object { $_.LastWriteTime -gt $cache.LastWriteTime })
+$cfgArgs = @('--preset', $Preset)
+if ($PSBoundParameters.ContainsKey('VersionSuffix')) {
+    $cfgArgs += "-DEB_VERSION_SUFFIX=$VersionSuffix"
+    $cached = if ($cache) { (Select-String -Path $cache.FullName -Pattern '^EB_VERSION_SUFFIX:STRING=(.*)$').Matches.Groups[1].Value }
+    if ($cached -ne $VersionSuffix) { $stale = $true }
+}
 if ($stale) {
-    $out += & cmake --preset $Preset 2>&1 | ForEach-Object { "$_" }
+    $out += & cmake @cfgArgs 2>&1 | ForEach-Object { "$_" }
     $ok = ($LASTEXITCODE -eq 0)
 }
 if ($ok) {
