@@ -310,3 +310,67 @@ TEST_CASE("eb_embed oversized cover entry is bounded and falls back to page 0")
     expect_cover_ok(d.get());
     CHECK(meta_of(d.get(), "language") == "vi");
 }
+
+namespace {
+
+std::string linked_epub()
+{
+    const std::string container =
+        R"(<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>)"
+        R"(<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>)";
+    const std::string opf =
+        R"(<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">)"
+        R"(<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">x</dc:identifier><dc:title>Links</dc:title>)"
+        R"(<dc:language>en</dc:language></metadata><manifest><item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>)"
+        R"(<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/><item id="c3" href="ch3.xhtml" media-type="application/xhtml+xml"/>)"
+        R"(</manifest><spine><itemref idref="c1"/><itemref idref="c2"/><itemref idref="c3"/></spine></package>)";
+    const auto page = [](const std::string& body) {
+        return R"(<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body>)" + body + "</body></html>";
+    };
+    const std::string toc = page(R"(<p id="top"><a href="ch2.xhtml">Chapter two</a></p><p><a href="ch3.xhtml#sec">Section</a></p>)"
+                                 R"(<p><a href="http://example.com/x">Web</a></p><p><a href="#top">Top</a></p>)");
+    return stored_zip({{"mimetype", "application/epub+zip"},
+                       {"META-INF/container.xml", container},
+                       {"OEBPS/content.opf", opf},
+                       {"OEBPS/ch1.xhtml", toc},
+                       {"OEBPS/ch2.xhtml", page("<p>Second chapter.</p>")},
+                       {"OEBPS/ch3.xhtml", page(R"(<p>Third chapter.</p><p id="sec">Section text.</p>)")}});
+}
+
+struct LinksDeleter {
+    void operator()(eb_link* l) const { eb_links_free(l); }
+};
+
+}
+
+TEST_CASE("eb_page_links returns internal links only, with resolvable targets")
+{
+    const Lib lib;
+    const DocPtr d = open_bytes(linked_epub(), ".epub");
+    int32_t pages = 0;
+    REQUIRE(eb_page_count(d.get(), &pages) == EB_OK);
+    REQUIRE(pages >= 3);
+    eb_link* raw = nullptr;
+    int32_t n = 0;
+    REQUIRE(eb_page_links(d.get(), 0, &raw, &n) == EB_OK);
+    const std::unique_ptr<eb_link, LinksDeleter> links(raw);
+    CHECK(n == 3);
+    int32_t beyond = 0;
+    for (int32_t i = 0; i < n; ++i) {
+        const eb_link& l = links.get()[i];
+        CHECK(l.area.x1 > l.area.x0);
+        int32_t back = -1;
+        REQUIRE(eb_page_of_bookmark(d.get(), l.target, &back) == EB_OK);
+        CHECK(back == l.page);
+        if (l.page > 0) ++beyond;
+    }
+    CHECK(beyond == 2);
+    eb_link dummy{};
+    eb_link* none = &dummy;
+    int32_t zero = -1;
+    REQUIRE(eb_page_links(d.get(), pages - 1, &none, &zero) == EB_OK);
+    CHECK(zero == 0);
+    CHECK(none == nullptr);
+    CHECK(eb_page_links(d.get(), pages, &none, &zero) == EB_E_RANGE);
+    CHECK(eb_page_links(nullptr, 0, &none, &zero) == EB_E_ARG);
+}

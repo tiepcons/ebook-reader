@@ -22,6 +22,8 @@ void ReaderView::relayout()
     if (!reflowable_)
         return;
     texts_.clear();
+    links_.clear();
+    links_page_ = -1;
     highlight_.clear();
     highlight_page_ = tts_page_ = -1;
     tts_char_ = -1;

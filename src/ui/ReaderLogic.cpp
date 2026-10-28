@@ -222,6 +222,23 @@ std::vector<TextBox> sentence_lines(const PageText& t, uint32_t begin, uint32_t 
     return out;
 }
 
+const PageLink* link_at(std::span<const PageLink> links, float x, float y) noexcept
+{
+    const PageLink* best = nullptr;
+    float best_area = 0;
+    for (const PageLink& l : links) {
+        const TextBox& a = l.area;
+        if (!(x >= a.x0 && x < a.x1 && y >= a.y0 && y < a.y1))
+            continue;
+        const float area = (a.x1 - a.x0) * (a.y1 - a.y0);
+        if (best == nullptr || area < best_area) {
+            best = &l;
+            best_area = area;
+        }
+    }
+    return best;
+}
+
 NavAction nav_for_click(int x, int client_w) noexcept
 {
     if (client_w <= 0 || x < 0 || x >= client_w)

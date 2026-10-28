@@ -88,6 +88,8 @@ private:
     void record_progress(const RenderResult& r) noexcept;
     void store_text(const RenderResult& r);
     [[nodiscard]] std::vector<D2D1_RECT_F> highlight_rects(int origin_x, int origin_y) const;
+    [[nodiscard]] const PageLink* link_at_point(POINT pt) const;
+    bool on_set_cursor(LPARAM lp) const;
     void relayout();
     void check_epoch();
     void set_shown(BitmapRef b);
@@ -142,6 +144,8 @@ private:
     int64_t last_flush_ms_ = 0;
     std::wstring chapter_, note_, error_;
     std::vector<std::shared_ptr<const PageText>> texts_;
+    std::vector<PageLink> links_;
+    int32_t links_page_ = -1;
     std::vector<TextBox> highlight_;
     int32_t highlight_page_ = -1, tts_page_ = -1;
     int64_t tts_char_ = -1, saved_tts_char_ = -1;

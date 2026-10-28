@@ -232,6 +232,17 @@ TEST_CASE("reader: sentence lines merge the characters of a line and skip blanks
     CHECK(eb::sentence_lines(eb::PageText{}, 0, 9).empty());
 }
 
+TEST_CASE("reader: link hit-test picks the smallest containing link")
+{
+    const std::vector<eb::PageLink> links{{{0, 0, 100, 20}, 11}, {{10, 5, 30, 15}, 22}};
+    REQUIRE(eb::link_at(links, 50, 10) != nullptr);
+    CHECK(eb::link_at(links, 50, 10)->target == 11);
+    CHECK(eb::link_at(links, 20, 10)->target == 22);
+    CHECK(eb::link_at(links, 100, 10) == nullptr);
+    CHECK(eb::link_at(links, -1, 10) == nullptr);
+    CHECK(eb::link_at({}, 1, 1) == nullptr);
+}
+
 TEST_CASE("reader: go-to percent maps to a page")
 {
     CHECK(eb::page_for_percent(0, 100) == 0);

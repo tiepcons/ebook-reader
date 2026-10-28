@@ -105,6 +105,17 @@ inline constexpr std::size_t kMaxHighlightRects = 64;
 // One rectangle per text line covering the code points whose offsets lie in [begin, end).
 [[nodiscard]] std::vector<TextBox> sentence_lines(const PageText& t, uint32_t begin, uint32_t end);
 
+// Internal link of a page: hot area in page points and the bookmark it leads to.
+struct PageLink {
+    TextBox area;
+    uint64_t target = 0;
+};
+
+inline constexpr std::size_t kMaxPageLinks = 4096;
+
+// The smallest link area containing the page point, nullptr when none does.
+[[nodiscard]] const PageLink* link_at(std::span<const PageLink> links, float x, float y) noexcept;
+
 struct ViewParams {
     int32_t client_w = 0, client_h = 0;
     uint32_t dpi = 96;

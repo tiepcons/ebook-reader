@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define EB_MAX_TEXT_CHARS 4000000
+#define EB_MAX_LINKS 4096
 #define EB_MAX_TOC_ITEMS 100000
 #define EB_MAX_TOC_DEPTH 64
 
@@ -120,6 +121,73 @@ eb_status eb_page_text(eb_doc* doc, int32_t page, eb_text** out)
     if (status != EB_OK) eb_text_free(t);
     else *out = t;
     return status;
+}
+
+void eb_links_free(eb_link* links)
+{
+    free(links);
+}
+
+static int link_target(eb_doc* d, const fz_link* l, eb_link* out)
+{
+    fz_location loc = fz_resolve_link(d->ctx, d->doc, l->uri, NULL, NULL);
+    if (loc.chapter < 0 || loc.page < 0) return 0;
+    out->page = fz_page_number_from_location(d->ctx, d->doc, loc);
+    if (out->page < 0) return 0;
+    out->target = eb_encode_bookmark(d, loc);
+    out->area = (eb_rect){l->rect.x0, l->rect.y0, l->rect.x1, l->rect.y1};
+    return 1;
+}
+
+static int32_t collect_links(eb_doc* d, const fz_link* head, eb_link* arr)
+{
+    int32_t n = 0;
+    for (const fz_link* l = head; l && n < EB_MAX_LINKS; l = l->next) {
+        eb_check_abort(d);
+        if (!l->uri || fz_is_external_link(d->ctx, l->uri)) continue;
+        if (link_target(d, l, &arr[n])) n++;
+    }
+    return n;
+}
+
+eb_status eb_page_links(eb_doc* doc, int32_t page, eb_link** links, int32_t* count)
+{
+    fz_page* pg = NULL;
+    fz_link* head = NULL;
+    eb_link* arr = NULL;
+    int32_t n = 0;
+    eb_status status = EB_OK;
+    if (!doc || !links || !count) return eb_fail_msg(EB_E_ARG, "null argument");
+    *links = NULL;
+    *count = 0;
+    status = eb_check_page(doc, page);
+    if (status != EB_OK) return status;
+    eb_begin_call(doc);
+    fz_var(pg);
+    fz_var(head);
+    fz_var(arr);
+    fz_var(n);
+    fz_try(doc->ctx)
+    {
+        pg = fz_load_page(doc->ctx, doc->doc, page);
+        head = fz_load_links(doc->ctx, pg);
+        arr = calloc(EB_MAX_LINKS, sizeof *arr);
+        if (!arr) eb_throw_oom(doc->ctx);
+        n = collect_links(doc, head, arr);
+    }
+    fz_always(doc->ctx)
+    {
+        fz_drop_link(doc->ctx, head);
+        fz_drop_page(doc->ctx, pg);
+    }
+    fz_catch(doc->ctx) status = eb_fail(doc->ctx);
+    if (status != EB_OK || n == 0) {
+        free(arr);
+        return status;
+    }
+    *links = arr;
+    *count = n;
+    return EB_OK;
 }
 
 static int32_t count_items(const fz_outline* o, int depth)

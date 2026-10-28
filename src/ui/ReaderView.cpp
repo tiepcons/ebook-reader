@@ -133,6 +133,8 @@ LRESULT ReaderView::handle(UINT msg, WPARAM wp, LPARAM lp)
     switch (msg) {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        return on_set_cursor(lp) ? TRUE : DefWindowProcW(hwnd_, msg, wp, lp);
     case WM_PAINT:
         on_paint();
         return 0;
@@ -187,7 +189,11 @@ bool ReaderView::on_mouse(UINT msg, WPARAM wp, LPARAM lp)
         if (dragging_) {
             dragging_ = false;
             ReleaseCapture();
-            if (!moved_)
+            if (moved_)
+                return true;
+            if (const PageLink* link = link_at_point(pt))
+                go_to_mark(link->target);
+            else
                 on_action(nav_for_click(pt.x, client_size().cx));
         }
         return true;
@@ -352,6 +358,8 @@ void ReaderView::close() noexcept
     content_version_ = 0;
     end_mark_ = UINT64_MAX;
     texts_.clear();
+    links_.clear();
+    links_page_ = -1;
     highlight_.clear();
     highlight_page_ = tts_page_ = -1;
     tts_char_ = saved_tts_char_ = -1;
@@ -430,6 +438,10 @@ void ReaderView::show_primary(const RenderResult& r)
     if (r.page != page_)
         pan_x_ = pan_y_ = 0;
     page_ = r.page;
+    if (r.has_links) {
+        links_ = r.links;
+        links_page_ = r.page;
+    }
     mark_ = r.mark;
     end_mark_ = r.end_mark;
     chapter_ = wide(r.chapter);

@@ -40,6 +40,8 @@ struct RenderResult {
     BitmapPtr bmp;          // null when the UI already holds it or on failure (status != EB_OK)
     std::string chapter;    // UTF-8, primary only
     std::string detail;     // UTF-8, OpenFailed only
+    bool has_links = false; // links is valid for this page (fetched once per primary request)
+    std::vector<PageLink> links;
     std::shared_ptr<const PageText> text; // Text only; null when the page has none or reading it failed
 };
 
@@ -80,6 +82,7 @@ private:
     void log_opts(const eb_render_opts& o);
     eb_status render_bitmap(const RenderWant& w, int32_t page, RenderResult& r);
     bool load_toc();
+    eb_status load_links(int32_t page, RenderResult& r);
     [[nodiscard]] std::string chapter_of(uint64_t mark) const;
     void post(RenderResult r);
     void fail_open(eb_status st, std::string detail) noexcept;
@@ -101,7 +104,7 @@ private:
     std::stop_token stop_;
     bool reflowable_ = false, laid_out_ = false, toc_loaded_ = false, first_logged_ = false, dead_ = false;
     int32_t count_ = 0;
-    uint64_t primary_gen_ = 0, resolved_gen_ = 0;
+    uint64_t primary_gen_ = 0, resolved_gen_ = 0, links_gen_ = 0;
     int32_t resolved_page_ = 0, last_page_ = -1;
     LayoutParams applied_;
     std::string applied_css_;

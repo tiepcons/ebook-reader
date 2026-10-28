@@ -26,6 +26,8 @@ void exercise(eb_doc* doc)
     eb_toc_item* items = nullptr;
     int32_t count = 0;
     if (eb_toc(doc, &items, &count) == EB_OK) eb_toc_free(items, count);
+    eb_link* links = nullptr;
+    if (eb_page_links(doc, 0, &links, &count) == EB_OK) eb_links_free(links);
     char buf[64];
     size_t needed = 0;
     eb_meta(doc, "title", buf, sizeof buf, &needed);

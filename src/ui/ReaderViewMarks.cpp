@@ -32,6 +32,25 @@ void ReaderView::go_to_mark(uint64_t mark)
     send_want();
 }
 
+const PageLink* ReaderView::link_at_point(POINT pt) const
+{
+    if (!shown_ || links_page_ != page_ || scale_ <= 0)
+        return nullptr;
+    const SIZE c = content_size(), v = client_size();
+    const auto x = static_cast<float>(pt.x - axis_origin(v.cx, c.cx, pan_x_)) / scale_;
+    const auto y = static_cast<float>(pt.y - axis_origin(v.cy, c.cy, pan_y_)) / scale_;
+    return link_at(links_, x, y);
+}
+
+bool ReaderView::on_set_cursor(LPARAM lp) const
+{
+    POINT pt{};
+    if (LOWORD(lp) != HTCLIENT || !GetCursorPos(&pt) || !ScreenToClient(hwnd_, &pt) || link_at_point(pt) == nullptr)
+        return false;
+    SetCursor(LoadCursorW(nullptr, IDC_HAND));
+    return true;
+}
+
 void ReaderView::go_to_percent(int percent)
 {
     go_to(page_for_percent(percent, count_));
