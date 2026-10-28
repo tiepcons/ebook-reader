@@ -84,7 +84,7 @@ std::wstring wide(const std::string& s)
 
 void fill_family_combo(HWND dlg, const std::string& current)
 {
-    const HWND box = GetDlgItem(dlg, IDC_FONT_FAMILY);
+    HWND box = GetDlgItem(dlg, IDC_FONT_FAMILY);
     std::vector<std::string> list = available_families();
     if (std::ranges::find(list, current) == list.end())
         list.push_back(current);
@@ -97,7 +97,7 @@ void fill_family_combo(HWND dlg, const std::string& current)
 
 void fill_line_combo(HWND dlg)
 {
-    const HWND box = GetDlgItem(dlg, IDC_FONT_LINE);
+    HWND box = GetDlgItem(dlg, IDC_FONT_LINE);
     for (int pct = kMinLinePct; pct <= kMaxLinePct; pct += kLineStepPct) {
         const std::wstring t = std::format(L"{:.1f}", pct / 100.0);
         SendMessageW(box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(t.c_str()));

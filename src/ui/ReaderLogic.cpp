@@ -58,7 +58,7 @@ float limit_scale(float scale, float page_w_pt, float page_h_pt, uint32_t max_si
         return scale;
     const float side = max_side_px > 1 ? static_cast<float>(max_side_px - 1) : kMaxSidePx;
     const float by_side = side / std::max(page_w_pt, page_h_pt);
-    const float by_bytes = std::sqrt(static_cast<float>(kMaxBitmapBytes / 4) / (page_w_pt * page_h_pt));
+    const float by_bytes = std::sqrt(static_cast<float>(kMaxBitmapBytes) / 4.0F / (page_w_pt * page_h_pt));
     return std::min({scale, by_side, by_bytes});
 }
 
