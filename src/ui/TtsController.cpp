@@ -10,12 +10,6 @@ namespace {
 constexpr std::string_view kSampleEn = "Hello, this is a sample of the reading voice.";
 constexpr std::string_view kSampleVi = "Xin chào, đây là giọng đọc thử của sách điện tử.";
 
-bool has_lang(const Voice& v, Lang lang) noexcept
-{
-    const wchar_t* want = lang == Lang::Vi ? L"vi" : L"en";
-    return v.lang.size() >= 2 && std::towlower(v.lang[0]) == want[0] && std::towlower(v.lang[1]) == want[1];
-}
-
 std::string one_line(std::string s)
 {
     std::ranges::replace(s, '\n', ' ');
@@ -43,11 +37,17 @@ bool azure_should_fall_back(TtsKind active, uint32_t error) noexcept
     return active == TtsKind::Azure && (error == kTtsNetwork || error == kTtsQuota || error == kTtsAuth);
 }
 
+bool voice_has_lang(const Voice& v, Lang lang) noexcept
+{
+    const wchar_t* want = lang == Lang::Vi ? L"vi" : L"en";
+    return v.lang.size() >= 2 && std::towlower(v.lang[0]) == want[0] && std::towlower(v.lang[1]) == want[1];
+}
+
 std::wstring pick_voice(const std::vector<Voice>& list, const std::wstring& wanted, Lang lang)
 {
     if (!wanted.empty() && (list.empty() || std::ranges::any_of(list, [&](const Voice& v) { return v.id == wanted; })))
         return wanted;
-    if (const auto it = std::ranges::find_if(list, [&](const Voice& v) { return has_lang(v, lang); }); it != list.end())
+    if (const auto it = std::ranges::find_if(list, [&](const Voice& v) { return voice_has_lang(v, lang); }); it != list.end())
         return it->id;
     return list.empty() ? std::wstring{} : list.front().id;
 }

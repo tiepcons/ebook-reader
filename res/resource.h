@@ -52,3 +52,14 @@
 #define IDC_TTS_PREVIEW_VI 265
 #define IDC_TTS_RATE 266
 #define IDC_TTS_HINT 267
+#define IDC_AZ_KEY 270
+#define IDC_AZ_DELETE 271
+#define IDC_AZ_KEYSTATE 272
+#define IDC_AZ_REGION 273
+#define IDC_AZ_TIER 274
+#define IDC_AZ_QUOTA 275
+#define IDC_AZ_USED 276
+#define IDC_AZ_RESET 277
+#define IDC_AZ_USAGE 278
+#define IDC_AZ_TEST 279
+#define IDC_AZ_RESULT 280

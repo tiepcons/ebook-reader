@@ -33,6 +33,8 @@ public:
 
 // Azure failures that the offline Windows voices can cover.
 [[nodiscard]] bool azure_should_fall_back(TtsKind active, uint32_t error) noexcept;
+// True when the voice locale starts with the language code.
+[[nodiscard]] bool voice_has_lang(const Voice& v, Lang lang) noexcept;
 // The wanted voice if the engine lists it (or lists nothing yet), else the first voice of the language, else the first one.
 [[nodiscard]] std::wstring pick_voice(const std::vector<Voice>& list, const std::wstring& wanted, Lang lang);
 

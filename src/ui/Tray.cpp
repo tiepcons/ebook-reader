@@ -163,6 +163,10 @@ void Tray::show_menu(WPARAM anchor) noexcept
     const auto add_item = [&](int id, const wchar_t* text, bool enabled) {
         AppendMenuW(menu.get(), MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED), static_cast<UINT_PTR>(id), text);
     };
+    if (!quota_.empty()) {
+        add_item(kIdTrayQuota, quota_.c_str(), false);
+        AppendMenuW(menu.get(), MF_SEPARATOR, 0, nullptr);
+    }
     add_item(kIdTrayOpen, L"Mở", true);
     add_item(kIdTrayPlayPause, items.play_label, items.play_pause);
     add_item(kIdTrayNext, L"Câu tiếp", items.next);

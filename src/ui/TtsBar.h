@@ -25,12 +25,14 @@ public:
     void set_font(HFONT font) noexcept;
     void set_state(TtsState s) noexcept;
     void set_info(const std::wstring& text) noexcept;
+    // "Azure 75%"; empty hides the label.
+    void set_quota(const std::wstring& text) noexcept;
     void set_speed(double rate) noexcept;
     [[nodiscard]] double speed() const noexcept;
 
 private:
     HWND play_ = nullptr, stop_ = nullptr, prev_ = nullptr, next_ = nullptr, speed_ = nullptr, settings_ = nullptr,
-         info_ = nullptr;
+         info_ = nullptr, quota_ = nullptr;
 };
 
 }
