@@ -152,6 +152,8 @@ INT_PTR on_command(HWND dlg, DlgState& st, WPARAM wp)
 {
     const int id = LOWORD(wp), code = HIWORD(wp);
     if (id == IDOK || id == IDCANCEL) {
+        if (id == IDCANCEL)
+            AzurePage::wipe_key(dlg);
         close_dialog(dlg, st, id);
         return TRUE;
     }

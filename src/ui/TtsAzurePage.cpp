@@ -5,6 +5,8 @@
 #include "resource.h"
 #include "tts/azure/AzureMessages.h"
 
+#include <algorithm>
+#include <array>
 #include <utility>
 
 namespace eb {
@@ -91,6 +93,7 @@ void AzurePage::test_connection(HWND dlg)
         return;
     }
     SecretString key = SecretString::from_window_text(GetDlgItem(dlg, IDC_AZ_KEY));
+    wipe_key(dlg);
     if (key.view().empty()) {
         auto stored = secret_get(kAzureSecretTarget);
         if (!stored) {
@@ -130,9 +133,22 @@ bool AzurePage::on_command(HWND dlg, int id, int code)
     return true;
 }
 
+void AzurePage::wipe_key(HWND dlg) noexcept
+{
+    HWND edit = GetDlgItem(dlg, IDC_AZ_KEY);
+    const int len = std::clamp(GetWindowTextLengthW(edit), 0, static_cast<int>(kMaxSecretChars));
+    if (len > 0) {
+        std::array<wchar_t, kMaxSecretChars + 1> fill{};
+        std::fill_n(fill.begin(), len, L'*');
+        SetWindowTextW(edit, fill.data()); // same length: the edit rewrites its buffer in place
+    }
+    SetWindowTextW(edit, L"");
+}
+
 bool AzurePage::store_key(HWND dlg)
 {
     const SecretString key = SecretString::from_window_text(GetDlgItem(dlg, IDC_AZ_KEY));
+    wipe_key(dlg);
     if (key.view().empty())
         return true;
     if (const auto ok = validate_api_key(key); !ok) {

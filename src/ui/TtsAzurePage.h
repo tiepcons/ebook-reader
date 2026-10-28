@@ -17,6 +17,7 @@ public:
     void on_probe(HWND dlg, int status);
     // Validates and stores the fields. False (with a message shown) keeps the dialog open.
     bool commit(HWND dlg);
+    static void wipe_key(HWND dlg) noexcept; // overwrite, then empty the key edit so no plaintext stays in its buffer
 
 private:
     void show_view(HWND dlg);
