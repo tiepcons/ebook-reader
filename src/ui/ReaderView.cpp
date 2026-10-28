@@ -429,6 +429,7 @@ void ReaderView::go_to(int32_t page, bool from_end)
     if (page == page_)
         return;
     page_ = page;
+    anchor_ = kNoAnchor; // an explicit page turn overrides a TOC/bookmark jump still in flight
     pan_x_ = 0;
     pan_y_ = from_end ? kPanEnd : 0;
     mark_ = kNoAnchor;
