@@ -268,8 +268,8 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T6.2 | `Segmenter`: tách câu Anh và Việt, xử lý chữ viết tắt và số, bỏ header/footer và số trang của PDF | DEV | T1.6 | 0,7 | ≥ 30 test case | ⬜ |
 | T6.3 | `LangDetect`: lấy ngôn ngữ từ metadata. Nếu không có thì đoán theo từng câu dựa vào tỉ lệ ký tự có dấu tiếng Việt. Người dùng chọn cố định được | DEV | T6.2 | 0,3 | Đúng ≥ 95% | ⬜ |
 | T6.4 | **`WinRtTts`**: C++/WinRT `SpeechSynthesizer` + `MediaPlayer`, dùng giọng OneCore (Microsoft An, David, Zira...), lấy word boundary để tô sáng. Thiếu giọng Việt thì hướng dẫn cài | DEV | T6.1 | 1,2 | Đọc được cả tiếng Anh và tiếng Việt | ⬜ |
-| T6.5 | `TtsController`: tô sáng câu đang đọc, **tự lật trang**, lưu vị trí câu vào ProgressStore, chạy tiếp khi app ở khay | DEV | T6.4, T4.4 | 0,9 | Đọc liên tục hết 1 chương | ⬜ |
-| T6.6 | `TtsBar` và trang TTS trong Settings: chọn engine, giọng Anh, giọng Việt, tốc độ, nghe thử | DEV | T6.5 | 0,4 | | ⬜ |
+| T6.5 | `TtsController`: tô sáng câu đang đọc, **tự lật trang**, lưu vị trí câu vào ProgressStore, chạy tiếp khi app ở khay | DEV | T6.4, T4.4 | 0,9 | Đọc liên tục hết 1 chương | ✅ |
+| T6.6 | `TtsBar` và trang TTS trong Settings: chọn engine, giọng Anh, giọng Việt, tốc độ, nghe thử | DEV | T6.5 | 0,4 | | ✅ |
 | T6.7 | **`PiperTts`**: chạy `libs\piper\piper.exe` dưới dạng tiến trình con, mỗi giọng một tiến trình, giữ tiến trình sống giữa các câu, dùng `--json-input`, mỗi câu ra một file WAV tạm trong `data\tts-cache\piper\`. Phát bằng `MediaPlayer`, tô sáng theo cả câu. Chỉ bật khi có `libs\piper\` và giọng trong `voices\`. Tổng hợp trước câu tiếp theo | DEV | T0.8, T6.1 | 1,3 | Khoảng lặng giữa 2 câu ≤ 300 ms. Thiếu Piper thì engine này bị ẩn | ✅ |
 | T6.8 | REV + SEC review và **PO nghiệm thu** (1 chương tiếng Việt và 1 chương tiếng Anh, có xuống khay giữa chừng) | REV, SEC, **PO** | T6.1–T6.7 | 0,3 | | ⬜ |
 
@@ -287,11 +287,11 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 |---|---|---|---|---|---|---|
 | T7.1 | **PO tạo Azure Speech gói Free F0** và lấy Key 1 cùng Region | **PO** | — | 0,2 | | ⬜ |
 | T7.2 | `SecretStore`: lưu key bằng **Windows Credential Manager** (`CredWriteW`). Không ghi vào DB, cài đặt hay log | DEV + SEC | T1.1 | 0,3 | Grep thư mục `data\` không thấy key | ⬜ |
-| T7.3 | Trang Azure trong Settings (file .rc): ô key (ẩn ký tự), region, tier F0/S0, quota/tháng, nút **Kiểm tra kết nối** (`GET voices/list`), chọn giọng Việt (HoaiMy, NamMinh) và giọng Anh | DEV | T7.2 | 0,6 | Key sai thì báo lỗi 401 rõ ràng | ⬜ |
-| T7.4 | `AzureTts`: gọi `POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1` qua **WinHTTP** (bất đồng bộ), dùng SSML, nhận `audio-24khz-48kbitrate-mono-mp3` (MediaPlayer giải mã sẵn, không cần thêm codec). Prefetch 2 câu. Gặp 429/5xx thì thử lại theo backoff, sau đó chuyển sang WinRT | DEV | T6.1, T7.3 | 0,9 | Mất mạng thì tự chuyển engine, không crash | 🟨 |
+| T7.3 | Trang Azure trong Settings (file .rc): ô key (ẩn ký tự), region, tier F0/S0, quota/tháng, nút **Kiểm tra kết nối** (`GET voices/list`), chọn giọng Việt (HoaiMy, NamMinh) và giọng Anh | DEV | T7.2 | 0,6 | Key sai thì báo lỗi 401 rõ ràng | ✅ |
+| T7.4 | `AzureTts`: gọi `POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1` qua **WinHTTP** (bất đồng bộ), dùng SSML, nhận `audio-24khz-48kbitrate-mono-mp3` (MediaPlayer giải mã sẵn, không cần thêm codec). Prefetch 2 câu. Gặp 429/5xx thì thử lại theo backoff, sau đó chuyển sang WinRT | DEV | T6.1, T7.3 | 0,9 | Mất mạng thì tự chuyển engine, không crash | ✅ |
 | T7.5 | **`AzureUsage`**: đếm ký tự, ghi trong transaction, tính %, ngày reset, xử lý sang tháng mới | DEV | T2.1 | 0,4 | Unit test: đếm đúng, đổi tháng đúng, Unicode tiếng Việt đúng | ⬜ |
-| T7.6 | Hiện **% còn lại** trong Settings, trên TtsBar ("Azure 75%") và trong menu tray. Cảnh báo và xử lý khi đạt 100% | DEV | T7.5 | 0,4 | | ⬜ |
-| T7.7 | Audio cache và chức năng hiệu chỉnh hoặc đặt lại bộ đếm | DEV | T7.4, T7.5 | 0,3 | Đọc lại 1 chương thì bộ đếm không tăng | 🟨 |
+| T7.6 | Hiện **% còn lại** trong Settings, trên TtsBar ("Azure 75%") và trong menu tray. Cảnh báo và xử lý khi đạt 100% | DEV | T7.5 | 0,4 | | ✅ |
+| T7.7 | Audio cache và chức năng hiệu chỉnh hoặc đặt lại bộ đếm | DEV | T7.4, T7.5 | 0,3 | Đọc lại 1 chương thì bộ đếm không tăng | ✅ |
 | T7.8 | SEC + REV review và **PO nghiệm thu** (so số đếm của app với Azure Portal) | SEC, REV, **PO** | T7.1–T7.7 | 0,3 | Sai lệch < 5% | ⬜ |
 
 ### PHASE 8: Củng cố và chống crash (4 ngày, cộng phần làm liên tục trong mọi phase)
