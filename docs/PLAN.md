@@ -44,6 +44,7 @@ Phần mềm đọc ebook **mã nguồn mở (AGPL-3.0)**, viết bằng **C++20
 | D16 | **MuPDF không đọc được AZW3/KF8 và MOBI nén HUFF/CDIC** (spike T0.6). **PO đã duyệt libmobi (LGPL-3.0)** (2026-10-23). Nhúng vào `eb_mupdf.dll`: AZW3/KF8/HUFF-CDIC được chuyển sang EPUB trong bộ nhớ rồi mở bằng MuPDF, ABI không đổi (T1.9) | Hỗ trợ đầy đủ định dạng Kindle không DRM |
 | D17 | `eb_mupdf` tự mở file (`CreateFileW` + kiểm tra là file trên đĩa), không đưa thư mục cho MuPDF, giới hạn heap 1 GiB, có `eb_abort` để hủy | Kết quả review bảo mật T1.6 |
 | D19 | **Piper (spike T0.8)**: bản rhasspy/piper 2023.11.14-2 (MIT, onnxruntime 1.14), RTF khoảng 0,1, gói khoảng 38 MB + khoảng 62 MB mỗi giọng. **Không đóng gói giọng sẵn**: người dùng tải khi cần. Giọng mặc định: VI `vi_VN-vais1000-medium` (CC BY 4.0, ghi công). EN dùng giọng có dataset rõ license (ưu tiên `en_US-ljspeech`, dataset public domain). **Không dùng** `vi_VN-25hours_single` (license "Unknown"). `lessac` chỉ dùng khi người dùng tự chọn, kèm thông báo license | Giọng hay, chạy offline, không vướng license |
+| D20 | **VieNeu-TTS v3 Turbo (tùy chọn, PO duyệt 2026-10-29)**: runtime audio.cpp (Apache-2.0, ggml, chạy tiến trình con như Piper) + model GGUF q8_0 Apache-2.0 khoảng 190 MB, người dùng tự tải. Chỉ làm engine sau khi spike T6.11 đạt | Giọng Việt tự nhiên hơn Piper, 23 giọng, chạy CPU |
 | D18 | Ngôn ngữ và ảnh bìa nhúng của EPUB/FB2/MOBI: MuPDF không cung cấp, nên phải tự đọc OPF/EXTH (T2.3–T2.4) | Kết quả spike T0.6 |
 
 ---
@@ -315,6 +316,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T9.2 | Tuân thủ license: AGPL (công bố mã nguồn), MuPDF, SQLite, Piper/espeak-ng (GPL), onnxruntime (MIT), font OFL | DEV + SEC | T9.1 | 0,2 | | ⬜ |
 | T9.3 | `release.yml`: push tag `v*` thì đăng 2 file zip lên GitHub Releases | DEV → CI | T9.1 | 0,2 | | ✅ |
 | T9.4 | *(Tùy chọn)* Ký số code miễn phí qua SignPath.io Foundation cho OSS | **PO** + DEV | T9.3 | 0,3 | | ⬜ |
+| T6.11 | **Spike VieNeu-TTS v3 Turbo** qua audio.cpp v0.9.3 Windows CPU: đo RTF và thời gian ra tiếng câu đầu trên máy PO, RAM, chất lượng giọng Việt/Anh, cách giữ model trong RAM (stdin/pipe, không mở cổng mạng), xác nhận giấy phép. Đạt → task engine `VieNeuProc` như Piper (D20) | orchestrator + `eb-dev` | T6.5 | 0,5 | RTF < 1 và câu đầu < 1,5 s trên máy PO, PO nghe thử đạt | ⬜ |
 | T9.5 | **Build Piper từ mã nguồn** (piper, piper-phonemize, espeak-ng fork, onnxruntime prebuilt) với commit đã khóa, để lời đề nghị cung cấp mã nguồn GPL của espeak-ng trỏ đúng commit. Làm **cuối cùng, ngay trước beta công khai** (quyết định của PO 2026-10-28) | DEV + SEC | T9.1 | 0,5 | Gói Piper build lại được, notices trỏ đúng commit | ⬜ |
 
 ---
