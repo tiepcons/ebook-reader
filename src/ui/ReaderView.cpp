@@ -465,7 +465,9 @@ void ReaderView::set_prefs(const ReaderPrefs& p, bool persist)
 void ReaderView::bump_font_size(int direction)
 {
     ReaderPrefs n = prefs_;
-    n.font.size_pt += direction;
+    n.font.size_pt = std::clamp(n.font.size_pt + direction, kMinSizePt, kMaxSizePt);
+    if (n.font.size_pt == prefs_.font.size_pt)
+        return;
     set_prefs(n, true);
 }
 

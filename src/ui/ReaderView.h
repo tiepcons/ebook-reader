@@ -20,7 +20,7 @@ namespace eb {
 // all MuPDF work happens in the RenderWorker. Reports to the parent with WM_APP_READER_EVENT.
 class ReaderView {
 public:
-    explicit ReaderView(Db& db) noexcept : db_(db), store_(db), cache_(kBitmapCacheBytes) {}
+    explicit ReaderView(Db& db) : db_(db), store_(db), cache_(kBitmapCacheBytes) {}
     ReaderView(const ReaderView&) = delete;
     ReaderView& operator=(const ReaderView&) = delete;
     ~ReaderView();

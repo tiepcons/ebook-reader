@@ -5,6 +5,7 @@
 
 #include <windows.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -74,6 +75,7 @@ private:
     eb_status ensure_layout(const RenderWant& w, int32_t& page);
     eb_status apply_layout(const LayoutParams& lp, const std::string& css);
     eb_status deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary);
+    void log_opts(const eb_render_opts& o);
     eb_status render_bitmap(const RenderWant& w, int32_t page, RenderResult& r);
     bool load_toc();
     [[nodiscard]] std::string chapter_of(uint64_t mark) const;
@@ -100,6 +102,8 @@ private:
     uint64_t primary_gen_ = 0, resolved_gen_ = 0;
     int32_t resolved_page_ = 0, last_page_ = -1;
     LayoutParams applied_;
+    std::string applied_css_;
+    std::array<uint32_t, 3> logged_opts_{UINT32_MAX, UINT32_MAX, UINT32_MAX};
     std::optional<uint64_t> last_mark_;
     std::vector<TocEntry> toc_;
 

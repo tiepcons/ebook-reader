@@ -118,16 +118,20 @@ bool load_all_imports() noexcept
 void register_font_dirs(const std::filesystem::path& exe_dir) noexcept
 {
     try {
+        const auto t0 = std::chrono::steady_clock::now();
         std::vector<std::wstring> dirs{(exe_dir / L"fonts").wstring()};
         PWSTR system_fonts = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &system_fonts)))
             dirs.emplace_back(system_fonts);
         CoTaskMemFree(system_fonts);
         std::vector<const wchar_t*> raw;
+        raw.reserve(dirs.size());
         for (const auto& d : dirs)
             raw.push_back(d.c_str());
         if (eb_set_font_dirs(raw.data(), static_cast<int32_t>(raw.size())) != EB_OK)
             log::error("font directories rejected: {}", eb_last_error());
+        log::info("fonts: registered in {} ms",
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
     } catch (...) {
         log::error("font directories not registered");
     }

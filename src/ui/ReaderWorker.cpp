@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
-#include <functional>
 #include <new>
 
 namespace eb {
@@ -237,7 +236,6 @@ void RenderWorker::serve(const RenderWant& w)
 
 eb_status RenderWorker::apply_layout(const LayoutParams& lp, const std::string& css)
 {
-    log::info("reader: layout-css-hash {:016x} css={}", lp.css_hash, css);
     if (const eb_status st = eb_layout(doc_, lp.width_pt, lp.height_pt, lp.em_pt, css.empty() ? nullptr : css.c_str());
         st != EB_OK)
         return st;
@@ -246,6 +244,7 @@ eb_status RenderWorker::apply_layout(const LayoutParams& lp, const std::string& 
     if (count_ <= 0)
         return EB_E_FORMAT;
     applied_ = lp;
+    applied_css_ = css;
     laid_out_ = true;
     return EB_OK;
 }
@@ -274,8 +273,7 @@ eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
         const ReaderStyle& style = style_of(w);
         LayoutParams lp = reflow_layout(w.view.client_w, w.view.client_h, w.view.dpi);
         lp.em_pt = style.em_pt;
-        lp.css_hash = std::hash<std::string>{}(style.css);
-        if (!laid_out_ || !(lp == applied_)) {
+        if (!laid_out_ || !(lp == applied_) || style.css != applied_css_) {
             if (mark == kNoAnchor)
                 mark = shown_mark(w);
             if (const eb_status st = apply_layout(lp, style.css); st != EB_OK)
@@ -332,6 +330,15 @@ eb_status RenderWorker::prefetch(const RenderWant& w, int32_t page)
     return EB_OK;
 }
 
+void RenderWorker::log_opts(const eb_render_opts& o)
+{
+    const std::array<uint32_t, 3> now{static_cast<uint32_t>(o.tint), o.fg_rgb, o.bg_rgb};
+    if (now == logged_opts_)
+        return;
+    logged_opts_ = now;
+    log::info("reader: render-opts tint={} fg={} bg={}", o.tint, format_hex_rgb(o.fg_rgb), format_hex_rgb(o.bg_rgb));
+}
+
 eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderResult& r)
 {
     float scale = render_scale(w.view.dpi);
@@ -343,7 +350,8 @@ eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderR
     }
     scale = limit_scale(scale, pw, ph, w.max_side_px);
     const ReaderStyle& style = style_of(w);
-    const eb_render_opts opts{scale, style.colors.fg, style.colors.bg, !reflowable_ && style.tint ? 1 : 0};
+    const eb_render_opts opts{scale, style.colors.fg, style.colors.bg, style.tint ? 1 : 0};
+    log_opts(opts);
     eb_bitmap* b = nullptr;
     const eb_status st = eb_render_page(doc_, page, &opts, &b);
     r.bmp.reset(b);

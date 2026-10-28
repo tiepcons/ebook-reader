@@ -1,5 +1,9 @@
 #include "PathSafety.h"
 
+#include "base/Handle.h"
+
+#include <windows.h>
+
 #include <array>
 #include <string>
 #include <string_view>
@@ -65,6 +69,30 @@ bool reserved_name(std::wstring_view p) noexcept
         && name[3] <= L'9';
 }
 
+}
+
+bool is_plain_dir_chain(const std::filesystem::path& dir) noexcept
+{
+    try {
+        if (!dir.is_absolute())
+            return false;
+        std::filesystem::path cur;
+        for (const auto& part : dir) {
+            cur /= part;
+            if (!cur.has_relative_path())
+                continue;
+            const DWORD a = GetFileAttributesW(cur.c_str());
+            if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || (a & FILE_ATTRIBUTE_DIRECTORY) == 0)
+                return false;
+        }
+        const UniqueHandle h(CreateFileW(dir.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        BY_HANDLE_FILE_INFORMATION info{};
+        return h.valid() && GetFileInformationByHandle(h.get(), &info) && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+            && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+    } catch (...) {
+        return false;
+    }
 }
 
 bool is_safe_book_path(const std::filesystem::path& p) noexcept

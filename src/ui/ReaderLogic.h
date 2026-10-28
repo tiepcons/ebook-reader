@@ -28,7 +28,6 @@ inline constexpr uint64_t kNoAnchor = UINT64_MAX;
 
 struct LayoutParams {
     float width_pt = 0, height_pt = 0, em_pt = 0;
-    std::size_t css_hash = 0;
     friend bool operator==(const LayoutParams&, const LayoutParams&) = default;
 };
 

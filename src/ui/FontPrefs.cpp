@@ -89,7 +89,7 @@ ReaderStyle make_style(const ReaderPrefs& p, std::string_view fmt)
     s.colors = resolve_theme(p.theme);
     s.tint = wants_tint(p.theme, fmt);
     s.em_pt = static_cast<float>(clamped(p.font).size_pt);
-    s.css = theme_css(s.colors) + font_css(p.font);
+    s.css = theme_css() + font_css(p.font);
     return s;
 }
 

@@ -21,6 +21,8 @@ namespace {
 
 constexpr DWORD kDwmUseImmersiveDarkMode = 20;
 constexpr int kMaxFamilies = 512;
+constexpr UINT_PTR kPreviewTimer = 1;
+constexpr UINT kPreviewDebounceMs = 300;
 constexpr int kLineStepPct = 10;
 constexpr std::size_t kMaxFamilyChars = 128;
 
@@ -168,15 +170,25 @@ void read_controls(HWND dlg, DlgState& st)
     p.font = clamped(std::move(p.font));
 }
 
-void changed(HWND dlg, DlgState& st)
+void apply_live(HWND dlg, DlgState& st)
+{
+    KillTimer(dlg, kPreviewTimer);
+    if (st.live != nullptr)
+        (*st.live)(st.prefs);
+}
+
+// Theme and mode clicks are cheap and apply at once; typing and combo changes wait for a pause, because each one relays out the book.
+void changed(HWND dlg, DlgState& st, bool immediate)
 {
     if (st.loading)
         return;
     read_controls(dlg, st);
     refresh_swatches(dlg, st);
     update_enabled(dlg, st);
-    if (st.live != nullptr)
-        (*st.live)(st.prefs);
+    if (immediate)
+        apply_live(dlg, st);
+    else
+        SetTimer(dlg, kPreviewTimer, kPreviewDebounceMs, nullptr);
 }
 
 void pick_color(HWND dlg, DlgState& st, std::size_t which)
@@ -195,8 +207,7 @@ void pick_color(HWND dlg, DlgState& st, std::size_t which)
     st.prefs.theme.id = ThemeId::Custom;
     st.prefs.theme.custom = c;
     fill_controls(dlg, st);
-    if (st.live != nullptr)
-        (*st.live)(st.prefs);
+    apply_live(dlg, st);
 }
 
 bool is_change_notification(int id, int code) noexcept
@@ -217,6 +228,7 @@ INT_PTR on_command(HWND dlg, DlgState& st, WPARAM wp)
         return TRUE;
     }
     if (id == IDOK || id == IDCANCEL) {
+        KillTimer(dlg, kPreviewTimer);
         if (id == IDOK) {
             read_controls(dlg, st);
             st.accepted = true;
@@ -225,7 +237,7 @@ INT_PTR on_command(HWND dlg, DlgState& st, WPARAM wp)
         return TRUE;
     }
     if (is_change_notification(id, code)) {
-        changed(dlg, st);
+        changed(dlg, st, code == BN_CLICKED);
         return TRUE;
     }
     return FALSE;
@@ -265,6 +277,10 @@ INT_PTR CALLBACK dialog_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) noexcept
             return FALSE;
         if (msg == WM_COMMAND)
             return on_command(dlg, *st, wp);
+        if (msg == WM_TIMER && wp == kPreviewTimer) {
+            apply_live(dlg, *st);
+            return TRUE;
+        }
         if (msg == WM_CTLCOLORSTATIC)
             return on_color_static(*st, reinterpret_cast<HDC>(wp), reinterpret_cast<HWND>(lp)); // NOLINT(performance-no-int-to-ptr): Win32 dialog ABI
     } catch (...) {
@@ -290,11 +306,10 @@ std::optional<ReaderPrefs> show_reader_settings(HINSTANCE inst, HWND owner, cons
     }
 }
 
-void apply_reader_chrome(HWND main, HWND status, std::optional<uint32_t> bg_rgb) noexcept
+void apply_reader_chrome(HWND main, std::optional<uint32_t> bg_rgb) noexcept
 {
     const BOOL dark = bg_rgb && wants_dark_title(*bg_rgb) ? TRUE : FALSE;
     DwmSetWindowAttribute(main, kDwmUseImmersiveDarkMode, &dark, sizeof(dark));
-    SendMessageW(status, SB_SETBKCOLOR, 0, bg_rgb ? static_cast<LPARAM>(to_ref(*bg_rgb)) : static_cast<LPARAM>(CLR_DEFAULT));
 }
 
 }

@@ -15,6 +15,12 @@ inline bool is_cont(std::string_view s, size_t i) noexcept
     return i < s.size() && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80;
 }
 
+inline bool in_range(std::string_view s, size_t i, unsigned lo, unsigned hi) noexcept
+{
+    return i < s.size() && static_cast<unsigned char>(s[i]) >= lo && static_cast<unsigned char>(s[i]) <= hi;
+}
+
+// Strict UTF-8: overlongs, surrogates and values above U+10FFFF decode as U+FFFD, advancing one byte.
 inline Cp decode(std::string_view s, size_t i) noexcept
 {
     const auto b0 = static_cast<unsigned char>(s[i]);
@@ -23,10 +29,18 @@ inline Cp decode(std::string_view s, size_t i) noexcept
     auto low = [&](size_t k) { return static_cast<char32_t>(static_cast<unsigned char>(s[i + k]) & 0x3F); };
     if (b0 >= 0xC2 && b0 <= 0xDF && is_cont(s, i + 1))
         return {(static_cast<char32_t>(b0 & 0x1F) << 6) | low(1), 2};
-    if (b0 >= 0xE0 && b0 <= 0xEF && is_cont(s, i + 1) && is_cont(s, i + 2))
-        return {(static_cast<char32_t>(b0 & 0x0F) << 12) | (low(1) << 6) | low(2), 3};
-    if (b0 >= 0xF0 && b0 <= 0xF4 && is_cont(s, i + 1) && is_cont(s, i + 2) && is_cont(s, i + 3))
-        return {(static_cast<char32_t>(b0 & 0x07) << 18) | (low(1) << 12) | (low(2) << 6) | low(3), 4};
+    if (b0 >= 0xE0 && b0 <= 0xEF) {
+        const unsigned lo = b0 == 0xE0 ? 0xA0 : 0x80;
+        const unsigned hi = b0 == 0xED ? 0x9F : 0xBF;
+        if (in_range(s, i + 1, lo, hi) && is_cont(s, i + 2))
+            return {(static_cast<char32_t>(b0 & 0x0F) << 12) | (low(1) << 6) | low(2), 3};
+    }
+    if (b0 >= 0xF0 && b0 <= 0xF4) {
+        const unsigned lo = b0 == 0xF0 ? 0x90 : 0x80;
+        const unsigned hi = b0 == 0xF4 ? 0x8F : 0xBF;
+        if (in_range(s, i + 1, lo, hi) && is_cont(s, i + 2) && is_cont(s, i + 3))
+            return {(static_cast<char32_t>(b0 & 0x07) << 18) | (low(1) << 12) | (low(2) << 6) | low(3), 4};
+    }
     return {0xFFFD, 1};
 }
 

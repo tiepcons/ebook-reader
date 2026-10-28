@@ -1,11 +1,15 @@
 #include "tts/piper/PiperTts.h"
 
+#include "base/PathSafety.h"
+#include "tts/Utf8.h"
+
 #include <doctest/doctest.h>
 
 #include <tlhelp32.h>
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -233,7 +237,9 @@ TEST_CASE("tts piper prepared utterance starts within 300 ms")
     };
     REQUIRE(tts.speak(1, "One two three four five six.", kEn, 1.0, 0.0));
     tts.prepare(2, next, kEn, 1.0);
-    REQUIRE(sink.wait_for(2, eb::TtsEvent::Started, 60000));
+    const bool st = sink.wait_for(2, eb::TtsEvent::Started, 60000);
+    for (const auto& g : sink.got) MESSAGE("ev id=", g.id, " ev=", int(g.ev), " v=", g.value);
+    REQUIRE(st);
     const Got* started = nullptr;
     for (const auto& g : sink.got)
         if (g.id == 2 && g.ev == eb::TtsEvent::Started)
@@ -310,6 +316,99 @@ TEST_CASE("tts piper destruction while speaking is quick and leaves no child")
         tts.set_sink(sink.hwnd, kMsg);
         REQUIRE(tts.speak(1, long_text(), kEn, 1.0, 0.0));
         tts.prepare(2, "Next.", kEn, 1.0);
+        REQUIRE(wait_children(true, 10000));
+        sink.pump_ms(300);
+        t0 = Clock::now();
+    }
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 1000);
+    CHECK(wait_children(false, 2000));
+}
+
+namespace {
+
+bool decodes_as_invalid(const std::string& s)
+{
+    const auto c = eb::u8::decode(s, 0);
+    return c.cp == 0xFFFD && c.len == 1;
+}
+
+char32_t decoded(const std::string& s, uint32_t len)
+{
+    const auto c = eb::u8::decode(s, 0);
+    return c.len == len ? c.cp : U'?';
+}
+
+}
+
+TEST_CASE("tts utf8 decoder is strict")
+{
+    CHECK(decodes_as_invalid("\xC0\x80"));
+    CHECK(decodes_as_invalid("\xC1\xBF"));
+    CHECK(decodes_as_invalid("\xE0\x9F\xBF"));
+    CHECK(decodes_as_invalid("\xE0\x80\x80"));
+    CHECK(decodes_as_invalid("\xED\xA0\x80"));
+    CHECK(decodes_as_invalid("\xED\xBF\xBF"));
+    CHECK(decodes_as_invalid("\xF0\x8F\xBF\xBF"));
+    CHECK(decodes_as_invalid("\xF4\x90\x80\x80"));
+    CHECK(decodes_as_invalid("\xF5\x80\x80\x80"));
+    CHECK(decodes_as_invalid("\xF8\x88\x80\x80\x80"));
+    CHECK(decodes_as_invalid("\x80"));
+    CHECK(decodes_as_invalid("\xC2"));
+    CHECK(decodes_as_invalid("\xE2\x82"));
+    CHECK(decodes_as_invalid("\xF0\x9F\x98"));
+    CHECK(decoded("\xE0\xA0\x80", 3) == 0x800);
+    CHECK(decoded("\xED\x9F\xBF", 3) == 0xD7FF);
+    CHECK(decoded("\xEE\x80\x80", 3) == 0xE000);
+    CHECK(decoded("\xF0\x90\x80\x80", 4) == 0x10000);
+    CHECK(decoded("\xF4\x8F\xBF\xBF", 4) == 0x10FFFF);
+}
+
+TEST_CASE("tts piper json escapes invalid UTF-8 and line separators")
+{
+    CHECK(eb::piper::json_escape("a\xED\xA0\x80z") == "a\\ufffd\\ufffd\\ufffdz");
+    CHECK(eb::piper::json_escape("\xF4\x90\x80\x80") == "\\ufffd\\ufffd\\ufffd\\ufffd");
+    CHECK(eb::piper::json_escape("\xC0\xAF") == "\\ufffd\\ufffd");
+    CHECK(eb::piper::json_escape("x\xE2\x80\xA8y\xE2\x80\xA9") == "x\\u2028y\\u2029");
+}
+
+TEST_CASE("tts piper temp dir must not sit behind a reparse point")
+{
+    const fs::path base = fs::temp_directory_path() / L"eb-piper-junction";
+    std::error_code ec;
+    fs::create_directories(base / L"real", ec);
+    const fs::path link = base / L"link";
+    fs::remove(link, ec);
+    CHECK(eb::is_plain_dir_chain(base / L"real"));
+    CHECK(!eb::is_plain_dir_chain(base / L"missing"));
+    const std::wstring cmd = L"cmd /c mklink /J \"" + link.wstring() + L"\" \"" + (base / L"real").wstring() + L"\" >nul";
+    if (_wsystem(cmd.c_str()) != 0) {
+        MESSAGE("mklink /J unavailable, junction check skipped");
+        return;
+    }
+    CHECK(!eb::is_plain_dir_chain(link));
+    CHECK(!eb::is_plain_dir_chain(link / L"sub"));
+    fs::remove(link, ec);
+}
+
+TEST_CASE("tts piper destruction with a wedged child is quick")
+{
+    const fs::path fake = EB_FAKE_PIPER_DIR;
+    std::error_code ec;
+    if (!fs::exists(fake / L"piper.exe", ec)) {
+        MESSAGE("fake piper missing, skipped");
+        return;
+    }
+    const fs::path voices = fs::temp_directory_path() / L"eb-fake-voices";
+    fs::create_directories(voices, ec);
+    for (const wchar_t* name : {L"x.onnx", L"x.onnx.json"})
+        std::ofstream(voices / name, std::ios::binary) << "{}";
+    Sink sink;
+    Clock::time_point t0{};
+    {
+        eb::PiperTts tts(fake, voices, fs::temp_directory_path() / L"eb-fake-temp");
+        tts.set_sink(sink.hwnd, kMsg);
+        REQUIRE(tts.speak(1, std::string(60000, 'a') + ".", L"x", 1.0, 0.0));
+        tts.prepare(2, "Next.", L"x", 1.0);
         REQUIRE(wait_children(true, 10000));
         sink.pump_ms(300);
         t0 = Clock::now();

@@ -56,7 +56,9 @@ std::string json_escape(std::string_view s)
     size_t i = 0;
     while (i < s.size()) {
         const auto c = u8::decode(s, i);
-        if (c.len > 1) {
+        if (c.cp == 0x2028 || c.cp == 0x2029) {
+            out += c.cp == 0x2028 ? "\\u2028" : "\\u2029";
+        } else if (c.len > 1) {
             out.append(s.substr(i, c.len));
         } else if (static_cast<unsigned char>(s[i]) >= 0x80) {
             out += "\\ufffd";

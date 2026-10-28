@@ -16,7 +16,7 @@ using PrefsApply = std::function<void(const ReaderPrefs&)>;
 std::optional<ReaderPrefs> show_reader_settings(HINSTANCE inst, HWND owner, const ReaderPrefs& initial,
     const PrefsApply& live) noexcept;
 
-// Title bar (dark when the page colour is dark) and status strip in the reader's colours; nullopt restores the system look.
-void apply_reader_chrome(HWND main, HWND status, std::optional<uint32_t> bg_rgb) noexcept;
+// Dark title bar when the page colour is dark; nullopt restores the light title bar. Menus and controls keep system colours.
+void apply_reader_chrome(HWND main, std::optional<uint32_t> bg_rgb) noexcept;
 
 }

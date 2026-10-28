@@ -120,11 +120,9 @@ bool wants_dark_title(uint32_t bg_rgb) noexcept
     return luminance(bg_rgb) < kDarkLuma;
 }
 
-std::string theme_css(const ThemeColors& c)
+std::string theme_css()
 {
-    return std::format("html, body {{ background-color: transparent !important; }}"
-                       "html, body {{ color: {} !important; }}a {{ color: {} !important; }}",
-        format_hex_rgb(c.fg), format_hex_rgb(c.link));
+    return "html, body { background-color: transparent !important; }";
 }
 
 bool wants_tint(const ThemePrefs& p, std::string_view fmt) noexcept

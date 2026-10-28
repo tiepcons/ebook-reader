@@ -1,21 +1,13 @@
 #include "tts/piper/PiperTts.h"
 
 #include "base/Text.h"
-#include "tts/piper/PiperProc.h"
 #include "tts/Utf8.h"
-
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Media.Core.h>
-#include <winrt/Windows.Media.Playback.h>
-#include <winrt/Windows.Storage.h>
+#include "tts/piper/PiperProc.h"
+#include "tts/piper/player/PiperPlayer.h"
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cmath>
-#include <condition_variable>
-#include <deque>
-#include <functional>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -23,24 +15,31 @@
 namespace eb {
 
 namespace fs = std::filesystem;
-using winrt::Windows::Media::Core::MediaSource;
-using winrt::Windows::Media::Playback::MediaPlaybackState;
-using winrt::Windows::Media::Playback::MediaPlayer;
-using winrt::Windows::Storage::StorageFile;
 
+using piper::Cancel;
 using piper::Cfg;
+using piper::Player;
+using piper::PlayEvent;
 using piper::Proc;
 using piper::Wait;
 
 namespace {
 
 constexpr size_t kMaxVoices = 256;
+constexpr size_t kMaxVoiceEntries = 4096;
 constexpr size_t kMaxProcs = 2;
 constexpr SIZE_T kJobMemory = size_t{1536} * 1024 * 1024;
+constexpr auto kBaseLimit = std::chrono::seconds(30);
+constexpr auto kMaxLimit = std::chrono::seconds(300);
 
 int rate_key(double rate)
 {
     return static_cast<int>(std::lround(std::clamp(rate, 0.5, 3.0) * 20.0));
+}
+
+std::chrono::seconds synth_limit(size_t utf8_bytes)
+{
+    return std::min(kBaseLimit + std::chrono::seconds(utf8_bytes / 200), kMaxLimit);
 }
 
 struct Shared {
@@ -53,7 +52,7 @@ struct Shared {
     std::atomic<bool> quit{false};
     std::map<std::wstring, int> fails;
     std::mutex pm;
-    MediaPlayer playing{nullptr};
+    Player playing;
 
     bool current(uint32_t g) noexcept
     {
@@ -106,23 +105,22 @@ struct Shared {
         } catch (...) { // NOLINT(bugprone-empty-catch): the counter is advisory
         }
     }
-    void set_playing(MediaPlayer p) noexcept
+    void set_playing(Player p) noexcept
     {
         const std::scoped_lock lk(pm);
         playing = std::move(p);
     }
     void with_playing(bool play) noexcept
     {
-        const std::scoped_lock lk(pm);
-        try {
-            if (playing) {
-                if (play)
-                    playing.Play();
-                else
-                    playing.Pause();
-            }
-        } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
+        Player p;
+        {
+            const std::scoped_lock lk(pm);
+            p = playing;
         }
+        if (play)
+            p.resume();
+        else
+            p.pause();
     }
 };
 
@@ -151,26 +149,10 @@ Key key_of(const Req& r)
 }
 
 struct Prepared {
-    MediaPlayer player{nullptr};
+    Player player;
     fs::path wav;
     Key key;
 };
-
-void close_prepared(Prepared& p) noexcept
-{
-    try {
-        if (p.player) {
-            p.player.Pause();
-            p.player.Close();
-        }
-    } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
-    }
-    if (!p.wav.empty()) {
-        std::error_code ec;
-        fs::remove(p.wav, ec);
-    }
-    p = Prepared{};
-}
 
 struct Engine;
 using Task = std::function<void(Engine&)>;
@@ -199,6 +181,7 @@ struct Engine {
     std::shared_ptr<Shared> sh;
     UniqueHandle job;
     std::vector<std::unique_ptr<Proc>> procs;
+    std::vector<fs::path> pending;
     Prepared cur;
     Prepared prep;
     uint32_t serial = 0;
@@ -207,10 +190,33 @@ struct Engine {
     {
         job.reset(CreateJobObjectW(nullptr, nullptr));
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_JOB_MEMORY;
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_JOB_MEMORY
+            | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+        info.BasicLimitInformation.ActiveProcessLimit = kMaxProcs;
         info.JobMemoryLimit = kJobMemory;
-        return job.valid()
-            && SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation, &info, sizeof info);
+        return job.valid() && SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation, &info, sizeof info);
+    }
+
+    // A WAV that cannot be deleted yet (still open elsewhere) is retried on the next request and at shutdown.
+    void discard(const fs::path& p) noexcept
+    {
+        if (p.empty())
+            return;
+        try {
+            std::error_code ec;
+            fs::remove(p, ec);
+            if (ec)
+                pending.push_back(p);
+        } catch (...) { // NOLINT(bugprone-empty-catch): stale files are removed at the next start
+        }
+    }
+
+    void retry_pending() noexcept
+    {
+        std::vector<fs::path> again;
+        again.swap(pending);
+        for (const auto& p : again)
+            discard(p);
     }
 
     Proc* acquire(const std::wstring& voice, int rk) noexcept
@@ -224,15 +230,15 @@ struct Engine {
                 }
                 procs.erase(it);
             }
-            const fs::path model = voice_model(cfg, voice);
-            if (model.empty() || !safe_exe(cfg))
+            const fs::path model = piper::voice_model(cfg, voice);
+            if (model.empty() || !piper::safe_exe(cfg))
                 return nullptr;
             if (procs.size() >= kMaxProcs)
                 procs.erase(procs.begin());
             auto p = std::make_unique<Proc>();
             p->voice = voice;
             p->rate = rk;
-            if (!p->start(job.get(), cfg, command_line(cfg, model, rk)))
+            if (!p->start(job.get(), cfg, piper::command_line(cfg, model, rk)))
                 return nullptr;
             procs.push_back(std::move(p));
             return procs.back().get();
@@ -250,7 +256,20 @@ struct Engine {
     }
 };
 
-enum class Synth : uint8_t { Ok, Cancelled, Failed, BadVoice };
+void close_prepared(Engine& e, Prepared& p) noexcept
+{
+    p.player.close();
+    e.discard(p.wav);
+    p = Prepared{};
+}
+
+void close_cur(Engine& e) noexcept
+{
+    e.sh->set_playing(Player{});
+    close_prepared(e, e.cur);
+}
+
+enum class Synth : uint8_t { Ok, Cancelled, TimedOut, Failed, BadVoice };
 
 bool has_content(std::string_view s)
 {
@@ -264,108 +283,82 @@ bool has_content(std::string_view s)
     return false;
 }
 
-Synth run_request(Engine& e, Proc& p, const Req& r, const std::function<bool()>& cancel, fs::path& wav)
+Synth run_request(Engine& e, Proc& p, const Req& r, const Cancel& cancel, fs::path& wav)
 {
     wav = e.cfg.temp / (L"eb-" + std::to_wstring(++e.serial) + L".wav");
     const auto utf8 = wide_to_utf8(wav.wstring());
-    if (!utf8 || !p.send(piper::request_line(r.text, *utf8)))
-        return Synth::Failed;
-    const Wait w = p.await(cancel);
-    if (w == Wait::Cancelled) {
-        p.abandoned.push_back(wav);
-        return Synth::Cancelled;
+    if (!utf8 || !p.send(piper::request_line(r.text, *utf8), cancel))
+        return cancel() ? Synth::Cancelled : Synth::Failed;
+    switch (p.await(cancel, synth_limit(r.text.size()))) {
+    case Wait::Done: {
+        std::error_code ec;
+        return fs::is_regular_file(wav, ec) ? Synth::Ok : Synth::Failed;
     }
-    std::error_code ec;
-    return w == Wait::Done && fs::is_regular_file(wav, ec) ? Synth::Ok : Synth::Failed;
+    case Wait::Cancelled: return Synth::Cancelled;
+    case Wait::Timeout: return Synth::TimedOut;
+    case Wait::Dead: break;
+    }
+    return Synth::Failed;
 }
 
-Synth synth(Engine& e, const Req& r, const std::function<bool()>& cancel, fs::path& wav)
+// A cancelled, timed-out or failed child is killed and dropped; its half-written WAV is deleted afterwards.
+// Timeouts and cancellations do not count against the voice.
+Synth synth(Engine& e, const Req& r, const Cancel& cancel, fs::path& wav)
 {
+    e.retry_pending();
     if (!has_content(r.text))
         return Synth::Failed;
-    if (voice_model(e.cfg, r.voice).empty())
+    if (piper::voice_model(e.cfg, r.voice).empty())
         return Synth::BadVoice;
     Proc* p = e.acquire(r.voice, r.rate);
     const Synth res = p != nullptr ? run_request(e, *p, r, cancel, wav) : Synth::Failed;
-    if (res == Synth::Cancelled)
-        return res;
-    e.sh->note(r.voice, res == Synth::Ok);
-    if (res == Synth::Failed) {
+    if (res != Synth::Ok) {
         if (p != nullptr)
             e.drop(p);
-        std::error_code ec;
-        fs::remove(wav, ec);
+        e.discard(wav);
     }
+    if (res == Synth::Ok || res == Synth::Failed)
+        e.sh->note(r.voice, res == Synth::Ok);
     return res;
-}
-
-bool build_player(Prepared& p, const fs::path& wav) noexcept
-{
-    try {
-        const StorageFile file = StorageFile::GetFileFromPathAsync(wav.wstring()).get();
-        p.player = MediaPlayer();
-        p.player.AutoPlay(false);
-        p.player.Source(MediaSource::CreateFromStorageFile(file));
-        p.wav = wav;
-        return true;
-    } catch (...) {
-        close_prepared(p);
-        return false;
-    }
-}
-
-struct Hook {
-    std::shared_ptr<Shared> sh;
-    uint32_t gen;
-    uint32_t id;
-    std::atomic<bool> started{false};
-
-    Hook(std::shared_ptr<Shared> s, uint32_t g, uint32_t i) : sh(std::move(s)), gen(g), id(i) {}
-
-    void start() noexcept
-    {
-        if (!started.exchange(true))
-            sh->post(gen, id, TtsEvent::Started, 0);
-    }
-};
-
-void hook_player(const std::shared_ptr<Shared>& sh, const Req& r, const MediaPlayer& player)
-{
-    auto h = std::make_shared<Hook>(sh, r.gen, r.id);
-    player.MediaEnded([h](auto&&, auto&&) {
-        h->start();
-        h->sh->post(h->gen, h->id, TtsEvent::Finished, 0);
-    });
-    player.MediaFailed([h](auto&&, auto&&) { h->sh->post(h->gen, h->id, TtsEvent::Error, kTtsPlayFailed); });
-    player.PlaybackSession().PlaybackStateChanged([h](const auto& session, auto&&) {
-        try {
-            if (session.PlaybackState() == MediaPlaybackState::Playing)
-                h->start();
-        } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
-        }
-    });
-}
-
-void close_cur(Engine& e) noexcept
-{
-    e.sh->set_playing(MediaPlayer{nullptr});
-    close_prepared(e.cur);
 }
 
 void play_new(Engine& e, Prepared p, const Req& r)
 {
     close_cur(e);
-    try {
-        p.player.Volume(std::clamp(r.volume, 0.0, 1.0));
-        hook_player(e.sh, r, p.player);
-        e.cur = std::move(p);
-        e.sh->set_playing(e.cur.player);
-        e.cur.player.Play();
-    } catch (...) {
-        close_cur(e);
-        close_prepared(p);
+    const bool ok = p.player.play(r.volume, [sh = e.sh, gen = r.gen, id = r.id](PlayEvent ev) {
+        switch (ev) {
+        case PlayEvent::Started: sh->post(gen, id, TtsEvent::Started, 0); break;
+        case PlayEvent::Finished: sh->post(gen, id, TtsEvent::Finished, 0); break;
+        case PlayEvent::Failed: sh->post(gen, id, TtsEvent::Error, kTtsPlayFailed); break;
+        }
+    });
+    if (!ok) {
+        close_prepared(e, p);
         e.sh->post(r.gen, r.id, TtsEvent::Error, kTtsPlayFailed);
+        return;
     }
+    e.cur = std::move(p);
+    e.sh->set_playing(e.cur.player);
+}
+
+bool fetch_wav(Engine& e, const ReqPtr& req, Prepared& p)
+{
+    fs::path wav;
+    const Cancel cancel = [&] { return e.sh->quit || !e.sh->current(req->gen); };
+    const Synth res = synth(e, *req, cancel, wav);
+    if (res == Synth::Cancelled)
+        return false;
+    if (res != Synth::Ok) {
+        e.sh->post(req->gen, req->id, TtsEvent::Error, res == Synth::BadVoice ? kTtsBadVoice : kTtsSynthFailed);
+        return false;
+    }
+    p.wav = wav;
+    if (!p.player.open(wav)) {
+        close_prepared(e, p);
+        e.sh->post(req->gen, req->id, TtsEvent::Error, kTtsPlayFailed);
+        return false;
+    }
+    return true;
 }
 
 void do_speak(Engine& e, const ReqPtr& req)
@@ -374,28 +367,14 @@ void do_speak(Engine& e, const ReqPtr& req)
         return;
     close_cur(e);
     Prepared p;
-    if (e.prep.player && e.prep.key == key_of(*req)) {
+    if (e.prep.player.valid() && e.prep.key == key_of(*req)) {
         p = std::move(e.prep);
         e.prep = Prepared{};
-    } else {
-        fs::path wav;
-        const auto cancel = [&] { return e.sh->quit || !e.sh->current(req->gen); };
-        const Synth res = synth(e, *req, cancel, wav);
-        if (res == Synth::Cancelled)
-            return;
-        if (res != Synth::Ok) {
-            e.sh->post(req->gen, req->id, TtsEvent::Error, res == Synth::BadVoice ? kTtsBadVoice : kTtsSynthFailed);
-            return;
-        }
-        if (!build_player(p, wav)) {
-            std::error_code ec;
-            fs::remove(wav, ec);
-            e.sh->post(req->gen, req->id, TtsEvent::Error, kTtsPlayFailed);
-            return;
-        }
+    } else if (!fetch_wav(e, req, p)) {
+        return;
     }
     if (!e.sh->current(req->gen)) {
-        close_prepared(p);
+        close_prepared(e, p);
         return;
     }
     p.key = key_of(*req);
@@ -406,26 +385,24 @@ void do_prepare(Engine& e, const ReqPtr& req)
 {
     if (!e.sh->epoch_is(req->epoch))
         return;
-    close_prepared(e.prep);
+    close_prepared(e, e.prep);
     fs::path wav;
-    const auto cancel = [&] { return e.sh->quit || !e.sh->epoch_is(req->epoch); };
+    const Cancel cancel = [&] { return e.sh->quit || !e.sh->epoch_is(req->epoch); };
     if (synth(e, *req, cancel, wav) != Synth::Ok)
         return;
     Prepared p;
     p.key = key_of(*req);
-    if (build_player(p, wav) && e.sh->epoch_is(req->epoch)) {
+    p.wav = wav;
+    if (p.player.open(wav) && e.sh->epoch_is(req->epoch))
         e.prep = std::move(p);
-        return;
-    }
-    close_prepared(p);
-    std::error_code ec;
-    fs::remove(wav, ec);
+    else
+        close_prepared(e, p);
 }
 
 void do_stop(Engine& e)
 {
     close_cur(e);
-    close_prepared(e.prep);
+    close_prepared(e, e.prep);
 }
 
 }
@@ -438,18 +415,16 @@ struct PiperTts::Impl {
 
     void run() noexcept
     {
-        try {
-            winrt::init_apartment(winrt::apartment_type::multi_threaded);
-        } catch (...) {
-            sh->dead = true;
-            return;
-        }
-        try {
-            run_engine();
-        } catch (...) { // NOLINT(bugprone-empty-catch): the engine is marked dead below
+        {
+            const piper::Apartment apartment;
+            if (apartment.ok()) {
+                try {
+                    run_engine();
+                } catch (...) { // NOLINT(bugprone-empty-catch): the engine is marked dead below
+                }
+            }
         }
         sh->dead = true;
-        winrt::uninit_apartment();
     }
 
     void run_engine()
@@ -457,12 +432,11 @@ struct PiperTts::Impl {
         Engine e;
         e.cfg = cfg;
         e.sh = sh;
-        if (e.make_job()) {
-            piper::clean_stale(cfg.temp);
+        if (e.make_job() && piper::prepare_temp_dir(cfg.temp))
             loop(e);
-        }
         close_cur(e);
-        close_prepared(e.prep);
+        close_prepared(e, e.prep);
+        e.retry_pending();
     }
 
     void loop(Engine& e) noexcept
@@ -515,13 +489,14 @@ std::vector<Voice> PiperTts::voices() noexcept
         std::error_code ec;
         if (!fs::is_regular_file(impl_->cfg.exe(), ec))
             return out;
-        for (fs::directory_iterator it(impl_->cfg.voices, ec), end; !ec && it != end && out.size() < kMaxVoices;
-             it.increment(ec)) {
+        size_t seen = 0;
+        for (fs::directory_iterator it(impl_->cfg.voices, ec), end;
+             !ec && it != end && out.size() < kMaxVoices && seen++ < kMaxVoiceEntries; it.increment(ec)) {
             const fs::path& p = it->path();
-            if (p.extension() != L".onnx")
+            if (p.extension() != L".onnx" || piper::is_reparse(p))
                 continue;
             const std::wstring id = p.stem().wstring();
-            if (voice_model(impl_->cfg, id).empty())
+            if (piper::voice_model(impl_->cfg, id).empty())
                 continue;
             out.push_back({id, id, piper::voice_lang(p)});
         }

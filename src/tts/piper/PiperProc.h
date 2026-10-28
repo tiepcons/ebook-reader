@@ -1,6 +1,7 @@
 #pragma once
 #include "base/Handle.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -20,6 +21,8 @@ struct Cfg {
     fs::path exe() const { return piper / L"piper.exe"; }
 };
 
+// True for reparse points and for paths that do not exist.
+bool is_reparse(const fs::path& p) noexcept;
 // True when piper.exe is an absolute, regular, non-reparse file that really lives inside Cfg::piper.
 bool safe_exe(const Cfg& c) noexcept;
 // Empty unless <voices>\<id>.onnx and its .onnx.json exist and id is a plain file stem.
@@ -29,16 +32,19 @@ std::wstring command_line(const Cfg& c, const fs::path& model, int rate_key);
 
 // Language tag for a voice model: json "language.code" with a fallback to the file stem ("vi_VN-x" -> "vi-VN").
 std::wstring voice_lang(const fs::path& model);
-// Creates the temp dir and removes stale eb-*.wav files left by a previous run.
-void clean_stale(const fs::path& dir) noexcept;
+// Creates the temp dir, refuses reparse points on its path, labels it Low integrity (the child runs at Low) and
+// removes stale eb-*.wav files left by a previous run.
+bool prepare_temp_dir(const fs::path& dir) noexcept;
 
 enum class Wait : uint8_t { Done, Dead, Timeout, Cancelled };
 
-// One piper.exe child plus the thread that turns its stdout into lines. Used from a single worker thread.
+using Cancel = std::function<bool()>;
+
+// One piper.exe child (Low integrity, inside the caller's job) plus the thread that turns its stdout into lines.
+// Used from a single worker thread; the destructor kills the child.
 struct Proc {
     std::wstring voice;
     int rate = 0;
-    std::deque<fs::path> abandoned;
 
     Proc() = default;
     Proc(const Proc&) = delete;
@@ -47,9 +53,9 @@ struct Proc {
 
     bool start(HANDLE job, const Cfg& c, const std::wstring& cmd) noexcept;
     bool alive() noexcept;
-    bool send(const std::string& line) noexcept;
-    // Waits for the next ".wav" line; wavs listed in `abandoned` are skipped and deleted first.
-    Wait await(const std::function<bool()>& cancel) noexcept;
+    // Never blocks past a few seconds: the write is overlapped and abandoned when cancel() turns true.
+    bool send(const std::string& line, const Cancel& cancel) noexcept;
+    Wait await(const Cancel& cancel, std::chrono::seconds limit) noexcept;
 
 private:
     void push_line(std::string&& l);

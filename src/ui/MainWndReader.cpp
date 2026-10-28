@@ -350,7 +350,7 @@ void MainWnd::smoke_step(int page)
 
 void MainWnd::apply_chrome()
 {
-    apply_reader_chrome(hwnd_, status_, in_reader_ ? std::optional<uint32_t>(reader_.colors().bg) : std::nullopt);
+    apply_reader_chrome(hwnd_, in_reader_ ? std::optional<uint32_t>(reader_.colors().bg) : std::nullopt);
 }
 
 void MainWnd::open_reader_settings()

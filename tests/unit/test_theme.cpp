@@ -59,9 +59,7 @@ TEST_CASE("theme: luminance decides the title bar")
 
 TEST_CASE("theme: css and tint decisions")
 {
-    CHECK(eb::theme_css(eb::preset_colors(eb::ThemeId::Black))
-        == "html, body { background-color: transparent !important; }"
-           "html, body { color: #D0D0D0 !important; }a { color: #8AB4F8 !important; }");
+    CHECK(eb::theme_css() == "html, body { background-color: transparent !important; }");
     eb::ThemePrefs p;
     CHECK_FALSE(eb::wants_tint(p, "pdf"));
     CHECK_FALSE(eb::wants_tint(p, "cbz"));
@@ -125,7 +123,7 @@ TEST_CASE("fonts: style combines theme and font css")
     p.theme.id = eb::ThemeId::Paper;
     p.font.size_pt = 16;
     const eb::ReaderStyle s = eb::make_style(p, "epub");
-    CHECK(s.css == eb::theme_css(eb::preset_colors(eb::ThemeId::Paper)));
+    CHECK(s.css == eb::theme_css());
     CHECK(s.em_pt == doctest::Approx(16.0));
     CHECK(s.colors.bg == 0xF4ECD8U);
     CHECK(s.tint);
