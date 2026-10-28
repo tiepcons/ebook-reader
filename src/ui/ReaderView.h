@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace eb {
 
@@ -33,12 +34,23 @@ public:
     void flush() noexcept;
     void tick() noexcept;
     void go_to_start();
+    void go_to_mark(uint64_t mark);
+    void go_to_percent(int percent);
 
     [[nodiscard]] bool is_open() const noexcept { return worker_ != nullptr; }
     [[nodiscard]] std::wstring status_text() const;
     [[nodiscard]] const std::wstring& error_text() const noexcept { return error_; }
     // Percent of the saved position when a book opened somewhere after its start, once; -1 otherwise.
     [[nodiscard]] int take_resume_percent() noexcept;
+
+    [[nodiscard]] int percent() const noexcept;
+    [[nodiscard]] const std::vector<TocItem>& toc() const noexcept { return toc_; }
+    [[nodiscard]] std::vector<Bookmark> bookmarks() const;
+    // Adds a bookmark on the shown page or removes the ones on it: true = added, false = removed, nullopt = failed.
+    [[nodiscard]] std::optional<bool> toggle_bookmark();
+    bool remove_bookmark(int64_t id);
+    // Changes whenever the outline arrives or the bookmarks change.
+    [[nodiscard]] uint32_t content_version() const noexcept { return content_version_; }
 
     [[nodiscard]] const ReaderPrefs& prefs() const noexcept { return prefs_; }
     [[nodiscard]] ThemeColors colors() const noexcept { return resolve_theme(prefs_.theme); }
@@ -88,7 +100,10 @@ private:
     ZoomState zoom_;
     ReaderPrefs prefs_;
     std::shared_ptr<const ReaderStyle> style_;
-    std::string fmt_;
+    std::string fmt_, book_id_;
+    std::vector<TocItem> toc_;
+    uint32_t content_version_ = 0;
+    uint64_t end_mark_ = UINT64_MAX;
     bool prefs_loaded_ = false;
     uint32_t view_id_ = 0;
     uint32_t epoch_ = 0;

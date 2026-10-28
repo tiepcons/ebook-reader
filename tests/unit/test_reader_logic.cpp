@@ -4,8 +4,10 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <stop_token>
 #include <thread>
+#include <vector>
 
 #include <windows.h>
 
@@ -170,4 +172,65 @@ TEST_CASE("reader: pop returns on stop and wakes on a late post")
     const std::jthread poster([&] { q.post(want(7)); });
     REQUIRE(q.pop(w, live.get_token()));
     CHECK(w.page == 7);
+}
+
+TEST_CASE("reader: go-to percent maps to a page")
+{
+    CHECK(eb::page_for_percent(0, 100) == 0);
+    CHECK(eb::page_for_percent(100, 100) == 99);
+    CHECK(eb::page_for_percent(50, 101) == 50);
+    CHECK(eb::page_for_percent(250, 10) == 9);
+    CHECK(eb::page_for_percent(-5, 10) == 0);
+    CHECK(eb::page_for_percent(40, 1) == 0);
+    CHECK(eb::page_for_percent(40, 0) == 0);
+    for (const int32_t pages : {2, 7, 300}) {
+        const int32_t p = eb::page_for_percent(63, pages);
+        CHECK(std::abs(eb::reading_fraction(p, pages) - 0.63) <= 0.5 / (pages - 1) + 1e-9);
+    }
+}
+
+TEST_CASE("reader: percent input parsing")
+{
+    CHECK(eb::parse_percent(L"42") == 42);
+    CHECK(eb::parse_percent(L" 7 % ") == 7);
+    CHECK(eb::parse_percent(L"100%") == 100);
+    CHECK(eb::parse_percent(L"0") == 0);
+    CHECK_FALSE(eb::parse_percent(L"").has_value());
+    CHECK_FALSE(eb::parse_percent(L"101").has_value());
+    CHECK_FALSE(eb::parse_percent(L"-3").has_value());
+    CHECK_FALSE(eb::parse_percent(L"4x").has_value());
+    CHECK_FALSE(eb::parse_percent(L"1000").has_value());
+    CHECK_FALSE(eb::parse_percent(L"%").has_value());
+}
+
+TEST_CASE("reader: outline flattening to parents")
+{
+    CHECK(eb::toc_parents({}).empty());
+    const std::vector<int32_t> flat{0, 0, 0};
+    CHECK(eb::toc_parents(flat) == std::vector<int>{-1, -1, -1});
+    const std::vector<int32_t> nested{0, 1, 2, 1, 0, 1};
+    CHECK(eb::toc_parents(nested) == std::vector<int>{-1, 0, 1, 0, -1, 4});
+    const std::vector<int32_t> jump{0, 3, 1, 5};
+    CHECK(eb::toc_parents(jump) == std::vector<int>{-1, 0, 0, 2});
+    const std::vector<int32_t> deep_first{2, 0};
+    CHECK(eb::toc_parents(deep_first) == std::vector<int>{-1, -1});
+}
+
+TEST_CASE("reader: bookmarks inside a page")
+{
+    const std::vector<uint64_t> marks{5, 10, 15, 10, 20};
+    CHECK(eb::marks_on_page(marks, 10, 15) == std::vector<std::size_t>{1, 3});
+    CHECK(eb::marks_on_page(marks, 11, 15).empty());
+    CHECK(eb::marks_on_page(marks, 20, UINT64_MAX) == std::vector<std::size_t>{4});
+    CHECK(eb::marks_on_page({}, 0, UINT64_MAX).empty());
+}
+
+TEST_CASE("reader: Ctrl shortcuts for outline, bookmark and go-to")
+{
+    using eb::NavAction;
+    CHECK(eb::nav_for_key('T', false, true) == NavAction::Toc);
+    CHECK(eb::nav_for_key('B', false, true) == NavAction::Bookmark);
+    CHECK(eb::nav_for_key('G', false, true) == NavAction::GoTo);
+    CHECK(eb::nav_for_key(VK_OEM_COMMA, false, true) == NavAction::Settings);
+    CHECK(eb::nav_for_key('B', false, false) == NavAction::None);
 }

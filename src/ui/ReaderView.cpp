@@ -39,11 +39,6 @@ std::wstring wide(std::string_view s)
     return utf8_to_wide(s).value_or(std::wstring{});
 }
 
-double reading_fraction(int32_t page, int32_t count) noexcept
-{
-    return count <= 1 ? 1.0 : static_cast<double>(page) / (count - 1);
-}
-
 std::wstring page_error_text(eb_status st)
 {
     if (st == EB_E_NOMEM)
@@ -250,9 +245,10 @@ void ReaderView::send_want()
     const SIZE c = content_size();
     w.prefetch = bitmap_bytes(c.cx, c.cy) <= kPrefetchMaxBytes;
     w.page = page_;
-    w.have_cur = cache_.contains(page_);
-    w.have_next = cache_.contains(page_ + 1);
-    w.have_prev = cache_.contains(page_ - 1);
+    const bool known = anchor_ == kNoAnchor; // a jump to a bookmark lands on a page the cache cannot be keyed by yet
+    w.have_cur = known && cache_.contains(page_);
+    w.have_next = known && cache_.contains(page_ + 1);
+    w.have_prev = known && cache_.contains(page_ - 1);
     want_gen_ = worker_->request(w);
 }
 
@@ -278,6 +274,7 @@ bool ReaderView::open(OpenJob job)
         prefs_loaded_ = true;
     }
     fmt_ = job.fmt;
+    book_id_ = job.id;
     rebuild_style();
     saver_.emplace(store_, job.id);
     const auto saved = store_.load(job.id);
@@ -319,6 +316,10 @@ void ReaderView::close() noexcept
     wheel_acc_ = 0;
     chapter_.clear();
     note_.clear();
+    book_id_.clear();
+    toc_.clear();
+    content_version_ = 0;
+    end_mark_ = UINT64_MAX;
 }
 
 void ReaderView::flush() noexcept
@@ -391,7 +392,13 @@ void ReaderView::show_primary(const RenderResult& r)
         pan_x_ = pan_y_ = 0;
     page_ = r.page;
     mark_ = r.mark;
+    end_mark_ = r.end_mark;
     chapter_ = wide(r.chapter);
+    if (toc_.empty() && worker_) {
+        toc_ = worker_->toc();
+        if (!toc_.empty())
+            ++content_version_;
+    }
     if (BitmapRef* b = cache_.get(page_))
         set_shown(*b);
     if (awaiting_first_ && anchor_ != kNoAnchor && page_ > 0)
@@ -518,6 +525,15 @@ void ReaderView::on_action(NavAction a)
     case NavAction::Settings:
         notify(ReaderEvent::Settings);
         break;
+    case NavAction::Toc:
+        notify(ReaderEvent::Toc);
+        break;
+    case NavAction::Bookmark:
+        notify(ReaderEvent::Bookmark);
+        break;
+    case NavAction::GoTo:
+        notify(ReaderEvent::GoTo);
+        break;
     case NavAction::None:
         break;
     }
@@ -557,19 +573,6 @@ void ReaderView::wheel_step(int direction)
         return;
     }
     pan_by(0, direction * std::max(1, static_cast<int>(v.cy / 4)));
-}
-
-std::wstring ReaderView::status_text() const
-{
-    if (count_ <= 0)
-        return note_.empty() ? std::wstring(L"Đang mở…") : note_;
-    const int pct = static_cast<int>(std::lround(100.0 * reading_fraction(page_, count_)));
-    std::wstring t = std::format(L"Trang {} / {} · {} %", page_ + 1, count_, pct);
-    if (!chapter_.empty())
-        t += L" · " + chapter_;
-    if (!note_.empty())
-        t += L" · " + note_;
-    return t;
 }
 
 int ReaderView::take_resume_percent() noexcept

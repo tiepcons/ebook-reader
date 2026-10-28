@@ -33,6 +33,7 @@ struct RenderResult {
     float scale = 0;        // device pixels per point of bmp
     int32_t page = 0, page_count = 0;
     uint64_t mark = 0;      // eb_bookmark_of_page(page); only set when primary
+    uint64_t end_mark = UINT64_MAX; // bookmark of the next page, UINT64_MAX on the last one; only set when primary
     bool primary = false;   // the page the UI asked for, as opposed to a prefetch
     bool reflowable = false;
     eb_status status = EB_OK;
@@ -58,13 +59,10 @@ public:
     uint64_t request(const RenderWant& w);
     // Drains the results; re-arms the notification message.
     std::vector<RenderResult> take();
+    // Outline of the book; empty until the first page is shown or when the book has none.
+    std::vector<TocItem> toc() const;
 
 private:
-    struct TocEntry {
-        uint64_t target;
-        std::string title;
-    };
-
     void run(const std::stop_token& st, const OpenJob& job) noexcept;
     eb_status open_doc(const OpenJob& job);
     void serve(const RenderWant& w);
@@ -105,7 +103,8 @@ private:
     std::string applied_css_;
     std::array<uint32_t, 3> logged_opts_{UINT32_MAX, UINT32_MAX, UINT32_MAX};
     std::optional<uint64_t> last_mark_;
-    std::vector<TocEntry> toc_;
+    mutable std::mutex toc_mu_;
+    std::vector<TocItem> toc_;
 
     std::jthread thread_;
 };

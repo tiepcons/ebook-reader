@@ -2,7 +2,9 @@
 
 #include "base/Log.h"
 #include "base/Text.h"
+#include "GotoPercent.h"
 #include "ReaderSettings.h"
+#include "resource.h"
 #include "lib/LibraryModel.h"
 
 #include <shellapi.h>
@@ -17,6 +19,7 @@ namespace eb {
 namespace {
 
 constexpr int kBarMargin = 6, kBarH = 26;
+constexpr int kTocW = 260;
 constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80, kAaW = 44;
 constexpr UINT kResumeBarMs = 6000;
 constexpr UINT kReaderTickMs = 500;
@@ -68,7 +71,7 @@ bool MainWnd::create_reader_children()
     resume_text_ = child(L"STATIC", L"", SS_CENTERIMAGE, kIdResumeText);
     resume_btn_ = child(L"BUTTON", L"Về đầu", BS_PUSHBUTTON | WS_TABSTOP, kIdResumeStart);
     aa_ = child(L"BUTTON", L"Aa", BS_PUSHBUTTON | WS_TABSTOP, kIdReaderSettings);
-    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && reader_.create(inst_, hwnd_);
+    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && reader_.create(inst_, hwnd_) && toc_pane_.create(inst_, hwnd_, kIdTocPane);
 }
 
 void MainWnd::layout_reader()
@@ -90,7 +93,11 @@ void MainWnd::layout_reader()
     MoveWindow(resume_text_, tx, m, px(kResumeTextW), ch, TRUE);
     MoveWindow(resume_btn_, tx + px(kResumeTextW) + m, m, px(kResumeBtnW), ch, TRUE);
     MoveWindow(aa_, std::max(0L, rc.right - m - px(kAaW)), m, px(kAaW), ch, TRUE);
-    MoveWindow(reader_.hwnd(), 0, top, rc.right, std::max(0L, rc.bottom - top - status_h), TRUE);
+    const int pane_w = toc_shown() ? std::min(px(kTocW), static_cast<int>(rc.right) / 2) : 0;
+    const int body_h = static_cast<int>(std::max(0L, rc.bottom - top - status_h));
+    ShowWindow(toc_pane_.hwnd(), pane_w > 0 ? SW_SHOW : SW_HIDE);
+    MoveWindow(toc_pane_.hwnd(), 0, top, pane_w, body_h, TRUE);
+    MoveWindow(reader_.hwnd(), pane_w, top, rc.right - pane_w, body_h, TRUE);
 }
 
 void MainWnd::show_notice(const wchar_t* text)
@@ -132,6 +139,8 @@ void MainWnd::open_book(const std::string& id)
         return;
     }
     apply_chrome();
+    if (toc_visible_)
+        refresh_toc_pane();
     SetTimer(hwnd_, kReaderTickTimer, kReaderTickMs, nullptr);
     SetFocus(reader_.hwnd());
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
@@ -148,7 +157,7 @@ void MainWnd::close_book()
     reader_.close();
     in_reader_ = false;
     apply_chrome();
-    show_all({back_, aa_, reader_.hwnd()}, SW_HIDE);
+    show_all({back_, aa_, reader_.hwnd(), toc_pane_.hwnd()}, SW_HIDE);
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_SHOW);
     layout();
     refresh_list();
@@ -166,26 +175,17 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
         SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
         if (resume_page_ >= 0 && page != resume_page_)
             hide_resume();
+        if (toc_visible_ && reader_.content_version() != pane_version_)
+            refresh_toc_pane();
         if (e == ReaderEvent::PageSettled) {
             if (const int p = reader_.take_resume_percent(); p >= 0)
                 show_resume(p, page);
             smoke_step(page);
         }
         break;
-    case ReaderEvent::OpenFailed: {
-        log::error("reader: open failed for {}", reading_id_);
-        if (auto st = db_.prepare("UPDATE books SET status=?2 WHERE id=?1"); st && st->bind_text(1, reading_id_) && st->bind_int(2, kStatusBad))
-        {
-            if (!st->step())
-                log::error("reader: cannot mark book as bad");
-        }
-        const std::wstring msg = reader_.error_text();
-        close_book();
-        show_notice(msg.c_str());
-        if (smoke_run)
-            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+    case ReaderEvent::OpenFailed:
+        on_open_failed();
         break;
-    }
     case ReaderEvent::CloseRequested:
         if (fullscreen_) {
             toggle_fullscreen();
@@ -201,7 +201,26 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
     case ReaderEvent::Settings:
         open_reader_settings();
         break;
+    case ReaderEvent::Toc:
+    case ReaderEvent::Bookmark:
+    case ReaderEvent::GoTo:
+        on_shortcut_event(e);
+        break;
     }
+}
+
+void MainWnd::on_open_failed()
+{
+    log::error("reader: open failed for {}", reading_id_);
+    if (auto st = db_.prepare("UPDATE books SET status=?2 WHERE id=?1"); st && st->bind_text(1, reading_id_) && st->bind_int(2, kStatusBad)) {
+        if (!st->step())
+            log::error("reader: cannot mark book as bad");
+    }
+    const std::wstring msg = reader_.error_text();
+    close_book();
+    show_notice(msg.c_str());
+    if (smoke_ && !smoke_open_.empty())
+        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
 }
 
 bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
@@ -215,18 +234,7 @@ bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         smoke_open_book();
         return true;
     case WM_COMMAND:
-        if (LOWORD(wp) == kIdBack && HIWORD(wp) == BN_CLICKED) {
-            close_book();
-        } else if (LOWORD(wp) == kIdReaderSettings && HIWORD(wp) == BN_CLICKED) {
-            open_reader_settings();
-        } else if (LOWORD(wp) == kIdResumeStart && HIWORD(wp) == BN_CLICKED) {
-            reader_.go_to_start();
-            hide_resume();
-            SetFocus(reader_.hwnd());
-        } else {
-            return false;
-        }
-        return true;
+        return on_reader_command(wp);
     case WM_TIMER:
         if (wp == kReaderTickTimer)
             reader_.tick();
@@ -252,6 +260,111 @@ bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
         return true;
     default:
         return false;
+    }
+}
+
+bool MainWnd::on_reader_command(WPARAM wp)
+{
+    const int id = LOWORD(wp);
+    if (HIWORD(wp) != BN_CLICKED) // menu commands carry 0 here as well
+        return false;
+    if (id == kIdBack) {
+        close_book();
+    } else if (id == kIdReaderSettings) {
+        open_reader_settings();
+    } else if (id == kIdResumeStart) {
+        reader_.go_to_start();
+        hide_resume();
+        SetFocus(reader_.hwnd());
+    } else if (id == IDM_READER_TOC) {
+        on_shortcut_event(ReaderEvent::Toc);
+    } else if (id == IDM_READER_BOOKMARK) {
+        on_shortcut_event(ReaderEvent::Bookmark);
+    } else if (id == IDM_READER_GOTO) {
+        on_shortcut_event(ReaderEvent::GoTo);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+void MainWnd::on_shortcut_event(ReaderEvent e)
+{
+    if (!in_reader_)
+        return;
+    if (e == ReaderEvent::Toc)
+        toggle_toc_pane();
+    else if (e == ReaderEvent::Bookmark)
+        toggle_bookmark();
+    else
+        ask_goto();
+}
+
+void MainWnd::toggle_toc_pane()
+{
+    toc_visible_ = !toc_visible_;
+    if (toc_visible_)
+        refresh_toc_pane();
+    layout();
+    SetFocus(toc_visible_ ? toc_pane_.hwnd() : reader_.hwnd());
+}
+
+void MainWnd::refresh_toc_pane()
+{
+    toc_pane_.set_content(reader_.toc(), reader_.bookmarks());
+    if (smoke_)
+        log::info("reader: outline pane {} entries", reader_.toc().size());
+    pane_version_ = reader_.content_version();
+}
+
+void MainWnd::toggle_bookmark()
+{
+    const auto added = reader_.toggle_bookmark();
+    const wchar_t* text = !added ? L"Không lưu được dấu trang" : (*added ? L"Đã thêm dấu trang" : L"Đã bỏ dấu trang");
+    SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(text));
+    if (toc_visible_)
+        refresh_toc_pane();
+}
+
+void MainWnd::ask_goto()
+{
+    if (const auto pct = ask_percent(inst_, hwnd_, reader_.percent()))
+        reader_.go_to_percent(*pct);
+    SetFocus(reader_.hwnd());
+}
+
+void MainWnd::jump_to_pick()
+{
+    if (const auto pick = toc_pane_.selected()) {
+        reader_.go_to_mark(pick->mark);
+        SetFocus(reader_.hwnd());
+    }
+}
+
+void MainWnd::on_toc_notify(NMHDR& hdr)
+{
+    if (hdr.code == NM_DBLCLK) {
+        jump_to_pick();
+        return;
+    }
+    if (hdr.code != TVN_KEYDOWN)
+        return;
+    const unsigned vk = reinterpret_cast<const NMTVKEYDOWN&>(hdr).wVKey;
+    if (GetKeyState(VK_CONTROL) < 0) {
+        const NavAction a = nav_for_key(vk, false, true);
+        if (a == NavAction::Toc)
+            on_shortcut_event(ReaderEvent::Toc);
+        else if (a == NavAction::Bookmark)
+            on_shortcut_event(ReaderEvent::Bookmark);
+        else if (a == NavAction::GoTo)
+            on_shortcut_event(ReaderEvent::GoTo);
+    } else if (vk == VK_RETURN) {
+        jump_to_pick();
+    } else if (vk == VK_ESCAPE) {
+        SetFocus(reader_.hwnd());
+    } else if (const auto pick = toc_pane_.selected(); vk == VK_DELETE && pick && pick->bookmark_id != 0) {
+        reader_.remove_bookmark(pick->bookmark_id);
+        refresh_toc_pane();
     }
 }
 
@@ -341,6 +454,7 @@ void MainWnd::smoke_step(int page)
     }
     if (!smoke_keys_sent_ && page == 0) {
         smoke_keys_sent_ = true;
+        smoke_marks();
         for (int i = 0; i < kSmokeKeys; ++i)
             PostMessageW(reader_.hwnd(), WM_KEYDOWN, VK_RIGHT, 0);
     } else if (smoke_keys_sent_ && page >= kSmokeKeys) {
@@ -348,8 +462,21 @@ void MainWnd::smoke_step(int page)
     }
 }
 
+void MainWnd::smoke_marks()
+{
+    const auto added = reader_.toggle_bookmark();
+    const auto removed = reader_.toggle_bookmark();
+    if (added.value_or(false) && !removed.value_or(true))
+        log::info("smoke: bookmark added then removed");
+    toggle_toc_pane();
+}
+
 void MainWnd::apply_chrome()
 {
+    if (HMENU menu = GetMenu(hwnd_)) {
+        for (const int id : {IDM_READER_TOC, IDM_READER_BOOKMARK, IDM_READER_GOTO})
+            EnableMenuItem(menu, static_cast<UINT>(id), MF_BYCOMMAND | (in_reader_ ? MF_ENABLED : MF_GRAYED));
+    }
     apply_reader_chrome(hwnd_, in_reader_ ? std::optional<uint32_t>(reader_.colors().bg) : std::nullopt);
 }
 

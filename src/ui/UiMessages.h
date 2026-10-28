@@ -20,12 +20,13 @@ inline constexpr UINT WM_APP_OPEN_PATH = WM_APP + 33; // a file to open is pendi
 inline constexpr UINT WM_APP_EXTERNAL_META = WM_APP + 34; // ExternalOpen -> MainWnd: metadata of an outside book is ready
 
 // PageShown: the visible page number changed (optimistic); PageSettled: the worker confirmed it and progress was recorded.
-enum class ReaderEvent : unsigned char { PageShown, PageSettled, OpenFailed, CloseRequested, Fullscreen, Settings };
+enum class ReaderEvent : unsigned char { PageShown, PageSettled, OpenFailed, CloseRequested, Fullscreen, Settings, Toc, Bookmark, GoTo };
 
 inline constexpr int kIdBack = 108;
 inline constexpr int kIdResumeText = 109;
 inline constexpr int kIdResumeStart = 110;
 inline constexpr int kIdReaderSettings = 111;
+inline constexpr int kIdTocPane = 112;
 
 inline constexpr UINT_PTR kSearchTimer = 1;
 inline constexpr UINT_PTR kReaderTickTimer = 20;

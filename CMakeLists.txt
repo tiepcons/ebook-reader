@@ -111,7 +111,7 @@ target_link_libraries(eb_book PUBLIC eb_lib eb_doc eb_tts eb_mupdf PRIVATE windo
 target_link_libraries(EbookReader PRIVATE eb_book)
 
 target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cpp src/ui/ReaderCanvas.cpp src/ui/ReaderView.cpp
-  src/ui/MainWndReader.cpp)
+  src/ui/MainWndReader.cpp src/ui/ReaderViewMarks.cpp src/ui/TocPane.cpp src/ui/GotoPercent.cpp)
 target_link_libraries(EbookReader PRIVATE eb_doc d2d1)
 target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)
 

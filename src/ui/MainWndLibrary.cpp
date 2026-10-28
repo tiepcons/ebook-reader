@@ -233,6 +233,10 @@ void MainWnd::on_context_menu(LPARAM lp)
 void MainWnd::on_notify(NMHDR& hdr, LRESULT& result)
 {
     result = 0;
+    if (hdr.hwndFrom == toc_pane_.hwnd()) {
+        on_toc_notify(hdr);
+        return;
+    }
     if (hdr.hwndFrom == tree_ && hdr.code == TVN_SELCHANGEDW) {
         if (ftree_.on_select(reinterpret_cast<const NMTREEVIEWW&>(hdr)))
             refresh_list();

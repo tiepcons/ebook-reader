@@ -157,8 +157,9 @@ TEST_CASE("theme: settings round-trip through kv and bad values fall back")
     CHECK(q.font.family == "serif");
 }
 
-TEST_CASE("reader: Ctrl+T opens the settings")
+TEST_CASE("reader: Ctrl+comma opens the settings, Ctrl+T the outline")
 {
-    CHECK(eb::nav_for_key('T', false, true) == eb::NavAction::Settings);
+    CHECK(eb::nav_for_key(VK_OEM_COMMA, false, true) == eb::NavAction::Settings);
+    CHECK(eb::nav_for_key('T', false, true) == eb::NavAction::Toc);
     CHECK(eb::nav_for_key('T', false, false) == eb::NavAction::None);
 }
