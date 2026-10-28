@@ -341,6 +341,8 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | Coverage logic | ≥ 80% |
 
 ## 9. Checklist test thủ công (PO)
+Hướng dẫn từng bước: [ACCEPTANCE.md](ACCEPTANCE.md)
+
 - [ ] Thả sách vào `ebooks\` nhiều tầng thư mục → thấy sách sau khi focus lại cửa sổ hoặc bấm Quét lại
 - [ ] Đổi tên hoặc di chuyển file → vị trí đọc vẫn còn
 - [ ] Mở được EPUB, PDF, MOBI, AZW3, FB2, CBZ, TXT (gồm TXT tiếng Việt). Ảnh bìa đúng
