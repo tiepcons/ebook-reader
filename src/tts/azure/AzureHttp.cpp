@@ -54,6 +54,7 @@ struct Ctx {
     UniqueHandle done;   // an asynchronous operation finished
     UniqueHandle cancel; // set by Live::cancel / shutdown
     UniqueHandle closed; // HANDLE_CLOSING arrived
+    std::string body;    // request body; WinHTTP may read it until SENDREQUEST_COMPLETE, so it lives (or leaks) with Ctx
     DWORD error = 1;
     DWORD got = 0;
     bool cancellable;
@@ -200,8 +201,10 @@ bool issue(const OwnedRequest& req, const HttpRequest& r)
 {
     if (!add_headers(req.get(), r))
         return false;
-    const auto len = static_cast<DWORD>(r.body.size());
-    void* body = len == 0 ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(r.body.data());
+    Ctx& c = req.ctx();
+    c.body = r.body;
+    const auto len = static_cast<DWORD>(c.body.size());
+    void* body = len == 0 ? WINHTTP_NO_REQUEST_DATA : c.body.data();
     if (!WinHttpSendRequest(req.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0, body, len, len, reinterpret_cast<DWORD_PTR>(&req.ctx()))
         || !req.wait())
         return false;
