@@ -12,7 +12,7 @@ target_link_libraries(eb_tests PRIVATE eb_lib)
 target_sources(eb_tests PRIVATE unit/test_doc_txt.cpp)
 target_link_libraries(eb_tests PRIVATE eb_doc ole32 oleaut32 uuid)
 target_sources(eb_tests PRIVATE unit/test_lib_scanner.cpp)
-target_sources(eb_tests PRIVATE unit/test_lib_progress.cpp)
+target_sources(eb_tests PRIVATE unit/test_lib_progress.cpp unit/test_base_files.cpp)
 
 add_test(NAME ui_smoke COMMAND EbookReader --smoke)
 set_tests_properties(ui_smoke PROPERTIES TIMEOUT 10)
