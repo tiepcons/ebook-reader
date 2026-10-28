@@ -189,7 +189,7 @@ TEST_CASE("eb_sfnt reads the bundled fonts")
 
 TEST_CASE("eb_sfnt never reads past a file shorter than a table directory")
 {
-    for (size_t len : {size_t{0}, size_t{1}, size_t{3}, size_t{4}, size_t{11}}) {
+    for (const size_t len : {size_t{0}, size_t{1}, size_t{3}, size_t{4}, size_t{11}}) {
         Mem m{Bytes(len, 0)};
         eb_sfnt_face f{};
         CHECK_FALSE(probe(m, 0, &f));
