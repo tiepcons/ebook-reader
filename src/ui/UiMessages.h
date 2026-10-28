@@ -42,6 +42,7 @@ inline constexpr UINT_PTR kSearchTimer = 1;
 inline constexpr UINT_PTR kReaderTickTimer = 20;
 inline constexpr UINT_PTR kResumeBarTimer = 21;
 inline constexpr UINT_PTR kSmokeTimer = 22;
+inline constexpr UINT_PTR kSoakTimer = 23;
 inline constexpr UINT kSearchDebounceMs = 150;
 
 }

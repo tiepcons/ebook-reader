@@ -247,6 +247,8 @@ bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
             reader_.tick();
         else if (wp == kResumeBarTimer)
             hide_resume();
+        else if (wp == kSoakTimer)
+            soak_tick();
         else if (wp == kSmokeTimer)
             PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         else

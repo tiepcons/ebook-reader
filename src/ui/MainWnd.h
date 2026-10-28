@@ -95,6 +95,9 @@ private:
     void init_smoke_open();
     void smoke_open_book();
     void smoke_step(int page);
+    void init_soak();
+    void soak_tick();
+    void soak_log();
     void open_reader_settings();
     void apply_chrome();
     bool on_reader_command(WPARAM wp);
@@ -192,6 +195,14 @@ private:
     int resume_page_ = -1;
     uint32_t pane_version_ = 0;
     std::string smoke_open_, reading_id_;
+    struct Soak {
+        std::vector<std::string> ids;
+        std::chrono::steady_clock::time_point t0, deadline;
+        std::size_t next = 0;
+        long long minutes = 0, logged = -1, books = 0, pages = 0;
+        int book_pages = 0;
+        bool tray_visit = false;
+    } soak_;
     WINDOWPLACEMENT saved_wp_{};
     LONG_PTR saved_style_ = 0;
     HMENU saved_menu_ = nullptr;

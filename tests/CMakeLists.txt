@@ -60,6 +60,9 @@ endif()
 add_test(NAME ui_smoke_tray COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_mupdf>
   -DBUDGET=${EB_TRAY_BUDGET_KB} -DWORK=${CMAKE_BINARY_DIR}/tests -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/tray.cmake)
 set_tests_properties(ui_smoke_tray PROPERTIES TIMEOUT 40)
+add_test(NAME ui_soak_short COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_mupdf>
+  -DCORPUS=${CMAKE_SOURCE_DIR}/tests/corpus -DWORK=${CMAKE_BINARY_DIR}/tests -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/soak.cmake)
+set_tests_properties(ui_soak_short PROPERTIES TIMEOUT 200)
 add_test(NAME ui_single_instance COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:EbookReader> -DDLL=$<TARGET_FILE:eb_mupdf>
   -DBOOK=${CMAKE_SOURCE_DIR}/tests/corpus/good/epub/pg11.epub -DWORK=${CMAKE_BINARY_DIR}/tests
   -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/single_instance.cmake)
