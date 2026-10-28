@@ -17,7 +17,8 @@ if ($LASTEXITCODE -ne 0) { $b | Where-Object { $_ -match 'error|LNK' } | Select-
 $corpus = "$bdir/corpus/$Target"
 $crashes = "$bdir/artifacts/$Target"
 New-Item -ItemType Directory -Force $corpus, $crashes | Out-Null
-Get-ChildItem $crashes -File | Remove-Item
+$old = @(Get-ChildItem $crashes -File)
+if ($old) { $keep = "$crashes/old-$(Get-Date -Format yyyyMMdd-HHmmss)"; New-Item -ItemType Directory $keep | Out-Null; $old | Move-Item -Destination $keep } # keep reproducers for triage
 $good = "$root/tests/corpus/good"
 $bad = "$root/tests/corpus/bad"
 $seedCap = 32KB

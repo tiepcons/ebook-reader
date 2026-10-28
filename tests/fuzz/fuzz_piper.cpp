@@ -1,7 +1,8 @@
-﻿#include "tts/piper/PiperTts.h"
+#include "tts/piper/PiperTts.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 
@@ -11,7 +12,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     (void)eb::piper::json_escape(text);
     (void)eb::piper::request_line(text.substr(0, size / 2), text.substr(size / 2));
     (void)eb::piper::lang_from_model_json(text);
-    const std::wstring wide(reinterpret_cast<const wchar_t*>(data), size / sizeof(wchar_t));
+    std::wstring wide(size / sizeof(wchar_t), L'\0');
+    std::memcpy(wide.data(), data, wide.size() * sizeof(wchar_t)); // no type-punned read
     (void)eb::piper::quote_arg(wide);
     return 0;
 }
