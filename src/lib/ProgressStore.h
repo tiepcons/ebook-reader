@@ -32,7 +32,6 @@ public:
 
     Result<std::optional<Progress>> load(std::string_view book_id) noexcept;
     Result<void> save(std::string_view book_id, const Progress& p) noexcept;
-    Result<std::optional<std::string>> last_book() noexcept;
 
 private:
     Db* db_;

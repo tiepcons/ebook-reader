@@ -4,7 +4,6 @@
 #include <string.h>
 #include <windows.h>
 
-#define EB_MAX_PATH_CHARS 32767
 #define EB_MAX_CSS_BYTES (1u << 20)
 #define EB_MAX_LAYOUT_PT 100000.0f
 #define EB_MAX_META_BYTES 4096
@@ -145,7 +144,7 @@ void eb_release_ctx(fz_context* ctx)
     InterlockedDecrement(&g_open_docs);
 }
 
-static eb_status require_layout(eb_doc* doc)
+eb_status require_layout(eb_doc* doc)
 {
     if (doc->reflowable && !doc->laid_out) return eb_fail_msg(EB_E_ARG, "eb_layout not called");
     return EB_OK;
@@ -171,8 +170,6 @@ eb_status eb_check_page(eb_doc* doc, int32_t page)
     if (page < 0 || page >= n) return eb_fail_msg(EB_E_RANGE, "page out of range");
     return EB_OK;
 }
-
-eb_status eb_require_layout(eb_doc* doc) { return require_layout(doc); }
 
 int32_t eb_is_reflowable(eb_doc* doc) { return doc ? doc->reflowable : 0; }
 

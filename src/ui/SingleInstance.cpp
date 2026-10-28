@@ -16,11 +16,38 @@ constexpr DWORD kMaxHoldMs = 60000;
 constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
+constexpr DWORD kMaxImagePathChars = 32768;
+
+bool image_path(HANDLE process, std::wstring& out)
+{
+    out.assign(kMaxImagePathChars, L'\0');
+    DWORD n = kMaxImagePathChars;
+    if (!QueryFullProcessImageNameW(process, 0, out.data(), &n))
+        return false;
+    out.resize(n);
+    return true;
+}
+
+bool runs_our_image(HWND w) noexcept
+{
+    try {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(w, &pid);
+        const UniqueHandle other(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+        std::wstring theirs;
+        std::wstring ours;
+        return other.get() != nullptr && image_path(other.get(), theirs) && image_path(GetCurrentProcess(), ours)
+            && lower_case(theirs) == lower_case(ours);
+    } catch (...) {
+        return false;
+    }
+}
+
 HWND find_instance_window(std::uint64_t key) noexcept
 {
     HWND w = nullptr;
     while ((w = FindWindowExW(nullptr, w, kMainWndClass, nullptr)) != nullptr) {
-        if (reinterpret_cast<std::uint64_t>(GetPropW(w, kPropName)) == key)
+        if (reinterpret_cast<std::uint64_t>(GetPropW(w, kPropName)) == key && runs_our_image(w))
             return w;
     }
     return nullptr;

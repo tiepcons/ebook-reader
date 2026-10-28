@@ -214,7 +214,7 @@ std::optional<std::filesystem::path> CoverCache::cached(std::string_view id) con
 }
 
 Result<std::filesystem::path> CoverCache::generate(std::string_view id, const std::filesystem::path& book,
-    IWICImagingFactory* wic, AbortSlot* abort) const noexcept
+    IWICImagingFactory* wic, AbortSlot* abort, const std::stop_token& stop) const noexcept
 {
     try {
         const auto target = path_for(id);
@@ -234,6 +234,8 @@ Result<std::filesystem::path> CoverCache::generate(std::string_view id, const st
         eb_bitmap* raw = nullptr;
         {
             const AbortScope scope(abort, doc->get());
+            if (stop.stop_requested())
+                return fail(ErrorCode::Unavailable, L"cover cancelled");
             if (const eb_status st = eb_render_cover(doc->get(), kCoverSidePx, &raw); st != EB_OK)
                 return fail(error_from_status(st), L"cover render failed");
         }
@@ -311,7 +313,7 @@ void CoverWorker::stop() noexcept
         thread_.join();
 }
 
-void CoverWorker::process(const Job& job, IWICImagingFactory* wic, CoverResult& r) noexcept
+void CoverWorker::process(const Job& job, IWICImagingFactory* wic, CoverResult& r, const std::stop_token& stop) noexcept
 {
     try {
         if ((suspect_ && *suspect_ == job.id) || job.w < kMinCell || job.h < kMinCell || job.w > kMaxCell || job.h > kMaxCell)
@@ -319,7 +321,7 @@ void CoverWorker::process(const Job& job, IWICImagingFactory* wic, CoverResult& 
         auto file = cache_.cached(job.id);
         if (!file) {
             const CrashLoopGuard::Scope scope(guard_, "cover", job.id);
-            auto gen = cache_.generate(job.id, job.book, wic, &abort_);
+            auto gen = cache_.generate(job.id, job.book, wic, &abort_, stop);
             if (!gen) {
                 log::error("cover generation failed (code {})", static_cast<int>(gen.error().code));
                 return;
@@ -357,7 +359,7 @@ void CoverWorker::run(const std::stop_token& stop) noexcept
                 queue_.pop_back();
             }
             CoverResult result{job.id, false, job.w, job.h, {}};
-            process(job, wic->Get(), result);
+            process(job, wic->Get(), result, stop);
             bool call = false;
             {
                 const std::scoped_lock lock(mu_);

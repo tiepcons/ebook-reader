@@ -17,6 +17,9 @@
 
 namespace eb {
 
+// Blocks until every render worker handed to a reaper thread is destroyed; call before eb_shutdown.
+void wait_for_reapers() noexcept;
+
 // Child window that shows one book page at a time. The UI thread only uploads bitmaps and routes input;
 // all MuPDF work happens in the RenderWorker. Reports to the parent with WM_APP_READER_EVENT.
 class ReaderView {

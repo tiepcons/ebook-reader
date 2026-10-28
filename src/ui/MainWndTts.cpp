@@ -40,14 +40,6 @@ bool MainWnd::ensure_tts()
     return true;
 }
 
-void MainWnd::reset_tts()
-{
-    if (tts_)
-        tts_->stop();
-    tts_.reset();
-    tts_engines_.reset();
-}
-
 std::string MainWnd::book_lang_tag() const
 {
     auto st = db_.prepare("SELECT lang FROM books WHERE id=?1");

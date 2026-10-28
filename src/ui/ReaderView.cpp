@@ -6,10 +6,13 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <format>
+#include <memory>
+#include <thread>
 
 namespace eb {
 namespace {
@@ -48,6 +51,31 @@ std::wstring page_error_text(eb_status st)
     return L"Lỗi trang: " + wide(eb_status_text(st));
 }
 
+std::atomic<int> g_reapers{0};
+
+void reap(std::unique_ptr<RenderWorker> worker) noexcept
+{
+    if (!worker)
+        return;
+    g_reapers.fetch_add(1);
+    try {
+        std::thread([w = std::move(worker)]() mutable {
+            w.reset();
+            if (g_reapers.fetch_sub(1) == 1)
+                g_reapers.notify_all();
+        }).detach();
+    } catch (...) {
+        if (g_reapers.fetch_sub(1) == 1)
+            g_reapers.notify_all();
+    }
+}
+
+}
+
+void wait_for_reapers() noexcept
+{
+    for (int n = g_reapers.load(); n > 0; n = g_reapers.load())
+        g_reapers.wait(n);
 }
 
 ReaderView::~ReaderView()
@@ -305,7 +333,7 @@ bool ReaderView::open(OpenJob job)
 void ReaderView::close() noexcept
 {
     flush();
-    worker_.reset();
+    reap(std::move(worker_));
     saver_.reset();
     cache_.clear();
     set_shown({});

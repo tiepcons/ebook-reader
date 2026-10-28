@@ -7,6 +7,9 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Streams.h>
 
+#include <objbase.h>
+#include <roapi.h>
+
 #include <algorithm>
 #include <atomic>
 #include <mutex>
@@ -27,6 +30,23 @@ using winrt::Windows::Storage::Streams::InMemoryRandomAccessStream;
 using winrt::Windows::Storage::Streams::IRandomAccessStream;
 
 namespace {
+
+// C++/WinRT falls back to LoadLibrary("<Namespace>.dll") from the app directory when a class is not registered;
+// this handler keeps activation on RoGetActivationFactory only.
+int32_t __stdcall activate_registered(void* class_id, winrt::guid const& iid, void** factory) noexcept
+{
+    const auto id = static_cast<HSTRING>(class_id);
+    const auto& riid = reinterpret_cast<const IID&>(iid);
+    const HRESULT hr = RoGetActivationFactory(id, riid, factory);
+    if (hr != CO_E_NOTINITIALIZED)
+        return hr;
+    CO_MTA_USAGE_COOKIE cookie = nullptr;
+    if (FAILED(CoIncrementMTAUsage(&cookie)))
+        return hr;
+    return RoGetActivationFactory(id, riid, factory);
+}
+
+[[maybe_unused]] const bool g_activation_pinned = (winrt_activation_handler = &activate_registered, true);
 
 // Word boundaries come from the SpeechWord track's CueEntered event: it fires from the playback clock, so
 // highlighting cannot drift from the audio, unlike polling PlaybackSession.Position on a timer.

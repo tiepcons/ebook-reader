@@ -40,7 +40,7 @@ public:
     [[nodiscard]] std::optional<std::filesystem::path> cached(std::string_view id) const noexcept;
     // Synchronous; needs eb_init and COM initialised (MTA) on the calling thread. wic may be null.
     Result<std::filesystem::path> generate(std::string_view id, const std::filesystem::path& book,
-        IWICImagingFactory* wic = nullptr, AbortSlot* abort = nullptr) const noexcept;
+        IWICImagingFactory* wic = nullptr, AbortSlot* abort = nullptr, const std::stop_token& stop = {}) const noexcept;
 
 private:
     [[nodiscard]] std::optional<std::filesystem::path> path_for(std::string_view id) const noexcept;
@@ -85,7 +85,7 @@ private:
     };
 
     void run(const std::stop_token& stop) noexcept;
-    void process(const Job& job, IWICImagingFactory* wic, CoverResult& r) noexcept;
+    void process(const Job& job, IWICImagingFactory* wic, CoverResult& r, const std::stop_token& stop) noexcept;
     void signal(bool call) noexcept;
 
     CoverCache cache_;

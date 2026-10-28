@@ -85,6 +85,19 @@ TEST_CASE("cover cache: bad ids and bad books are rejected")
     CHECK_FALSE(cache.cached("abcdef").has_value());
 }
 
+TEST_CASE("cover cache: a requested stop skips the render")
+{
+    const Lib lib;
+    const eb::ComScope com(COINIT_MULTITHREADED);
+    const ebtest::TempDir dir;
+    const eb::CoverCache cache(dir.path());
+    std::stop_source src;
+    src.request_stop();
+    const auto p = first_with_ext(".epub");
+    CHECK_FALSE(cache.generate(id_of(p), p, nullptr, nullptr, src.get_token()).has_value());
+    CHECK_FALSE(cache.cached(id_of(p)).has_value());
+}
+
 TEST_CASE("cover worker: serves requests and never retries the crash suspect")
 {
     const Lib lib;

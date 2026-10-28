@@ -130,7 +130,6 @@ private:
 
     bool ensure_tts();
     void load_tts_prefs_once();
-    void reset_tts();
     void tts_toggle();
     void tts_stop();
     void on_tts_text(int page);

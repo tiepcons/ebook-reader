@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include "MainWnd.h"
+#include "ReaderView.h"
 #include "SingleInstance.h"
 #include "base/ComScope.h"
 #include "base/CrashGuard.h"
@@ -30,7 +31,11 @@ namespace eb {
 namespace {
 
 struct EngineScope {
-    ~EngineScope() { eb_shutdown(); }
+    ~EngineScope()
+    {
+        wait_for_reapers();
+        eb_shutdown();
+    }
 };
 
 constexpr int kUiBusyTimeoutMs = 50;
@@ -159,8 +164,8 @@ int run(HINSTANCE inst, int show)
     LaunchArgs launch = read_launch_args();
     const auto key = instance_key(exe_dir);
     const SingleInstance single(key);
-    if (!single.is_first())
-        return single.forward(launch.path) ? 0 : 1;
+    if (!single.is_first() && single.forward(launch.path))
+        return 0;
     auto paths = resolve_paths(exe_dir);
     if (!paths)
         return fatal(L"Không tạo được thư mục dữ liệu. Hãy kiểm tra quyền ghi.", &paths.error());

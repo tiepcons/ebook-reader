@@ -460,13 +460,20 @@ int eb_embed_probe(eb_doc* d, int want_cover)
     fz_stream* stm = NULL;
     int aborted = 0;
     if ((d->meta_probed && !want_cover) || d->cover_probed) return 0;
-    stm = open_source(d, &aux);
+    fz_var(stm);
+    fz_var(aux);
+    fz_try(d->ctx) stm = open_source(d, &aux);
+    fz_catch(d->ctx)
+    {
+        if (aux) fclose(aux);
+        fz_ignore_error(d->ctx);
+        return 0;
+    }
     if (!stm) {
         d->meta_probed = 1;
         d->cover_probed |= want_cover;
         return 0;
     }
-    if (want_cover) eb_begin_call(d);
     aborted = probe_stream(d, stm, want_cover);
     fz_drop_stream(d->ctx, stm);
     if (aux) fclose(aux);

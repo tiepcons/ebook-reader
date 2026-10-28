@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
+#include <memory>
 #include <new>
 
 namespace eb {
@@ -458,15 +459,16 @@ bool RenderWorker::load_toc()
     if (toc_loaded_)
         return false;
     toc_loaded_ = true;
-    eb_toc_item* items = nullptr;
+    eb_toc_item* raw = nullptr;
     int32_t n = 0;
-    if (eb_toc(doc_, &items, &n) != EB_OK)
+    if (eb_toc(doc_, &raw, &n) != EB_OK)
         return false;
+    const auto free_toc = [n](eb_toc_item* p) { eb_toc_free(p, n); };
+    const std::unique_ptr<eb_toc_item, decltype(free_toc)> items(raw, free_toc);
     std::vector<TocItem> list;
     list.reserve(static_cast<std::size_t>(std::min(n, kMaxTocItems)));
     for (int32_t i = 0; i < n && i < kMaxTocItems; ++i)
-        list.push_back({items[i].level, items[i].target, trim_utf8(items[i].title)});
-    eb_toc_free(items, n);
+        list.push_back({items.get()[i].level, items.get()[i].target, trim_utf8(items.get()[i].title)});
     const std::lock_guard lock(toc_mu_);
     toc_ = std::move(list);
     return !toc_.empty();

@@ -96,7 +96,6 @@ static eb_status render_impl(eb_doc* d, int32_t page, const render_req* rq, eb_b
     eb_bitmap* bmp = NULL;
     eb_status st = eb_check_page(d, page);
     if (st != EB_OK) return st;
-    eb_begin_call(d);
     fz_var(pg);
     fz_var(pix);
     fz_var(bmp);
@@ -135,6 +134,7 @@ eb_status eb_render_page(eb_doc* doc, int32_t page, const eb_render_opts* opts, 
     rq.tint = opts->tint != 0;
     rq.fg = opts->fg_rgb;
     rq.bg = opts->bg_rgb;
+    eb_begin_call(doc);
     return render_impl(doc, page, &rq, out);
 }
 
@@ -146,6 +146,7 @@ eb_status eb_render_cover(eb_doc* doc, int32_t max_side_px, eb_bitmap** out)
     if (max_side_px < 1 || max_side_px > EB_MAX_COVER_SIDE) return eb_fail_msg(EB_E_ARG, "bad cover size");
     rq.max_side = max_side_px;
     rq.bg = 0xFFFFFF;
+    eb_begin_call(doc);
     if (eb_embed_probe(doc, 1)) return eb_fail_msg(EB_E_ABORTED, "cancelled");
     if ((doc->mobi.cover || doc->cover_buf) && eb_render_embedded_cover(doc, max_side_px, out) == EB_OK) {
         if (doc->cover_buf) doc->cover_probed = 0;

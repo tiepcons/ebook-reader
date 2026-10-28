@@ -10,8 +10,6 @@
 #define EB_MAX_PATH_CHARS 32767
 #define EB_MAX_MAGIC_CHARS 15
 
-static int is_sep(wchar_t c) { return c == L'\\' || c == L'/'; }
-
 static int is_device_prefix(const wchar_t* p)
 {
     if (!is_sep(p[0]) || !is_sep(p[1])) return 0;

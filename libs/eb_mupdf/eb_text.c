@@ -178,7 +178,7 @@ eb_status eb_toc(eb_doc* doc, eb_toc_item** items, int32_t* count)
     if (!doc || !items || !count) return eb_fail_msg(EB_E_ARG, "null argument");
     *items = NULL;
     *count = 0;
-    st = eb_require_layout(doc);
+    st = require_layout(doc);
     if (st != EB_OK) return st;
     fz_var(ol);
     fz_var(arr);

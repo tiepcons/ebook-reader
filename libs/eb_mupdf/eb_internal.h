@@ -36,6 +36,8 @@ struct eb_doc {
 
 extern eb_limits eb_g_limits;
 
+static inline int is_sep(wchar_t c) { return c == L'\\' || c == L'/'; }
+
 /* Maps the MuPDF error just caught on ctx to an eb_status and records its message for eb_last_error. */
 eb_status eb_fail(fz_context* ctx);
 eb_status eb_fail_msg(eb_status s, const char* msg);
@@ -44,7 +46,7 @@ eb_status eb_fail_msg(eb_status s, const char* msg);
 uint64_t eb_encode_bookmark(eb_doc* doc, fz_location loc);
 
 /* Page access helpers: reflowable documents must have been laid out first (EB_E_ARG otherwise). */
-eb_status eb_require_layout(eb_doc* doc);
+eb_status require_layout(eb_doc* doc);
 eb_status eb_count_pages(eb_doc* doc, int32_t* out);
 eb_status eb_check_page(eb_doc* doc, int32_t page);
 

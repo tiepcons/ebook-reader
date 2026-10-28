@@ -78,7 +78,6 @@ static void free_state(fz_context* ctx, state* s)
     memset(s, 0, sizeof *s);
 }
 
-static int is_sep(wchar_t c) { return c == L'\\' || c == L'/'; }
 
 static int has_font_ext(const wchar_t* name)
 {

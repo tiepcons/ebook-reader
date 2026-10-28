@@ -68,21 +68,6 @@ TEST_CASE("progress rejects unknown books and bad input")
     CHECK_FALSE(store.save("", {1, 0.1, -1, 1}).has_value());
 }
 
-TEST_CASE("progress last_book picks the newest healthy book")
-{
-    const ebtest::TempDir t;
-    auto db = fresh(t);
-    eb::ProgressStore store(db);
-    CHECK_FALSE(store.last_book().value().has_value());
-    add_book(db, "old");
-    add_book(db, "new");
-    add_book(db, "missing", 1);
-    REQUIRE(store.save("old", {1, 0.1, -1, 10}).has_value());
-    REQUIRE(store.save("new", {1, 0.1, -1, 20}).has_value());
-    REQUIRE(store.save("missing", {1, 0.1, -1, 30}).has_value());
-    CHECK(store.last_book().value().value() == "new");
-}
-
 TEST_CASE("progress saver coalesces updates and flush writes immediately")
 {
     const ebtest::TempDir t;

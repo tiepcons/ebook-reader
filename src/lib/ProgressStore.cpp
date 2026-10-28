@@ -122,24 +122,6 @@ Result<void> ProgressStore::save(std::string_view book_id, const Progress& p) no
     return tx->commit();
 }
 
-Result<std::optional<std::string>> ProgressStore::last_book() noexcept
-{
-    auto st = db_->prepare("SELECT p.book_id FROM progress p JOIN books b ON b.id=p.book_id WHERE b.status=0 "
-                           "ORDER BY p.updated_at DESC LIMIT 1");
-    if (!st)
-        return std::unexpected(std::move(st.error()));
-    auto step = st->step();
-    if (!step)
-        return std::unexpected(std::move(step.error()));
-    if (*step == Step::Done)
-        return std::optional<std::string>{};
-    try {
-        return std::optional<std::string>{std::string(st->column_text(0))};
-    } catch (...) {
-        return fail(ErrorCode::NoMemory);
-    }
-}
-
 void ProgressSaver::update(const Progress& p) noexcept
 {
     pending_ = p;
