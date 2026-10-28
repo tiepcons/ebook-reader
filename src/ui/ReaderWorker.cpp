@@ -47,6 +47,24 @@ eb_status open_txt(const OpenJob& job, eb_doc** doc)
     return eb_open_memory(fb2->data(), fb2->size(), "fb2", doc);
 }
 
+struct TextFree {
+    void operator()(eb_text* t) const noexcept { eb_text_free(t); }
+};
+
+std::shared_ptr<const PageText> copy_text(const eb_text& t, int32_t page)
+{
+    auto pt = std::make_shared<PageText>();
+    pt->page = page;
+    const auto count = static_cast<std::size_t>(std::max(t.char_count, 0));
+    const std::size_t n = std::min(count, kMaxPageChars);
+    pt->utf8.assign(t.utf8, n < count ? t.utf8_offset[n] : t.utf8_len);
+    pt->offset.assign(t.utf8_offset, t.utf8_offset + n);
+    pt->box.reserve(n);
+    for (std::size_t i = 0; i < n; ++i)
+        pt->box.push_back({t.box[i].x0, t.box[i].y0, t.box[i].x1, t.box[i].y1});
+    return pt;
+}
+
 const ReaderStyle& style_of(const RenderWant& w) noexcept
 {
     static const ReaderStyle kDefault;
@@ -89,6 +107,11 @@ void RenderWorker::abort_doc() noexcept
 uint64_t RenderWorker::request(const RenderWant& w)
 {
     return queue_.post(w);
+}
+
+void RenderWorker::request_text(int32_t page)
+{
+    queue_.post_text(page);
 }
 
 std::vector<RenderResult> RenderWorker::take()
@@ -160,12 +183,14 @@ void RenderWorker::run(const std::stop_token& st, const OpenJob& job) noexcept
         scope_.emplace(*guard_, "open", job.id);
         const eb_status open_st = open_doc(job);
         if (!is_open_failure(open_st)) {
-            RenderWant w;
-            while (queue_.pop(w, st)) {
-                if (open_st == EB_OK)
-                    serve(w);
-                else
-                    post_error(w, open_st, 0);
+            RenderQueue::Job next;
+            while (queue_.pop(next, st)) {
+                if (next.text_page && open_st == EB_OK)
+                    serve_text(*next.text_page);
+                if (next.render && open_st == EB_OK)
+                    serve(*next.render);
+                else if (next.render)
+                    post_error(*next.render, open_st, 0);
                 queue_.done();
             }
         }
@@ -237,6 +262,32 @@ void RenderWorker::serve(const RenderWant& w)
         post_error(w, EB_E_NOMEM, 0);
     } catch (...) {
         post_error(w, EB_E_INTERNAL, 0);
+    }
+}
+
+void RenderWorker::serve_text(int32_t page) noexcept
+{
+    RenderResult r;
+    r.kind = RenderResult::Kind::Text;
+    r.page = page;
+    r.status = EB_E_NOMEM;
+    try {
+        eb_text* raw = nullptr;
+        r.status = laid_out_ && page >= 0 && page < count_ ? EB_E_ABORTED : EB_E_RANGE;
+        for (int attempt = 0; attempt < kMaxAttempts && r.status == EB_E_ABORTED; ++attempt)
+            r.status = eb_page_text(doc_, page, &raw);
+        const std::unique_ptr<eb_text, TextFree> t(raw);
+        if (r.status == EB_OK && t)
+            r.text = copy_text(*t, page);
+    } catch (...) {
+        log::error("reader: cannot read the text of page {}", page);
+        r.status = EB_E_NOMEM;
+        r.text.reset();
+    }
+    try {
+        post(std::move(r));
+    } catch (...) {
+        log::error("reader: cannot report the text of page {}", page);
     }
 }
 

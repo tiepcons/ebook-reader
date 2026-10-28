@@ -26,7 +26,7 @@ struct BitmapFree {
 using BitmapPtr = std::unique_ptr<eb_bitmap, BitmapFree>;
 
 struct RenderResult {
-    enum class Kind : uint8_t { Page, OpenFailed };
+    enum class Kind : uint8_t { Page, OpenFailed, Text };
     Kind kind = Kind::Page;
     uint64_t generation = 0;
     uint32_t view_id = 0;
@@ -40,6 +40,7 @@ struct RenderResult {
     BitmapPtr bmp;          // null when the UI already holds it or on failure (status != EB_OK)
     std::string chapter;    // UTF-8, primary only
     std::string detail;     // UTF-8, OpenFailed only
+    std::shared_ptr<const PageText> text; // Text only; null when the page has none or reading it failed
 };
 
 struct OpenJob {
@@ -57,6 +58,8 @@ public:
     ~RenderWorker();
 
     uint64_t request(const RenderWant& w);
+    // The text of `page` in the current layout arrives as a Kind::Text result.
+    void request_text(int32_t page);
     // Drains the results; re-arms the notification message.
     std::vector<RenderResult> take();
     // Outline of the book; empty until the first page is shown or when the book has none.
@@ -66,6 +69,7 @@ private:
     void run(const std::stop_token& st, const OpenJob& job) noexcept;
     eb_status open_doc(const OpenJob& job);
     void serve(const RenderWant& w);
+    void serve_text(int32_t page) noexcept;
     eb_status serve_once(const RenderWant& w);
     eb_status prefetch(const RenderWant& w, int32_t page);
     [[nodiscard]] uint64_t shown_mark(const RenderWant& w) const;

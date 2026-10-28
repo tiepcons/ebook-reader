@@ -204,6 +204,7 @@ void MainWnd::update_font()
         return;
     for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_, toc_pane_.hwnd()})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
+    tts_bar_.set_font(nf.get());
     font_ = std::move(nf);
     lib_.rebuild_covers(dpi_, false);
 }
@@ -346,7 +347,7 @@ LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
 {
     LRESULT res = 0;
     if (on_splitter_msg(msg, wp, lp, res) || on_library_msg(msg, wp, lp, res) || on_reader_msg(msg, wp, lp, res)
-        || on_tray_msg(msg, wp, lp, res))
+        || on_tray_msg(msg, wp, lp, res) || on_tts_msg(msg, wp, lp))
         return res;
     switch (msg) {
     case WM_CREATE:
@@ -376,6 +377,7 @@ LRESULT MainWnd::handle(UINT msg, WPARAM wp, LPARAM lp)
         on_close_request();
         return 0;
     case WM_DESTROY:
+        tts_stop();
         shutdown_tray();
         KillTimer(hwnd_, kSearchTimer);
         KillTimer(hwnd_, kReaderTickTimer);

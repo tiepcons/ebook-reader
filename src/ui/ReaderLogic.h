@@ -87,6 +87,24 @@ struct TocItem {
 // Indices of the bookmarks inside the page [start, end); `marks` need not be sorted.
 [[nodiscard]] std::vector<std::size_t> marks_on_page(std::span<const uint64_t> marks, uint64_t start, uint64_t end);
 
+struct TextBox {
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0; // points, page space
+};
+
+// Text of one page with the box of each code point, as the reader needs it to read aloud and to highlight.
+struct PageText {
+    int32_t page = 0;
+    std::string utf8;
+    std::vector<uint32_t> offset; // byte offset of each code point
+    std::vector<TextBox> box;
+};
+
+inline constexpr std::size_t kMaxPageChars = 200000;
+inline constexpr std::size_t kMaxHighlightRects = 64;
+
+// One rectangle per text line covering the code points whose offsets lie in [begin, end).
+[[nodiscard]] std::vector<TextBox> sentence_lines(const PageText& t, uint32_t begin, uint32_t end);
+
 struct ViewParams {
     int32_t client_w = 0, client_h = 0;
     uint32_t dpi = 96;
@@ -112,10 +130,18 @@ class RenderQueue {
 public:
     using AbortFn = std::function<void()>;
 
+    // What the worker should do next: render, read the text of a page, or both.
+    struct Job {
+        std::optional<RenderWant> render;
+        std::optional<int32_t> text_page;
+    };
+
     explicit RenderQueue(AbortFn abort) : abort_(std::move(abort)) {}
 
     uint64_t post(RenderWant w);
-    bool pop(RenderWant& out, std::stop_token st);
+    // Latest-wins among text requests; it never cancels a render in flight.
+    void post_text(int32_t page);
+    bool pop(Job& out, std::stop_token st);
     // Makes every request so far stale and drops the pending one (used when closing).
     void supersede() noexcept;
     void done() noexcept;
@@ -125,6 +151,7 @@ private:
     mutable std::mutex mu_;
     std::condition_variable_any cv_;
     std::optional<RenderWant> pending_;
+    std::optional<int32_t> text_page_;
     uint64_t gen_ = 0;
     bool in_flight_ = false;
     AbortFn abort_;

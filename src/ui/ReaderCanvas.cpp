@@ -9,6 +9,7 @@ namespace eb {
 namespace {
 
 constexpr float kDpi = 96.0F;
+constexpr float kMarkAlpha = 0.45F;
 
 D2D1_COLOR_F color_of(uint32_t rgb) noexcept
 {
@@ -76,7 +77,8 @@ uint32_t ReaderCanvas::max_side() noexcept
     return ensure_target() ? rt_->GetMaximumBitmapSize() : kDefaultMaxSidePx;
 }
 
-void ReaderCanvas::paint(ID2D1Bitmap* bmp, int x, int y, uint32_t paper_rgb) noexcept
+void ReaderCanvas::paint(ID2D1Bitmap* bmp, int x, int y, uint32_t paper_rgb, std::span<const D2D1_RECT_F> marks,
+    uint32_t mark_rgb) noexcept
 {
     if (!ensure_target())
         return;
@@ -87,6 +89,12 @@ void ReaderCanvas::paint(ID2D1Bitmap* bmp, int x, int y, uint32_t paper_rgb) noe
         const auto fx = static_cast<float>(x), fy = static_cast<float>(y);
         rt_->DrawBitmap(bmp, D2D1::RectF(fx, fy, fx + static_cast<float>(sz.width), fy + static_cast<float>(sz.height)),
             1.0F, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+    if (!marks.empty() && SUCCEEDED(rt_->CreateSolidColorBrush(color_of(mark_rgb), brush.GetAddressOf()))) {
+        brush->SetOpacity(kMarkAlpha);
+        for (const D2D1_RECT_F& m : marks)
+            rt_->FillRectangle(m, brush.Get());
     }
     if (rt_->EndDraw() == D2DERR_RECREATE_TARGET) {
         rt_.Reset();

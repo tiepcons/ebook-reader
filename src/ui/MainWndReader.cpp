@@ -71,7 +71,8 @@ bool MainWnd::create_reader_children()
     resume_text_ = child(L"STATIC", L"", SS_CENTERIMAGE, kIdResumeText);
     resume_btn_ = child(L"BUTTON", L"Về đầu", BS_PUSHBUTTON | WS_TABSTOP, kIdResumeStart);
     aa_ = child(L"BUTTON", L"Aa", BS_PUSHBUTTON | WS_TABSTOP, kIdReaderSettings);
-    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && reader_.create(inst_, hwnd_) && toc_pane_.create(inst_, hwnd_, kIdTocPane);
+    return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && reader_.create(inst_, hwnd_)
+        && toc_pane_.create(inst_, hwnd_, kIdTocPane) && tts_bar_.create(inst_, hwnd_);
 }
 
 void MainWnd::layout_reader()
@@ -94,10 +95,17 @@ void MainWnd::layout_reader()
     MoveWindow(resume_btn_, tx + px(kResumeTextW) + m, m, px(kResumeBtnW), ch, TRUE);
     MoveWindow(aa_, std::max(0L, rc.right - m - px(kAaW)), m, px(kAaW), ch, TRUE);
     const int pane_w = toc_shown() ? std::min(px(kTocW), static_cast<int>(rc.right) / 2) : 0;
-    const int body_h = static_cast<int>(std::max(0L, rc.bottom - top - status_h));
+    const int bar_h = fullscreen_ ? 0 : ch + 2 * m;
+    const int body_h = static_cast<int>(std::max(0L, rc.bottom - top - status_h - bar_h));
+    layout_tts_bar(rc, status_h, m, ch);
     ShowWindow(toc_pane_.hwnd(), pane_w > 0 ? SW_SHOW : SW_HIDE);
     MoveWindow(toc_pane_.hwnd(), 0, top, pane_w, body_h, TRUE);
     MoveWindow(reader_.hwnd(), pane_w, top, rc.right - pane_w, body_h, TRUE);
+}
+
+void MainWnd::layout_tts_bar(const RECT& rc, int status_h, int margin, int bar_h)
+{
+    tts_bar_.layout(margin, rc.bottom - status_h - bar_h - margin, static_cast<int>(rc.right) - 2 * margin, bar_h, margin, dpi_);
 }
 
 void MainWnd::show_notice(const wchar_t* text)
@@ -132,6 +140,9 @@ void MainWnd::open_book(const std::string& id)
     reading_id_ = id;
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_HIDE);
     show_all({back_, aa_, reader_.hwnd()}, SW_SHOW);
+    tts_bar_.show(SW_SHOW);
+    load_tts_prefs_once();
+    set_tts_state(TtsState::Idle);
     layout();
     if (!reader_.open(OpenJob{*path, paths_.data / L"pending", id, fmt})) {
         close_book();
@@ -154,10 +165,13 @@ void MainWnd::close_book()
         toggle_fullscreen();
     KillTimer(hwnd_, kReaderTickTimer);
     hide_resume();
+    tts_stop();
     reader_.close();
+    set_tts_state(TtsState::Unavailable);
     in_reader_ = false;
     apply_chrome();
     show_all({back_, aa_, reader_.hwnd(), toc_pane_.hwnd()}, SW_HIDE);
+    tts_bar_.show(SW_HIDE);
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_SHOW);
     layout();
     refresh_list();
@@ -205,6 +219,9 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
     case ReaderEvent::Bookmark:
     case ReaderEvent::GoTo:
         on_shortcut_event(e);
+        break;
+    case ReaderEvent::Text:
+        on_tts_text(page);
         break;
     }
 }
@@ -266,6 +283,8 @@ bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
 bool MainWnd::on_reader_command(WPARAM wp)
 {
     const int id = LOWORD(wp);
+    if (on_tts_command(wp))
+        return true;
     if (HIWORD(wp) != BN_CLICKED) // menu commands carry 0 here as well
         return false;
     if (id == kIdBack) {
@@ -394,6 +413,7 @@ void MainWnd::toggle_fullscreen()
     }
     const int chrome = fullscreen_ ? SW_HIDE : SW_SHOW;
     show_all({status_, back_, aa_}, chrome);
+    tts_bar_.show(chrome);
     show_all({resume_text_, resume_btn_}, resume_page_ >= 0 ? chrome : SW_HIDE);
     layout();
 }
@@ -423,6 +443,7 @@ void MainWnd::init_smoke_open()
     if (smoke_open_.empty())
         return;
     smoke_theme_ = has_arg(L"--smoke-theme");
+    smoke_tts_ = has_arg(L"--smoke-tts");
     SetTimer(hwnd_, kSmokeTimer, kSmokeWatchdogMs, nullptr);
     PostMessageW(hwnd_, kMsgSmokeOpen, 0, 0);
 }
@@ -444,6 +465,13 @@ void MainWnd::smoke_step(int page)
 {
     if (smoke_open_.empty())
         return;
+    if (smoke_tts_ || smoke_tts_run_) {
+        if (std::exchange(smoke_tts_, false)) {
+            smoke_tts_run_ = true;
+            tts_toggle();
+        }
+        return;
+    }
     if (smoke_theme_) {
         smoke_theme_ = false;
         ReaderPrefs p = reader_.prefs();
