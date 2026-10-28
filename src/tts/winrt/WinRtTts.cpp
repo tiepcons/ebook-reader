@@ -1,11 +1,10 @@
 #include "tts/winrt/WinRtTts.h"
 
 #include "tts/Utf8.h"
+#include "tts/winrt/WinRtPlayer.h"
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.Media.Core.h>
-#include <winrt/Windows.Media.Playback.h>
 #include <winrt/Windows.Media.SpeechSynthesis.h>
 #include <winrt/Windows.Storage.Streams.h>
 
@@ -15,19 +14,12 @@
 #include <deque>
 #include <functional>
 #include <mutex>
-#include <set>
 #include <thread>
 
 namespace eb {
 
 using winrt::Windows::Foundation::AsyncStatus;
 using winrt::Windows::Foundation::IAsyncOperation;
-using winrt::Windows::Media::Core::MediaSource;
-using winrt::Windows::Media::Core::SpeechCue;
-using winrt::Windows::Media::Playback::MediaPlaybackItem;
-using winrt::Windows::Media::Playback::MediaPlaybackState;
-using winrt::Windows::Media::Playback::MediaPlayer;
-using winrt::Windows::Media::Playback::TimedMetadataTrackPresentationMode;
 using winrt::Windows::Media::SpeechSynthesis::SpeechSynthesisStream;
 using winrt::Windows::Media::SpeechSynthesis::SpeechSynthesizer;
 
@@ -131,8 +123,7 @@ Key key_of(const Req& r)
 }
 
 struct Prepared {
-    MediaPlayer player{nullptr};
-    MediaPlaybackItem item{nullptr};
+    WinRtPlayer player;
     WordMap map;
 };
 
@@ -175,13 +166,7 @@ enum class Kind : uint8_t { Speak, Prepare };
 
 void close_player(Prepared& p) noexcept
 {
-    try {
-        if (p.player) {
-            p.player.Pause();
-            p.player.Close();
-        }
-    } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
-    }
+    p.player.close();
     p = Prepared{};
 }
 
@@ -219,100 +204,27 @@ bool select_voice(SpeechSynthesizer& synth, const std::wstring& voice_id)
     return false;
 }
 
-// Word boundaries come from the SpeechWord track's CueEntered event: it fires from the playback clock, so
-// highlighting cannot drift from the audio, unlike polling PlaybackSession.Position on a timer.
-struct Hook {
-    std::shared_ptr<Shared> sh;
-    uint32_t gen;
-    uint32_t id;
-    WordMap map;
-    std::atomic<bool> started{false};
-    std::mutex m;
-    std::set<uint32_t> hooked;
-
-    Hook(std::shared_ptr<Shared> s, uint32_t g, uint32_t i, WordMap w) : sh(std::move(s)), gen(g), id(i), map(std::move(w)) {}
-
-    void start() noexcept
-    {
-        if (!started.exchange(true))
-            sh->post(gen, id, TtsEvent::Started, 0);
-    }
-    void word(int32_t pos) noexcept
-    {
-        if (pos < 0 || static_cast<size_t>(pos) >= map->size())
-            return;
-        start();
-        sh->post(gen, id, TtsEvent::Word, (*map)[static_cast<size_t>(pos)]);
-    }
-};
-
-void on_cue(const std::shared_ptr<Hook>& h, const winrt::Windows::Media::Core::IMediaCue& c) noexcept
+void post_event(Shared& sh, uint32_t gen, uint32_t id, const WordMap& map, PlayEvent ev, uint32_t value) noexcept
 {
-    try {
-        const auto cue = c.try_as<SpeechCue>();
-        if (!cue)
-            return;
-        const auto pos = cue.StartPositionInInput();
-        if (pos)
-            h->word(pos.Value());
-    } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
+    switch (ev) {
+    case PlayEvent::Started: sh.post(gen, id, TtsEvent::Started, 0); break;
+    case PlayEvent::Finished: sh.post(gen, id, TtsEvent::Finished, 0); break;
+    case PlayEvent::Failed: sh.post(gen, id, TtsEvent::Error, kTtsPlayFailed); break;
+    case PlayEvent::Word:
+        if (value < map->size())
+            sh.post(gen, id, TtsEvent::Word, (*map)[value]);
+        break;
     }
-}
-
-void hook_tracks(const std::shared_ptr<Hook>& h, const MediaPlaybackItem& item)
-{
-    const std::scoped_lock lk(h->m);
-    auto tracks = item.TimedMetadataTracks();
-    for (uint32_t i = 0; i < tracks.Size(); ++i) {
-        if (!h->hooked.insert(i).second)
-            continue;
-        const auto track = tracks.GetAt(i);
-        if (track.Id() != L"SpeechWord")
-            continue;
-        tracks.SetPresentationMode(i, TimedMetadataTrackPresentationMode::ApplicationPresented);
-        track.CueEntered([h](auto&&, const auto& args) { on_cue(h, args.Cue()); });
-    }
-}
-
-void hook_player(const std::shared_ptr<Shared>& sh, const Req& r, const Prepared& p)
-{
-    auto h = std::make_shared<Hook>(sh, r.gen, r.id, p.map);
-    p.player.MediaEnded([h](auto&&, auto&&) {
-        h->start();
-        h->sh->post(h->gen, h->id, TtsEvent::Finished, 0);
-    });
-    p.player.MediaFailed([h](auto&&, auto&&) { h->sh->post(h->gen, h->id, TtsEvent::Error, kTtsPlayFailed); });
-    p.player.PlaybackSession().PlaybackStateChanged([h](const auto& session, auto&&) {
-        try {
-            if (session.PlaybackState() == MediaPlaybackState::Playing)
-                h->start();
-        } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
-        }
-    });
-    p.item.TimedMetadataTracksChanged([h](const MediaPlaybackItem& it, auto&&) {
-        try {
-            hook_tracks(h, it);
-        } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
-        }
-    });
-    hook_tracks(h, p.item);
 }
 
 void play_new(Engine& e, Prepared p, const Req& r)
 {
-    try {
-        p.player.Volume(std::clamp(r.volume, 0.0, 1.0));
-        hook_player(e.sh, r, p);
-    } catch (...) {
-        close_player(p);
-        e.sh->post(r.gen, r.id, TtsEvent::Error, kTtsPlayFailed);
-        return;
-    }
     Prepared old = std::move(e.cur);
     e.cur = std::move(p);
-    try {
-        e.cur.player.Play();
-    } catch (...) {
+    const bool ok = e.cur.player.play(r.volume, [sh = e.sh, gen = r.gen, id = r.id, map = e.cur.map](PlayEvent ev, uint32_t v) {
+        post_event(*sh, gen, id, map, ev, v);
+    });
+    if (!ok) {
         close_player(e.cur);
         e.sh->post(r.gen, r.id, TtsEvent::Error, kTtsPlayFailed);
     }
@@ -321,17 +233,12 @@ void play_new(Engine& e, Prepared p, const Req& r)
 
 bool build_player(Prepared& p, const SpeechSynthesisStream& s, WordMap map) noexcept
 {
-    try {
-        p.item = MediaPlaybackItem(MediaSource::CreateFromStream(s, s.ContentType()));
-        p.player = MediaPlayer();
-        p.player.AutoPlay(false);
-        p.player.Source(p.item);
-        p.map = std::move(map);
-        return true;
-    } catch (...) {
+    if (!p.player.open_stream(static_cast<IUnknown*>(winrt::get_abi(s)), s.ContentType().c_str())) {
         close_player(p);
         return false;
     }
+    p.map = std::move(map);
+    return true;
 }
 
 void on_synth_done(Engine& e, Kind kind, uint32_t serial, const SpeechSynthesisStream& stream, const WordMap& map,
@@ -442,7 +349,7 @@ void do_speak(Engine& e, const ReqPtr& req)
     e.waiting.reset();
     ++e.speak_serial;
     const Key k = key_of(*req);
-    if (e.prep.player && e.prep_key == k) {
+    if (e.prep.player.valid() && e.prep_key == k) {
         Prepared p = std::move(e.prep);
         e.prep = Prepared{};
         play_new(e, std::move(p), *req);
@@ -489,22 +396,18 @@ struct WinRtTts::Impl {
 
     void run() noexcept
     {
-        try {
-            winrt::init_apartment(winrt::apartment_type::multi_threaded);
-        } catch (...) {
-            sh->dead = true;
-            return;
-        }
         {
-            Engine e;
-            e.sh = sh;
-            e.queue = queue;
-            loop(e);
-            close_player(e.cur);
-            close_player(e.prep);
+            const WinRtApartment apartment;
+            if (apartment.ok()) {
+                Engine e;
+                e.sh = sh;
+                e.queue = queue;
+                loop(e);
+                close_player(e.cur);
+                close_player(e.prep);
+            }
+            sh->dead = true;
         }
-        sh->dead = true;
-        winrt::uninit_apartment();
     }
 
     void loop(Engine& e) noexcept
@@ -588,16 +491,14 @@ void WinRtTts::prepare(uint32_t id, std::string_view utf8, const std::wstring& v
 void WinRtTts::pause() noexcept
 {
     impl_->queue->push([](Engine& e) {
-        if (e.cur.player)
-            e.cur.player.Pause();
+        e.cur.player.pause();
     });
 }
 
 void WinRtTts::resume() noexcept
 {
     impl_->queue->push([](Engine& e) {
-        if (e.cur.player)
-            e.cur.player.Play();
+        e.cur.player.resume();
     });
 }
 

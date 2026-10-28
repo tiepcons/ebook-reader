@@ -3,7 +3,7 @@
 #include "base/Text.h"
 #include "tts/Utf8.h"
 #include "tts/piper/PiperProc.h"
-#include "tts/piper/player/PiperPlayer.h"
+#include "tts/winrt/WinRtPlayer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -18,8 +18,6 @@ namespace fs = std::filesystem;
 
 using piper::Cancel;
 using piper::Cfg;
-using piper::Player;
-using piper::PlayEvent;
 using piper::Proc;
 using piper::Wait;
 
@@ -52,7 +50,7 @@ struct Shared {
     std::atomic<bool> quit{false};
     std::map<std::wstring, int> fails;
     std::mutex pm;
-    Player playing;
+    WinRtPlayer playing;
 
     bool current(uint32_t g) noexcept
     {
@@ -105,14 +103,14 @@ struct Shared {
         } catch (...) { // NOLINT(bugprone-empty-catch): the counter is advisory
         }
     }
-    void set_playing(Player p) noexcept
+    void set_playing(WinRtPlayer p) noexcept
     {
         const std::scoped_lock lk(pm);
         playing = std::move(p);
     }
     void with_playing(bool play) noexcept
     {
-        Player p;
+        WinRtPlayer p;
         {
             const std::scoped_lock lk(pm);
             p = playing;
@@ -149,7 +147,7 @@ Key key_of(const Req& r)
 }
 
 struct Prepared {
-    Player player;
+    WinRtPlayer player;
     fs::path wav;
     Key key;
 };
@@ -265,7 +263,7 @@ void close_prepared(Engine& e, Prepared& p) noexcept
 
 void close_cur(Engine& e) noexcept
 {
-    e.sh->set_playing(Player{});
+    e.sh->set_playing(WinRtPlayer{});
     close_prepared(e, e.cur);
 }
 
@@ -325,11 +323,12 @@ Synth synth(Engine& e, const Req& r, const Cancel& cancel, fs::path& wav)
 void play_new(Engine& e, Prepared p, const Req& r)
 {
     close_cur(e);
-    const bool ok = p.player.play(r.volume, [sh = e.sh, gen = r.gen, id = r.id](PlayEvent ev) {
+    const bool ok = p.player.play(r.volume, [sh = e.sh, gen = r.gen, id = r.id](PlayEvent ev, uint32_t) {
         switch (ev) {
         case PlayEvent::Started: sh->post(gen, id, TtsEvent::Started, 0); break;
         case PlayEvent::Finished: sh->post(gen, id, TtsEvent::Finished, 0); break;
         case PlayEvent::Failed: sh->post(gen, id, TtsEvent::Error, kTtsPlayFailed); break;
+        case PlayEvent::Word: break;
         }
     });
     if (!ok) {
@@ -353,7 +352,7 @@ bool fetch_wav(Engine& e, const ReqPtr& req, Prepared& p)
         return false;
     }
     p.wav = wav;
-    if (!p.player.open(wav)) {
+    if (!p.player.open_file(wav)) {
         close_prepared(e, p);
         e.sh->post(req->gen, req->id, TtsEvent::Error, kTtsPlayFailed);
         return false;
@@ -393,7 +392,7 @@ void do_prepare(Engine& e, const ReqPtr& req)
     Prepared p;
     p.key = key_of(*req);
     p.wav = wav;
-    if (p.player.open(wav) && e.sh->epoch_is(req->epoch))
+    if (p.player.open_file(wav) && e.sh->epoch_is(req->epoch))
         e.prep = std::move(p);
     else
         close_prepared(e, p);
@@ -416,7 +415,7 @@ struct PiperTts::Impl {
     void run() noexcept
     {
         {
-            const piper::Apartment apartment;
+            const WinRtApartment apartment;
             if (apartment.ok()) {
                 try {
                     run_engine();
