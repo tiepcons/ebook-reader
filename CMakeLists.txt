@@ -114,6 +114,10 @@ target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cp
   src/ui/MainWndReader.cpp src/ui/ReaderViewMarks.cpp src/ui/ReaderViewTts.cpp src/ui/TocPane.cpp src/ui/GotoPercent.cpp)
 target_link_libraries(EbookReader PRIVATE eb_doc d2d1)
 target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)
+# Non-KnownDLL system imports load only after App sets SetDefaultDllDirectories, so a DLL planted next to the
+# (user-writable, portable) exe is never picked up; 0x800 = LOAD_LIBRARY_SEARCH_SYSTEM32 for any remaining imports.
+target_link_options(EbookReader PRIVATE /DELAYLOAD:dbghelp.dll /DELAYLOAD:dwmapi.dll /DELAYLOAD:winhttp.dll
+    /DELAYLOAD:windowscodecs.dll /DELAYLOAD:bcrypt.dll /DEPENDENTLOADFLAG:0x800)
 
 target_sources(eb_tts PRIVATE src/tts/winrt/WinRtTts.cpp src/tts/winrt/WinRtPlayer.cpp)
 target_link_libraries(eb_tts PUBLIC windowsapp)
