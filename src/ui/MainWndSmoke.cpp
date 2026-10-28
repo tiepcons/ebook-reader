@@ -17,7 +17,7 @@ namespace {
 constexpr UINT kSmokeWatchdogMs = 30000;
 constexpr int kSmokeKeys = 3;
 constexpr UINT kSoakTickMs = 200;
-constexpr int kSoakPagesPerBook = 10, kSoakTrayEvery = 3;
+constexpr int kSoakPagesPerBook = 10, kSoakTrayEvery = 3, kSoakTrayTicks = 5;
 constexpr long kSoakMaxMinutes = 10080;
 constexpr size_t kBytesPerKb = 1024;
 
@@ -162,8 +162,13 @@ void MainWnd::soak_tick()
         PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         return;
     }
-    if (in_tray_)
-        bring_to_front();
+    if (in_tray_) {
+        if (++soak_.tray_ticks >= kSoakTrayTicks) { // stay past kTrimTimer so the tray trim runs
+            soak_.tray_ticks = 0;
+            bring_to_front();
+        }
+        return;
+    }
     if (!in_reader_) {
         open_book(soak_.ids[soak_.next++ % soak_.ids.size()]);
         soak_.book_pages = 0;

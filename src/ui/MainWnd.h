@@ -202,6 +202,7 @@ private:
         long long minutes = 0, logged = -1, books = 0, pages = 0;
         int book_pages = 0;
         bool tray_visit = false;
+        int tray_ticks = 0;
     } soak_;
     WINDOWPLACEMENT saved_wp_{};
     LONG_PTR saved_style_ = 0;
