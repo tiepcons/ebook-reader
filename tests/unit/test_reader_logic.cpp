@@ -97,6 +97,27 @@ TEST_CASE("reader: keys and clicks map to actions")
     CHECK(eb::nav_for_click(-1, 400) == NavAction::None);
 }
 
+namespace {
+// Like Microsoft::WRL::ComPtr, taking the address of the handle resets it.
+struct ResettingHandle {
+    int* p = nullptr;
+    ResettingHandle() = default;
+    explicit ResettingHandle(int* v) : p(v) {}
+    int** operator&() { p = nullptr; return &p; }
+};
+}
+
+TEST_CASE("reader: LRU get keeps handle types that overload operator&")
+{
+    int target = 7;
+    eb::ByteLru<ResettingHandle> lru(100);
+    lru.put(1, ResettingHandle(&target), 10);
+    ResettingHandle* h = lru.get(1);
+    REQUIRE(h != nullptr);
+    CHECK(h->p == &target);
+    CHECK(lru.get(1)->p == &target);
+}
+
 TEST_CASE("reader: LRU byte accounting")
 {
     eb::ByteLru<int> lru(100);

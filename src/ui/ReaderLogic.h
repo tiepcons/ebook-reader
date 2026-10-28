@@ -179,7 +179,7 @@ public:
         if (it == items_.end())
             return nullptr;
         items_.splice(items_.begin(), items_, it);
-        return &items_.front().value;
+        return std::addressof(items_.front().value);
     }
     void set_cap(std::size_t cap)
     {

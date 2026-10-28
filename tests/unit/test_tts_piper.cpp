@@ -1,10 +1,12 @@
 #include "tts/piper/PiperTts.h"
+#include "tts/piper/PiperProc.h"
 
 #include "base/PathSafety.h"
 #include "tts/Utf8.h"
 
 #include <doctest/doctest.h>
 
+#include <aclapi.h>
 #include <tlhelp32.h>
 
 #include <chrono>
@@ -414,4 +416,45 @@ TEST_CASE("tts piper destruction with a wedged child is quick")
     }
     CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 1000);
     CHECK(wait_children(false, 2000));
+}
+
+namespace {
+
+bool has_low_label(const fs::path& dir)
+{
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    PACL sacl = nullptr;
+    if (GetNamedSecurityInfoW(dir.c_str(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, &sacl, &sd)
+        != ERROR_SUCCESS)
+        return false;
+    bool low = false;
+    for (DWORD i = 0; sacl != nullptr && i < sacl->AceCount; ++i) {
+        void* ace = nullptr;
+        if (GetAce(sacl, i, &ace) && static_cast<ACE_HEADER*>(ace)->AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE) {
+            auto* sid = reinterpret_cast<PSID>(&static_cast<SYSTEM_MANDATORY_LABEL_ACE*>(ace)->SidStart);
+            low = *GetSidSubAuthority(sid, 0) == SECURITY_MANDATORY_LOW_RID;
+        }
+    }
+    LocalFree(sd);
+    return low;
+}
+
+}
+
+TEST_CASE("tts piper temp dir gets a Low label even where relabeling is denied")
+{
+    // The working directory may sit on a non-system drive, where the user lacks WRITE_OWNER on inherited folders.
+    const fs::path base = fs::current_path() / L"eb-piper-label-test";
+    std::error_code ec;
+    fs::remove_all(base, ec);
+    const fs::path fresh = base / L"a" / L"tmp";
+    REQUIRE(eb::piper::prepare_temp_dir(fresh));
+    CHECK(has_low_label(fresh));
+    const fs::path plain = base / L"b";
+    fs::create_directories(plain, ec);
+    REQUIRE(eb::piper::prepare_temp_dir(plain));
+    CHECK(has_low_label(plain));
+    REQUIRE(eb::piper::prepare_temp_dir(plain));
+    CHECK(has_low_label(plain));
+    fs::remove_all(base, ec);
 }

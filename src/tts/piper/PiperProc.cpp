@@ -164,6 +164,19 @@ bool label_low(const fs::path& dir)
     return ok;
 }
 
+// A medium-integrity caller may stamp a Low label while creating the directory; relabeling an existing one needs
+// WRITE_OWNER, which the user lacks on folders inherited from a drive root.
+bool create_labeled(const fs::path& dir)
+{
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"S:(ML;OICI;NW;;;LW)", SDDL_REVISION_1, &sd, nullptr))
+        return false;
+    SECURITY_ATTRIBUTES sa{sizeof sa, sd, FALSE};
+    const bool ok = CreateDirectoryW(dir.c_str(), &sa) != 0;
+    LocalFree(sd);
+    return ok;
+}
+
 void remove_stale(const fs::path& dir)
 {
     std::error_code ec;
@@ -186,11 +199,12 @@ bool prepare_temp_dir(const fs::path& dir) noexcept
 {
     try {
         std::error_code ec;
-        fs::create_directories(dir, ec);
-        if (!is_plain_dir_chain(dir) || !label_low(dir))
+        fs::create_directories(dir.parent_path(), ec);
+        const bool created = !fs::exists(dir, ec) && create_labeled(dir);
+        if (!is_plain_dir_chain(dir))
             return false;
         remove_stale(dir);
-        return true;
+        return created || label_low(dir) || (fs::remove(dir, ec) && create_labeled(dir) && is_plain_dir_chain(dir));
     } catch (...) {
         return false;
     }
