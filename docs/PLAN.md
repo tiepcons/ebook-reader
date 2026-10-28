@@ -315,6 +315,7 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | T9.2 | Tuân thủ license: AGPL (công bố mã nguồn), MuPDF, SQLite, Piper/espeak-ng (GPL), onnxruntime (MIT), font OFL | DEV + SEC | T9.1 | 0,2 | | ⬜ |
 | T9.3 | `release.yml`: push tag `v*` thì đăng 2 file zip lên GitHub Releases | DEV → CI | T9.1 | 0,2 | | ✅ |
 | T9.4 | *(Tùy chọn)* Ký số code miễn phí qua SignPath.io Foundation cho OSS | **PO** + DEV | T9.3 | 0,3 | | ⬜ |
+| T9.5 | **Build Piper từ mã nguồn** (piper, piper-phonemize, espeak-ng fork, onnxruntime prebuilt) với commit đã khóa, để lời đề nghị cung cấp mã nguồn GPL của espeak-ng trỏ đúng commit. Làm **cuối cùng, ngay trước beta công khai** (quyết định của PO 2026-10-28) | DEV + SEC | T9.1 | 0,5 | Gói Piper build lại được, notices trỏ đúng commit | ⬜ |
 
 ---
 
