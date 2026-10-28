@@ -32,7 +32,7 @@ int eb_sfnt_face_count(eb_sfnt_read_fn rd, void* user, uint64_t size)
 static int face_offset(const sfnt* s, int index, uint64_t* off)
 {
     uint8_t h[4];
-    if (index < 0 || index >= EB_SFNT_MAX_FACES) return 0;
+    if (index < 0 || index >= EB_SFNT_MAX_FACES || s->size < sizeof h) return 0;
     if (!s->rd(s->user, 0, h, 4)) return 0;
     if (memcmp(h, "ttcf", 4) != 0) {
         *off = 0;
