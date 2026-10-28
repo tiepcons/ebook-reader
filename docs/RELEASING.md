@@ -24,3 +24,5 @@ skips the local self-signing. The version comes from `project(VERSION)` in `CMak
 
 Public releases: apply for free code signing through the SignPath Foundation (OSS program) and replace the
 self-signed step in `tools/sign.ps1`; the unsigned-chain warning goes away once the certificate chains to a public CA.
+
+PO guide for the SignPath Foundation application (Vietnamese): [SIGNPATH.md](SIGNPATH.md)
