@@ -77,9 +77,10 @@ std::string request_line(std::string_view utf8, std::string_view wav_path_utf8)
 
 std::wstring quote_arg(std::wstring_view a)
 {
-    if (!a.empty() && a.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
+    constexpr std::wstring_view kNeedsQuote{L" \t\n\v\"", 5}; // explicit length: no wcslen on a literal
+    if (!a.empty() && a.find_first_of(kNeedsQuote) == std::wstring_view::npos)
         return std::wstring(a);
-    std::wstring out = L"\"";
+    std::wstring out(1, L'"');
     size_t backslashes = 0;
     for (const wchar_t c : a) {
         if (c == L'\\') {
