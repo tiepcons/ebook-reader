@@ -1,16 +1,16 @@
-# Nghiệm thu tay (PO) — bản 0.9.0-alpha.1
+# Nghiệm thu tay (PO) — bản 0.9.0-alpha.3
 
 Tick `[x]` khi đạt. Nếu lỗi, ghi ngắn vào cột **Ghi chú** (đã làm gì → thấy gì). Gửi lại file này là đủ để sửa.
 Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).
 
 ## 0. Chuẩn bị (5 phút)
 
-1. Giải nén `D:\eBook Reader\dist\EbookReader-0.9.0-alpha.1-win-x64.zip` vào thư mục **riêng**, ví dụ `D:\EbookAlpha\`.
+1. Giải nén `D:\eBook Reader\dist\EbookReader-0.9.0-alpha.3-win-x64.zip` vào thư mục **riêng**, ví dụ `D:\EbookAlpha\`.
    - Không chạy exe trong `build\` (soak test có thể đang chạy ở đó).
 2. Chuẩn bị khoảng 100 sách nhiều định dạng: EPUB, PDF, MOBI, AZW3, FB2, CBZ, TXT (có ít nhất 1 TXT tiếng Việt).
    Để trong vài tầng thư mục con, ví dụ `Tiểu thuyết\Việt Nam\...`.
 3. Mở Task Manager → tab **Details** → chuột phải tiêu đề cột → thêm cột **Memory (private working set)**. Cột này dùng để đo RAM.
-4. *(Tùy chọn)* Piper: giải nén `EbookReader-0.9.0-alpha.1-piper-pack.zip` **đè** vào `D:\EbookAlpha\`.
+4. *(Tùy chọn)* Piper: giải nén `EbookReader-0.9.0-alpha.3-piper-pack.zip` **đè** vào `D:\EbookAlpha\`.
    Tải giọng theo `README.txt` vào `data\voices\`.
 
 ## 1. Thư viện — T3.7
@@ -33,6 +33,8 @@ Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).
 | 2.5 | Theme Trắng, Đen, Giấy sách, Tự chỉnh màu. Thử cả với PDF | Màu nền và chữ đổi theo, PDF cũng đổi | [ ] | |
 | 2.6 | Font: Theo sách, Ghi đè font, Ghi đè hết. Chép 1 file .ttf mới vào `fonts\` | Font mới xuất hiện trong danh sách | [ ] | |
 | 2.7 | Ctrl+T (mục lục), Ctrl+B (đặt/bỏ dấu trang), Ctrl+G (đi đến %) | Hoạt động đúng | [ ] | |
+| 2.7b | Mở 1 truyện có trang mục lục trong sách: bấm vào tên chương; rê chuột lên liên kết | Nhảy đúng chương; con trỏ thành bàn tay | [ ] | |
+| 2.7c | Ô chọn chương ở thanh trên: chọn 1 chương; lật trang qua chương khác | Nhảy ngay tới chương; ô tự đổi theo chương đang đọc; mũi tên vẫn lật trang | [ ] | |
 | 2.8 | **Đo RAM** khi đang đọc (cột private working set) | **≤ 120 MB**. Ghi lại số đo | [ ] | MB = |
 | 2.9 | Đo RAM khi đang xem thư viện | ≤ 40 MB. Ghi lại số đo | [ ] | MB = |
 
