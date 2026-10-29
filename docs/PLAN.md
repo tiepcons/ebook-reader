@@ -313,11 +313,11 @@ Quy tắc chi tiết nằm ở `CLAUDE.md` (agent chỉ huy) và `.claude/agents
 | ID | Task | Phụ trách | Phụ thuộc | ƯL | Tiêu chí hoàn thành | TT |
 |---|---|---|---|---|---|---|
 | T9.1 | `tools/package.ps1` tạo **zip portable cơ bản** (exe, `libs\eb_mupdf.dll`, 2 font, thư mục `ebooks\` rỗng, `licenses\`) và **zip gói Piper** riêng | DEV | P8 | 0,3 | Zip cơ bản ≤ 10 MB, chạy được trên máy Windows sạch | ✅ |
-| T9.2 | Tuân thủ license: AGPL (công bố mã nguồn), MuPDF, SQLite, Piper/espeak-ng (GPL), onnxruntime (MIT), font OFL | DEV + SEC | T9.1 | 0,2 | | ⬜ |
+| T9.2 | Tuân thủ license: AGPL (công bố mã nguồn), MuPDF, SQLite, Piper/espeak-ng (GPL), onnxruntime (MIT), font OFL | DEV + SEC | T9.1 | 0,2 | Notices ghi đúng commit, có zip mã nguồn GPL kèm release (2026-10-29) | ✅ |
 | T9.3 | `release.yml`: push tag `v*` thì đăng 2 file zip lên GitHub Releases | DEV → CI | T9.1 | 0,2 | | ✅ |
 | T9.4 | *(Tùy chọn)* Ký số code miễn phí qua SignPath.io Foundation cho OSS | **PO** + DEV | T9.3 | 0,3 | | ⬜ |
 | T6.11 | **Spike VieNeu-TTS v3 Turbo** qua audio.cpp v0.9.3 Windows CPU: đo RTF và thời gian ra tiếng câu đầu trên máy PO, RAM, chất lượng giọng Việt/Anh, cách giữ model trong RAM (stdin/pipe, không mở cổng mạng), xác nhận giấy phép. Đạt → task engine `VieNeuProc` như Piper (D20) | orchestrator + `eb-dev` | T6.5 | 0,5 | RTF < 1 và câu đầu < 1,5 s trên máy PO, PO nghe thử đạt | ⬜ |
-| T9.5 | **Build Piper từ mã nguồn** (piper, piper-phonemize, espeak-ng fork, onnxruntime prebuilt) với commit đã khóa, để lời đề nghị cung cấp mã nguồn GPL của espeak-ng trỏ đúng commit. Làm **cuối cùng, ngay trước beta công khai** (quyết định của PO 2026-10-28) | DEV + SEC | T9.1 | 0,5 | Gói Piper build lại được, notices trỏ đúng commit | ⬜ |
+| T9.5 | **Build Piper từ mã nguồn** (piper, piper-phonemize, espeak-ng fork, onnxruntime prebuilt) với commit đã khóa, để lời đề nghị cung cấp mã nguồn GPL của espeak-ng trỏ đúng commit. Làm **cuối cùng, ngay trước beta công khai** (quyết định của PO 2026-10-28) | DEV + SEC | T9.1 | 0,5 | Gói Piper build lại được, notices trỏ đúng commit | ✅ 45194a9 + 4aff9e9: pins trong tools/piper_pins.psd1, kèm VC++ runtime, zip mã nguồn 51 MB |
 
 ---
 
