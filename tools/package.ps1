@@ -13,16 +13,8 @@ $name = "EbookReader-$Version"
 $stage = Join-Path $dist $name
 $maxBasicBytes = 10MB
 
-$gh = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2'
-$pins = @{
-    piper = @("$gh/piper_windows_amd64.zip", 'f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea')
-    piperLic = @('https://raw.githubusercontent.com/rhasspy/piper/2023.11.14-2/LICENSE.md', '4cd71dece7037f1d6d93cce7570c57ab75ea9ac566fd4990be2f3ab08d15b47f')
-    phonemizeLic = @('https://raw.githubusercontent.com/rhasspy/piper-phonemize/fccd4f335aa68ac0b72600822f34d84363daa2bf/LICENSE.md', '13746d509d74e55ea2265fbef204bb7cdbf84a8315b0207e988326cb54387028')
-    tashkeelLic = @('https://raw.githubusercontent.com/mush42/libtashkeel/9b91c2dbc3dc4085dc4f77a9e250e5dd095d7d0c/LICENSE', '98dbc9a6a01badb391f2b64161742cb9cd8fcdc5cfc97486be0d49c47e98d1a8')
-    espeakLic = @('https://raw.githubusercontent.com/rhasspy/espeak-ng/0f65aa301e0d6bae5e172cc74197d32a6182200f/COPYING', '8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903')
-    ortLic = @('https://raw.githubusercontent.com/microsoft/onnxruntime/v1.14.1/LICENSE', '2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c')
-    ortNotices = @('https://raw.githubusercontent.com/microsoft/onnxruntime/v1.14.1/ThirdPartyNotices.txt', 'cc63920441c5681cfb1663caf1de1858349b517fc1bed9ca669a85bc526cd13e')
-}
+$piperPins = Import-PowerShellDataFile "$PSScriptRoot/piper_pins.psd1"
+$pins = @{ tashkeelLic = @($piperPins.TashkeelLicense.Url, $piperPins.TashkeelLicense.Sha256) }
 
 function Get-Pinned([string]$Key) {
     $url, $sha = $pins[$Key]
@@ -35,20 +27,6 @@ function Get-Pinned([string]$Key) {
         Move-Item $tmp $file -Force
     }
     $file
-}
-
-function Expand-Safe([string]$Zip, [string]$Dest) {
-    $full = [IO.Path]::GetFullPath($Dest).TrimEnd('\') + '\'
-    $za = [IO.Compression.ZipFile]::OpenRead($Zip)
-    try {
-        foreach ($e in $za.Entries) {
-            $target = [IO.Path]::GetFullPath((Join-Path $Dest $e.FullName))
-            if (-not $target.StartsWith($full, [StringComparison]::OrdinalIgnoreCase)) { throw "unsafe zip entry: $($e.FullName)" }
-            if ($e.FullName.EndsWith('/')) { New-Item -ItemType Directory -Force $target | Out-Null; continue }
-            New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-            [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $target, $false)
-        }
-    } finally { $za.Dispose() }
 }
 
 function New-Zip([string]$Zip, [string]$Base, [string[]]$Files, [string[]]$EmptyDirs = @()) {
@@ -194,44 +172,63 @@ function Build-Basic {
 }
 
 function Build-PiperPack {
+    $out = Join-Path $root 'build/piper-src/out'
+    if (-not (Test-Path "$out/piper.exe")) {
+        & "$PSScriptRoot/build_piper.ps1" | Out-Host
+        if (-not (Test-Path "$out/piper.exe")) { throw 'build_piper.ps1 failed' }
+    }
+    $sr = Join-Path $root 'build/piper-src/src'
+    $ort = Join-Path $root "build/piper-src/ort/$($piperPins.Onnxruntime.Dir)"
     $pk = Join-Path $dist "$name-piper-pack-stage"
-    $ex = Join-Path $pk 'extract'
-    New-Item -ItemType Directory $pk, $ex, "$pk/libs", "$pk/licenses/piper-pack" | Out-Null
-    Expand-Safe (Get-Pinned 'piper') $ex
-    if (-not (Test-Path "$ex/piper/piper.exe")) { throw 'piper.exe missing in archive' }
-    Move-Item "$ex/piper" "$pk/libs/piper"
-    Remove-Item $ex -Recurse
     $pl = "$pk/licenses/piper-pack"
-    Copy-Item (Get-Pinned 'piperLic') "$pl/LICENSE-piper-MIT.txt"
-    Copy-Item (Get-Pinned 'espeakLic') "$pl/LICENSE-espeak-ng-GPL-3.0.txt"
-    Copy-Item (Get-Pinned 'ortLic') "$pl/LICENSE-onnxruntime-MIT.txt"
-    Copy-Item (Get-Pinned 'ortNotices') "$pl/onnxruntime-ThirdPartyNotices.txt"
-    Copy-Item (Get-Pinned 'phonemizeLic') "$pl/LICENSE-piper-phonemize-MIT.txt"
+    New-Item -ItemType Directory $pk, "$pk/libs", $pl | Out-Null
+    Copy-Item $out "$pk/libs/piper" -Recurse
+    Copy-Item "$sr/piper/LICENSE.md" "$pl/LICENSE-piper-MIT.txt"
+    Copy-Item "$sr/espeak/COPYING" "$pl/LICENSE-espeak-ng-GPL-3.0.txt"
+    Copy-Item "$sr/sonic/LICENSE" "$pl/LICENSE-sonic-Apache-2.0.txt"
+    Copy-Item "$sr/phonemize/LICENSE.md" "$pl/LICENSE-piper-phonemize-MIT.txt"
+    Copy-Item "$sr/fmt/LICENSE.rst" "$pl/LICENSE-fmt-MIT.txt"
+    Copy-Item "$sr/spdlog/LICENSE" "$pl/LICENSE-spdlog-MIT.txt"
+    Copy-Item "$ort/LICENSE" "$pl/LICENSE-onnxruntime-MIT.txt"
+    Copy-Item "$ort/ThirdPartyNotices.txt" "$pl/onnxruntime-ThirdPartyNotices.txt"
     Copy-Item (Get-Pinned 'tashkeelLic') "$pl/LICENSE-libtashkeel-MIT.txt"
-    @'
-THIRD-PARTY NOTICES - Piper pack (optional; unmodified downloads from the URLs below)
-======================================================================================
-Component                    Version        License     Source
----------------------------  -------------  ----------  ------------------------------------------------------
-piper                        2023.11.14-2   MIT         https://github.com/rhasspy/piper/releases/tag/2023.11.14-2
-espeak-ng (inside piper)     rhasspy fork   GPL-3.0     https://github.com/rhasspy/espeak-ng/tree/0f65aa301e0d6bae5e172cc74197d32a6182200f
-    (piper's build fetched the fork's master branch; this is its newest commit before the 2023-11-14 build, approx.)
-piper-phonemize (in piper)   approx. fccd4f3  MIT       https://github.com/rhasspy/piper-phonemize/tree/fccd4f335aa68ac0b72600822f34d84363daa2bf
-    (newest master commit before the 2023-11-14 build; piper fetched master)
-libtashkeel (libtashkeel_model.ort) -           MIT       https://github.com/mush42/libtashkeel
-onnxruntime (inside piper)   1.14.1         MIT         https://github.com/microsoft/onnxruntime/tree/v1.14.1
-    (version confirmed from onnxruntime.dll version resource 1.14.20230224.5.c57cf37; its third-party notices are included)
-
-No voice models are included. See README.txt in the basic package for voice downloads and their licenses.
-
-Piper runs as a separate process (libs\piper\piper.exe); Ebook Reader only starts it and exchanges text and audio.
-espeak-ng is GPL-3.0: its source is available at the URL above. Ebook Reader's own source:
-https://github.com/tiepcons/ebook-reader
-'@ | Set-Content "$pl/THIRD-PARTY-NOTICES-piper-pack.txt" -Encoding utf8
+    Write-PiperNotices "$pl/THIRD-PARTY-NOTICES-piper-pack.txt"
     $zip = Join-Path $dist "$name-piper-pack.zip"
     New-Zip $zip $pk @(Get-ChildItem $pk -Recurse -File | ForEach-Object FullName) @('data/voices')
     Remove-Item $pk -Recurse -Force
     $zip
+}
+
+function Write-PiperNotices([string]$Path) {
+    $s = $piperPins.Sources
+    function Row([string]$Label, [string]$Lic, [string]$Key) { '{0,-30}{1,-12}{2}/tree/{3}' -f $Label, $Lic, $s[$Key].Url, $s[$Key].Commit }
+    @"
+THIRD-PARTY NOTICES - Piper pack (optional; built from source by Ebook Reader's tools/build_piper.ps1)
+=====================================================================================================
+Every component below is built from the exact git commit shown (and onnxruntime is the unmodified official 1.14.1
+release); tools/piper_pins.psd1 in the Ebook Reader repository pins them. Source URL = repository/tree/commit.
+
+Component                     License     Source (exact commit)
+----------------------------  ----------  ------------------------------------------------------------------
+$(Row 'piper 2023.11.14-2' 'MIT' 'piper')
+$(Row 'piper-phonemize 2023.11.14-4' 'MIT' 'phonemize')
+$(Row 'espeak-ng (rhasspy fork)' 'GPL-3.0' 'espeak')
+$(Row 'sonic (inside espeak-ng.dll)' 'Apache-2.0' 'sonic')
+$(Row 'fmt 10.0.0 (in piper.exe)' 'MIT' 'fmt')
+$(Row 'spdlog 1.12.0 (in piper.exe)' 'MIT' 'spdlog')
+libtashkeel_model.ort         MIT         https://github.com/mush42/libtashkeel
+onnxruntime 1.14.1            MIT         https://github.com/microsoft/onnxruntime/releases/tag/v1.14.1
+                                          (official win-x64 binary, SHA256 $($piperPins.Onnxruntime.Sha256); its third-party notices are included)
+
+espeak-ng is GPL-3.0: the corresponding source of the espeak-ng.dll in this pack is the commit above (plus sonic at its
+commit). Build instructions: tools/build_piper.ps1 and tools/piper_pins.psd1 in https://github.com/tiepcons/ebook-reader .
+The only change to upstream sources is stripping the trailing newline of piper/VERSION.
+
+No voice models are included. See README.txt in the basic package for voice downloads and their licenses.
+
+Piper runs as a separate process (libs\piper\piper.exe); Ebook Reader only starts it and exchanges text and audio.
+Ebook Reader's own source: https://github.com/tiepcons/ebook-reader
+"@ | Set-Content $Path -Encoding utf8
 }
 
 $suffix = if ($Version -match '^\d+\.\d+\.\d+(-.+)$') { $Matches[1] } else { '' }

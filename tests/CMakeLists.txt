@@ -70,7 +70,8 @@ set_tests_properties(ui_single_instance PROPERTIES TIMEOUT 40)
 target_sources(eb_tests PRIVATE unit/test_theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/Theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/FontPrefs.cpp)
 target_sources(eb_tests PRIVATE unit/test_tts_piper.cpp)
 target_sources(eb_tests PRIVATE unit/test_tts_azure_proto.cpp unit/test_tts_azure_cache.cpp unit/test_tts_azure_engine.cpp)
-target_compile_definitions(eb_tests PRIVATE EB_PIPER_DIR="${CMAKE_SOURCE_DIR}/build/spike/piper/bin/piper"
+set(EB_PIPER_DIR "${CMAKE_SOURCE_DIR}/build/spike/piper/bin/piper" CACHE PATH "Piper runtime used by the real-Piper tests")
+target_compile_definitions(eb_tests PRIVATE EB_PIPER_DIR="${EB_PIPER_DIR}"
   EB_PIPER_VOICES="${CMAKE_SOURCE_DIR}/build/spike/piper/voices")
 add_executable(eb_fake_piper unit/fake_piper.cpp)
 target_link_libraries(eb_fake_piper PRIVATE eb_hardening eb_warnings)

@@ -9,9 +9,10 @@ skips the local self-signing. The version comes from `project(VERSION)` in `CMak
    It builds the release preset, stages `dist/EbookReader-<ver>/`, signs `EbookReader.exe` and `libs\eb_mupdf.dll`
    with `tools/sign.ps1`, writes `dist/EbookReader-<ver>-win-x64.zip` (must be <= 10 MB),
    `dist/EbookReader-<ver>-piper-pack.zip` and `dist/SHA256SUMS.txt`.
-2. Piper pack inputs (piper 2023.11.14-2 and license texts for piper, piper-phonemize, libtashkeel, espeak-ng fork,
-   onnxruntime) are pinned by URL and SHA256 in `tools/package.ps1`, cached in `build/downloads/`, extracted but never
-   executed. To bump a pin, change URL and hash together after reviewing the new file.
+2. The Piper pack is built from source by `tools/build_piper.ps1` (run automatically when `build/piper-src/out` is
+   missing): piper, piper-phonemize, the rhasspy espeak-ng fork, sonic, fmt and spdlog are fetched by full commit SHA and
+   the official onnxruntime 1.14.1 zip is checked by SHA256; all pins live in `tools/piper_pins.psd1`. The pack's
+   notices cite those exact commits. To bump a pin, change commit/hash and rebuild after reviewing the new source.
    Voices are NOT bundled (PLAN D19). The basic package README.txt tells users to download `.onnx` + `.onnx.json` into
    `data\voices\`: vi_VN-vais1000-medium (CC BY 4.0, attribution in README), en_US-ljspeech-medium (public-domain
    dataset), and en_US-lessac-medium only by explicit user choice (Blizzard 2013 license). Links point to a fixed
