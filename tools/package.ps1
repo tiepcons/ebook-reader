@@ -238,6 +238,6 @@ foreach ($f in 'EbookReader.exe', 'libs/eb_mupdf.dll') {
     $pv = (Get-Item (Join-Path $root "build/release/$f")).VersionInfo.ProductVersion
     if ($pv -ne $Version) { throw "$f has ProductVersion '$pv' but -Version is '$Version'; bump project(VERSION) in CMakeLists.txt" }
 }
-if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+Get-ChildItem $dist -Filter "EbookReader-$Version*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force # keep other versions the PO may be testing
 $zips = @((Build-Basic), (Build-PiperPack))
 foreach ($z in $zips) { 'ARTIFACT {0} {1:N2} MB' -f (Split-Path $z -Leaf), ((Get-Item $z).Length / 1MB) }
