@@ -171,27 +171,117 @@ function Build-Basic {
     $zip
 }
 
-function Build-PiperPack {
+function Get-PiperOut {
     $out = Join-Path $root 'build/piper-src/out'
-    if (-not (Test-Path "$out/piper.exe")) {
+    $stamp = Join-Path $root 'build/piper-src/out.stamp'
+    $want = (Get-FileHash "$PSScriptRoot/piper_pins.psd1" -Algorithm SHA256).Hash
+    if (-not (Test-Path "$out/piper.exe") -or -not (Test-Path $stamp) -or (Get-Content $stamp -Raw).Trim() -ne $want) {
         & "$PSScriptRoot/build_piper.ps1" | Out-Host
         if (-not (Test-Path "$out/piper.exe")) { throw 'build_piper.ps1 failed' }
     }
+    $out
+}
+
+function Get-Imports([string]$Pe) {
+    $o = & dumpbin /nologo /dependents $Pe
+    if ($LASTEXITCODE -ne 0) { throw "dumpbin failed: $Pe" }
+    $o | ForEach-Object { if ($_ -match '^\s+(\S+\.dll)\s*$') { $Matches[1] } }
+}
+
+function Add-VcRuntime([string]$LibDir) {
+    . "$PSScriptRoot/env.ps1"
+    $vs = $env:EB_DEVSHELL
+    $crt = Get-ChildItem (Join-Path $vs 'VC/Redist/MSVC') -Directory | Where-Object Name -Match '^\d' | Sort-Object { [version]$_.Name } -Descending |
+        ForEach-Object { Get-ChildItem (Join-Path $_.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT' } | ForEach-Object FullName | Select-Object -First 1
+    if (-not $crt) { throw 'VC redist x64 CRT folder not found' }
+    $queue = [Collections.Generic.Queue[string]]::new()
+    Get-ChildItem $LibDir -File | Where-Object Extension -In '.exe', '.dll' | ForEach-Object { $queue.Enqueue($_.FullName) }
+    while ($queue.Count) {
+        foreach ($imp in Get-Imports $queue.Dequeue()) {
+            if (Test-Path (Join-Path $LibDir $imp)) { continue }
+            if (Test-Path (Join-Path $crt $imp)) {
+                Copy-Item (Join-Path $crt $imp) $LibDir
+                $queue.Enqueue((Join-Path $LibDir $imp))
+            } elseif ($imp -notlike 'api-ms-win-*' -and -not (Test-Path (Join-Path $env:windir "System32/$imp"))) {
+                throw "unresolved import $imp"
+            }
+        }
+    }
+}
+
+function Write-HeaderLicenses([string]$Sr, [string]$Dest) {
+    $nl = (Get-Content "$Sr/piper/src/cpp/json.hpp" -TotalCount 7) -join "`r`n"
+    $uh = Get-Content "$Sr/phonemize/src/uni_algo.h"
+    $at = ($uh | Select-String -SimpleMatch '/* Public Domain License').LineNumber
+    $uni = $uh[($at - 1)..($uh.Count - 1)] -join "`r`n"
+    @"
+nlohmann/json (json.hpp in piper and piper-phonemize, version 3.11.2). Header of the file:
+
+$nl
+
+MIT License. Copyright (c) 2013-2022 Niels Lohmann. Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: the
+above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+=====================================================================================================
+uni_algo.h (piper-phonemize/src/uni_algo.h). Public Domain or MIT. Notice at the end of that file:
+
+$uni
+"@ | Set-Content $Dest -Encoding utf8
+}
+
+function New-SourcesZip([string]$Zip) {
+    $tmp = Join-Path $dist 'sources-tmp'
+    New-Item -ItemType Directory $tmp | Out-Null
+    $parts = @()
+    foreach ($k in 'espeak', 'phonemize', 'piper') {
+        $c = $piperPins.Sources[$k].Commit
+        $part = "$tmp/$k.zip"
+        & git -C (Join-Path $root "build/piper-src/src/$k") archive --format=zip --prefix="$k-$c/" -o $part $c
+        if ($LASTEXITCODE -ne 0) { throw "git archive failed: $k" }
+        $parts += $part
+    }
+    $za = [IO.Compression.ZipFile]::Open($Zip, 'Create')
+    try {
+        foreach ($part in $parts) {
+            $src = [IO.Compression.ZipFile]::OpenRead($part)
+            try {
+                foreach ($e in $src.Entries) {
+                    $ne = $za.CreateEntry($e.FullName, 'Optimal')
+                    $in = $e.Open(); $o = $ne.Open()
+                    try { $in.CopyTo($o) } finally { $o.Dispose(); $in.Dispose() }
+                }
+            } finally { $src.Dispose() }
+        }
+    } finally { $za.Dispose() }
+    Remove-Item $tmp -Recurse -Force
+    $Zip
+}
+
+function Build-PiperPack {
+    $out = Get-PiperOut
     $sr = Join-Path $root 'build/piper-src/src'
     $ort = Join-Path $root "build/piper-src/ort/$($piperPins.Onnxruntime.Dir)"
     $pk = Join-Path $dist "$name-piper-pack-stage"
     $pl = "$pk/licenses/piper-pack"
     New-Item -ItemType Directory $pk, "$pk/libs", $pl | Out-Null
     Copy-Item $out "$pk/libs/piper" -Recurse
+    Add-VcRuntime "$pk/libs/piper"
     Copy-Item "$sr/piper/LICENSE.md" "$pl/LICENSE-piper-MIT.txt"
     Copy-Item "$sr/espeak/COPYING" "$pl/LICENSE-espeak-ng-GPL-3.0.txt"
-    Copy-Item "$sr/sonic/LICENSE" "$pl/LICENSE-sonic-Apache-2.0.txt"
     Copy-Item "$sr/phonemize/LICENSE.md" "$pl/LICENSE-piper-phonemize-MIT.txt"
     Copy-Item "$sr/fmt/LICENSE.rst" "$pl/LICENSE-fmt-MIT.txt"
     Copy-Item "$sr/spdlog/LICENSE" "$pl/LICENSE-spdlog-MIT.txt"
     Copy-Item "$ort/LICENSE" "$pl/LICENSE-onnxruntime-MIT.txt"
     Copy-Item "$ort/ThirdPartyNotices.txt" "$pl/onnxruntime-ThirdPartyNotices.txt"
     Copy-Item (Get-Pinned 'tashkeelLic') "$pl/LICENSE-libtashkeel-MIT.txt"
+    Write-HeaderLicenses $sr "$pl/LICENSE-nlohmann-json-uni-algo.txt"
     Write-PiperNotices "$pl/THIRD-PARTY-NOTICES-piper-pack.txt"
     $zip = Join-Path $dist "$name-piper-pack.zip"
     New-Zip $zip $pk @(Get-ChildItem $pk -Recurse -File | ForEach-Object FullName) @('data/voices')
@@ -201,27 +291,37 @@ function Build-PiperPack {
 
 function Write-PiperNotices([string]$Path) {
     $s = $piperPins.Sources
-    function Row([string]$Label, [string]$Lic, [string]$Key) { '{0,-30}{1,-12}{2}/tree/{3}' -f $Label, $Lic, $s[$Key].Url, $s[$Key].Commit }
+    $rel = "https://github.com/tiepcons/ebook-reader/releases/tag/v$Version"
+    function Row([string]$Label, [string]$Lic, [string]$Key) { '{0,-38}{1,-12}{2}/tree/{3}' -f $Label, $Lic, $s[$Key].Url, $s[$Key].Commit }
     @"
 THIRD-PARTY NOTICES - Piper pack (optional; built from source by Ebook Reader's tools/build_piper.ps1)
 =====================================================================================================
-Every component below is built from the exact git commit shown (and onnxruntime is the unmodified official 1.14.1
-release); tools/piper_pins.psd1 in the Ebook Reader repository pins them. Source URL = repository/tree/commit.
+Every component below is built from the exact git commit shown (onnxruntime is the unmodified official 1.14.1 release);
+tools/piper_pins.psd1 in the Ebook Reader repository pins them. Source URL = repository/tree/commit.
 
-Component                     License     Source (exact commit)
-----------------------------  ----------  ------------------------------------------------------------------
+Component                             License     Source (exact commit)
+------------------------------------  ----------  ----------------------------------------------------------------
 $(Row 'piper 2023.11.14-2' 'MIT' 'piper')
 $(Row 'piper-phonemize 2023.11.14-4' 'MIT' 'phonemize')
 $(Row 'espeak-ng (rhasspy fork)' 'GPL-3.0' 'espeak')
-$(Row 'sonic (inside espeak-ng.dll)' 'Apache-2.0' 'sonic')
 $(Row 'fmt 10.0.0 (in piper.exe)' 'MIT' 'fmt')
 $(Row 'spdlog 1.12.0 (in piper.exe)' 'MIT' 'spdlog')
-libtashkeel_model.ort         MIT         https://github.com/mush42/libtashkeel
-onnxruntime 1.14.1            MIT         https://github.com/microsoft/onnxruntime/releases/tag/v1.14.1
-                                          (official win-x64 binary, SHA256 $($piperPins.Onnxruntime.Sha256); its third-party notices are included)
+nlohmann/json 3.11.2 (json.hpp)       MIT         copied in piper and piper-phonemize at the commits above
+uni_algo.h (in piper-phonemize)       PD or MIT   copied in piper-phonemize at the commit above
+    (both license texts: LICENSE-nlohmann-json-uni-algo.txt)
+libtashkeel_model.ort                 MIT         file etc/libtashkeel_model.ort of piper-phonemize at the commit above;
+                                                  license text from https://github.com/mush42/libtashkeel/tree/9b91c2dbc3dc4085dc4f77a9e250e5dd095d7d0c
+onnxruntime 1.14.1                    MIT         https://github.com/microsoft/onnxruntime/releases/tag/v1.14.1
+                                                  (official win-x64 binary, SHA256 $($piperPins.Onnxruntime.Sha256); its third-party notices are included)
+Microsoft Visual C++ runtime          Microsoft   MSVCP140.dll, VCRUNTIME140.dll, VCRUNTIME140_1.dll (and any other VC++ runtime DLL
+  (libs\piper, app-local)                         imported by the pack), redistributed unmodified from Visual Studio's
+                                                  VC\Redist folder under the Microsoft Visual Studio redistribution terms.
 
-espeak-ng is GPL-3.0: the corresponding source of the espeak-ng.dll in this pack is the commit above (plus sonic at its
-commit). Build instructions: tools/build_piper.ps1 and tools/piper_pins.psd1 in https://github.com/tiepcons/ebook-reader .
+GPL-3.0 written offer (espeak-ng): the corresponding source of espeak-ng.dll is the espeak-ng commit above. For at least
+three years you may obtain it, free of charge, from the asset EbookReader-$Version-piper-sources.zip on this release page:
+    $rel
+(git archive of the piper, piper-phonemize and espeak-ng commits above), or from the upstream URL and commit in the table.
+Build instructions: tools/build_piper.ps1 and tools/piper_pins.psd1 in https://github.com/tiepcons/ebook-reader .
 The only change to upstream sources is stripping the trailing newline of piper/VERSION.
 
 No voice models are included. See README.txt in the basic package for voice downloads and their licenses.
@@ -239,5 +339,5 @@ foreach ($f in 'EbookReader.exe', 'libs/eb_mupdf.dll') {
     if ($pv -ne $Version) { throw "$f has ProductVersion '$pv' but -Version is '$Version'; bump project(VERSION) in CMakeLists.txt" }
 }
 Get-ChildItem $dist -Filter "EbookReader-$Version*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force # keep other versions the PO may be testing
-$zips = @((Build-Basic), (Build-PiperPack))
+$zips = @((Build-Basic), (Build-PiperPack), (New-SourcesZip (Join-Path $dist "$name-piper-sources.zip")))
 foreach ($z in $zips) { 'ARTIFACT {0} {1:N2} MB' -f (Split-Path $z -Leaf), ((Get-Item $z).Length / 1MB) }
