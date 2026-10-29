@@ -219,7 +219,9 @@ void finalize_item(Engine& e, uint32_t id)
         parts.push_back({data[i], i == 0 ? (it.lead ? kLeadSilenceMs : 0) : kHeadingPauseMs});
     const auto joined = join_wavs(parts);
     const fs::path wav = play_dir(e.cfg) / (L"eb-" + std::to_wstring(++e.serial) + L".wav");
-    if (!joined || !write_all(wav, *joined)) {
+    std::error_code rm;
+    fs::remove(wav, rm);
+    if (!joined || !eb::write_new(wav, *joined)) {
         e.trash.discard(wav);
         it.queued = false;
         fail_item(e, id);

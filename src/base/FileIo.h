@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace eb {
 
@@ -29,7 +30,13 @@ private:
 // Whole file; Limit when larger than max, NotFound/Io/Access when unreadable.
 [[nodiscard]] Result<std::string> read_all(const std::filesystem::path& p, size_t max);
 
+// Same as read_all, as raw bytes (no string copy).
+[[nodiscard]] Result<std::vector<std::byte>> read_all_bytes(const std::filesystem::path& p, size_t max);
+
 // Create or truncate, then write; true when every byte was written.
 [[nodiscard]] bool write_file(const std::filesystem::path& p, std::string_view data) noexcept;
+
+// Create a new file (never follows or overwrites an existing entry, reparse points included); false if it exists.
+[[nodiscard]] bool write_new(const std::filesystem::path& p, std::string_view data) noexcept;
 
 }

@@ -32,12 +32,10 @@ std::string trim_utf8(const char* s)
 
 eb_status open_txt(const OpenJob& job, eb_doc** doc)
 {
-    const auto bytes = read_all(job.path, kMaxTxtBytes);
-    if (!bytes)
-        return bytes.error().code == ErrorCode::Limit ? EB_E_LIMIT : EB_E_OPEN;
-    const auto* first = reinterpret_cast<const std::byte*>(bytes->data());
-    const std::vector<std::byte> raw(first, first + bytes->size());
-    const auto fb2 = txt_to_fb2(raw, job.path.stem().wstring());
+    const auto raw = read_all_bytes(job.path, kMaxTxtBytes);
+    if (!raw)
+        return raw.error().code == ErrorCode::Limit ? EB_E_LIMIT : EB_E_OPEN;
+    const auto fb2 = txt_to_fb2(*raw, job.path.stem().wstring());
     if (!fb2)
         return fb2.error().code == ErrorCode::Limit ? EB_E_LIMIT : EB_E_FORMAT;
     return eb_open_memory(fb2->data(), fb2->size(), "fb2", doc);

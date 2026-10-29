@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "base/AtomicFile.h"
+#include "base/FileIo.h"
 #include "base/Handle.h"
 #include "base/Hash.h"
 #include "base/Log.h"
@@ -211,4 +212,32 @@ TEST_CASE("dir_is_writable reflects real permissions")
     fs::create_directories(locked);
     REQUIRE(deny_add_file(locked));
     CHECK_FALSE(eb::dir_is_writable(locked));
+}
+
+TEST_CASE("read_all reads an exact-size file, rejects oversize, and read_all_bytes matches")
+{
+    const ebtest::TempDir t;
+    const fs::path f = t.path() / L"a.bin";
+    put(f, bytes(1000, 7));
+    const auto s = eb::read_all(f, 1000);
+    REQUIRE(s);
+    CHECK(s->size() == 1000);
+    const auto b = eb::read_all_bytes(f, 1000);
+    REQUIRE(b);
+    CHECK(*b == bytes(1000, 7));
+    const auto big = eb::read_all(f, 999);
+    REQUIRE_FALSE(big);
+    CHECK(big.error().code == eb::ErrorCode::Limit);
+    CHECK_FALSE(eb::read_all(t.path() / L"missing", 10));
+}
+
+TEST_CASE("write_new creates a file and refuses to touch an existing one")
+{
+    const ebtest::TempDir t;
+    const fs::path f = t.path() / L"n.wav";
+    CHECK(eb::write_new(f, "first"));
+    CHECK_FALSE(eb::write_new(f, "second"));
+    CHECK(eb::read_all(f, 100).value() == "first");
+    CHECK(eb::write_file(f, "again"));
+    CHECK(eb::read_all(f, 100).value() == "again");
 }

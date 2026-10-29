@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <new>
+#include <vector>
 
 namespace eb {
 
@@ -36,12 +37,12 @@ bool FileReader::read(void* buf, size_t want, size_t& got) noexcept
 namespace {
 
 // Fills buf until full or EOF; false on an I/O error.
-bool fill(FileReader& f, std::string& buf, size_t& total) noexcept
+bool fill(FileReader& f, void* buf, size_t cap, size_t& total) noexcept
 {
     total = 0;
-    while (total < buf.size()) {
+    while (total < cap) {
         size_t got = 0;
-        if (!f.read(buf.data() + total, buf.size() - total, got))
+        if (!f.read(static_cast<char*>(buf) + total, cap - total, got))
             return false;
         if (got == 0)
             break;
@@ -60,13 +61,16 @@ std::string read_head(const std::filesystem::path& p, size_t max)
         return s;
     s.assign(max, '\0');
     size_t total = 0;
-    if (!fill(f, s, total))
+    if (!fill(f, s.data(), s.size(), total))
         total = 0;
     s.resize(total);
     return s;
 }
 
-Result<std::string> read_all(const std::filesystem::path& p, size_t max)
+namespace {
+
+template <class Buf>
+Result<Buf> read_sized(const std::filesystem::path& p, size_t max)
 {
     try {
         FileReader f(p);
@@ -77,21 +81,23 @@ Result<std::string> read_all(const std::filesystem::path& p, size_t max)
             return fail_win32(GetLastError(), L"size");
         if (size > max)
             return fail(ErrorCode::Limit, L"file too large");
-        std::string s(static_cast<size_t>(size), '\0');
+        Buf b;
+        b.resize(static_cast<size_t>(size));
         size_t total = 0;
-        if (!fill(f, s, total))
+        if (!fill(f, b.data(), b.size(), total))
             return fail(ErrorCode::Io, L"read");
-        s.resize(total);
-        return s;
+        if (total != b.size())
+            return fail(ErrorCode::Io, L"short read");
+        return b;
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::NoMemory);
     }
 }
 
-bool write_file(const std::filesystem::path& p, std::string_view data) noexcept
+bool write_to(const std::filesystem::path& p, DWORD disposition, DWORD flags, std::string_view data) noexcept
 {
     const UniqueHandle h(CreateFileW(p.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+        disposition, FILE_ATTRIBUTE_NORMAL | flags, nullptr));
     if (!h)
         return false;
     while (!data.empty()) {
@@ -102,6 +108,28 @@ bool write_file(const std::filesystem::path& p, std::string_view data) noexcept
         data.remove_prefix(n);
     }
     return true;
+}
+
+}
+
+Result<std::string> read_all(const std::filesystem::path& p, size_t max)
+{
+    return read_sized<std::string>(p, max);
+}
+
+Result<std::vector<std::byte>> read_all_bytes(const std::filesystem::path& p, size_t max)
+{
+    return read_sized<std::vector<std::byte>>(p, max);
+}
+
+bool write_file(const std::filesystem::path& p, std::string_view data) noexcept
+{
+    return write_to(p, CREATE_ALWAYS, 0, data);
+}
+
+bool write_new(const std::filesystem::path& p, std::string_view data) noexcept
+{
+    return write_to(p, CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT, data);
 }
 
 }

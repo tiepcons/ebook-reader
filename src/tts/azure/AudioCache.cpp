@@ -135,14 +135,12 @@ std::optional<std::vector<std::byte>> AudioCache::get(std::string_view key) noex
         uint64_t mtime = 0;
         if (!is_plain_dir_chain(dir_) || !plain_file_info(path, on_disk, mtime))
             return std::nullopt;
-        const auto bytes = read_all(path, kAzureMaxResponse);
-        if (!bytes || bytes->empty())
+        auto data = read_all_bytes(path, kAzureMaxResponse);
+        if (!data || data->empty())
             return std::nullopt;
-        const auto* first = reinterpret_cast<const std::byte*>(bytes->data());
-        std::vector<std::byte> data(first, first + bytes->size());
         std::error_code ec;
         std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
-        return data;
+        return std::move(*data);
     } catch (...) {
         return std::nullopt;
     }
