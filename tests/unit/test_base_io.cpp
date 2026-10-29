@@ -62,7 +62,8 @@ TEST_CASE("resolve_paths portable when exe dir is writable")
     CHECK(fs::is_directory(r->ebooks));
     CHECK(fs::is_directory(r->libs));
     CHECK(fs::is_directory(r->fonts));
-    CHECK(count_entries(t.path() / L"data") == 5);
+    CHECK(fs::is_directory(r->cache));
+    CHECK(count_entries(t.path() / L"data") == 6);
 }
 
 TEST_CASE("resolve_paths falls back to local root when exe dir is read-only")

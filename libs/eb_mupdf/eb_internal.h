@@ -20,8 +20,22 @@ typedef struct eb_mobi_info {
     int rejected; /* set when a structural pre-check refused the book: no MuPDF fallback */
 } eb_mobi_info;
 
+/* Identity of a book file taken from its open handle; the layout cache is bound to it. */
+typedef struct eb_stamp {
+    uint64_t size;
+    uint64_t mtime; /* FILETIME */
+    uint64_t volume, index; /* volume serial and file index: the same path replaced by another file is a different book */
+    int valid;
+} eb_stamp;
+
+typedef struct eb_accel {
+    const uint8_t* data;
+    size_t size;
+} eb_accel;
+
 struct eb_doc {
     fz_context* ctx;
+    eb_stamp stamp; /* valid only for documents opened from a file */
     fz_document* doc;
     FILE* file;
     int reflowable;
@@ -84,6 +98,14 @@ void eb_make_opaque(fz_pixmap* pix);
 
 /* eb_font.c: drops the indexed font list and cached fonts; call before the base context is dropped. */
 void eb_fonts_release(fz_context* ctx);
+
+/* eb_cache.c: layout cache files. eb_stamp_of fills *st from the open stream (valid = 0 on failure). eb_cache_load
+ * returns the validated MuPDF accelerator blob (malloc'd, free()) or NULL when the cache is absent, stale or damaged. */
+void eb_stamp_of(FILE* f, eb_stamp* st);
+uint8_t* eb_cache_load(const wchar_t* cache_path, const eb_stamp* stamp, size_t* size);
+
+/* eb_font.c: hash of the registered font files (path, size, mtime); 0 when none. Set once per eb_set_font_dirs. */
+uint64_t eb_font_digest(void);
 
 /* eb_embed.c: EPUB/FB2 language, fallback title/author and embedded cover, filled into doc->mobi on demand. */
 int eb_embed_probe(eb_doc* doc, int want_cover); /* 1 only if eb_abort cancelled a cover probe */

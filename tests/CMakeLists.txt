@@ -1,4 +1,4 @@
-add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp integration/test_eb_bookmark.cpp integration/test_eb_embed.cpp integration/test_eb_fonts.cpp integration/test_eb_sfnt.cpp integration/test_corpus_e2e.cpp ${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_sfnt.c)
+add_executable(eb_tests unit/test_main.cpp integration/test_eb_mupdf.cpp integration/test_eb_mobi.cpp integration/test_eb_bookmark.cpp integration/test_eb_embed.cpp integration/test_eb_fonts.cpp integration/test_eb_sfnt.cpp integration/test_eb_cache.cpp integration/test_corpus_e2e.cpp ${CMAKE_SOURCE_DIR}/libs/eb_mupdf/eb_sfnt.c)
 target_compile_definitions(eb_tests PRIVATE EB_FONTS_DIR="${CMAKE_SOURCE_DIR}/fonts")
 target_link_libraries(eb_tests PRIVATE eb_hardening eb_warnings eb_sqlite eb_mupdf eb_base)
 target_include_directories(eb_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/third_party)

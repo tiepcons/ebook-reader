@@ -148,35 +148,47 @@ static eb_status adopt(fz_context* ctx, fz_document* fdoc, FILE* file, eb_mobi_i
     return st;
 }
 
-static eb_status open_stream(fz_context* ctx, FILE* file, const char* magic, fz_document** fdoc)
+static eb_status open_stream(fz_context* ctx, FILE* file, const char* magic, fz_document** fdoc, const eb_accel* accel)
 {
     fz_stream* stm = NULL;
+    fz_stream* acc = NULL;
     eb_status st = EB_OK;
     fz_var(stm);
+    fz_var(acc);
     fz_try(ctx)
     {
         stm = fz_open_file_ptr_no_close(ctx, file);
-        *fdoc = fz_open_document_with_stream(ctx, magic, stm);
+        if (accel) acc = fz_open_memory(ctx, accel->data, accel->size);
+        *fdoc = fz_open_accelerated_document_with_stream(ctx, magic, stm, acc);
     }
-    fz_always(ctx) fz_drop_stream(ctx, stm);
+    fz_always(ctx)
+    {
+        fz_drop_stream(ctx, acc);
+        fz_drop_stream(ctx, stm);
+    }
     fz_catch(ctx) st = eb_fail(ctx);
     return st;
 }
 
-static eb_status open_mobi_buffer(fz_context* ctx, const uint8_t* data, size_t size, fz_document** fdoc, eb_mobi_info* info)
+static eb_status open_mobi_buffer(fz_context* ctx, const uint8_t* data, size_t size, fz_document** fdoc, eb_mobi_info* info,
+                                  const eb_accel* accel)
 {
     fz_buffer* buf = NULL;
     fz_stream* stm = NULL;
+    fz_stream* acc = NULL;
     eb_status st = eb_mobi_convert(ctx, data, size, &buf, info);
     if (st != EB_OK) return st;
     fz_var(stm);
+    fz_var(acc);
     fz_try(ctx)
     {
         stm = fz_open_buffer(ctx, buf);
-        *fdoc = fz_open_document_with_stream(ctx, ".epub", stm);
+        if (accel) acc = fz_open_memory(ctx, accel->data, accel->size);
+        *fdoc = fz_open_accelerated_document_with_stream(ctx, ".epub", stm, acc);
     }
     fz_always(ctx)
     {
+        fz_drop_stream(ctx, acc);
         fz_drop_stream(ctx, stm);
         fz_drop_buffer(ctx, buf);
     }
@@ -209,7 +221,8 @@ static eb_status read_all(FILE* f, uint8_t** data, size_t* size)
 }
 
 /* Kindle/MOBI books go through libmobi; if it cannot parse one, MuPDF gets the original bytes (plain PalmDOC). */
-static eb_status open_source_file(fz_context* ctx, FILE* file, const char* magic, fz_document** fdoc, eb_mobi_info* info)
+static eb_status open_source_file(fz_context* ctx, FILE* file, const char* magic, fz_document** fdoc, eb_mobi_info* info,
+                                  const eb_accel* accel)
 {
     uint8_t head[68];
     uint8_t* data = NULL;
@@ -218,7 +231,7 @@ static eb_status open_source_file(fz_context* ctx, FILE* file, const char* magic
     const size_t n = fread(head, 1, sizeof head, file);
     if (eb_mobi_sniff(head, n)) {
         st = read_all(file, &data, &size);
-        if (st == EB_OK) st = open_mobi_buffer(ctx, data, size, fdoc, info);
+        if (st == EB_OK) st = open_mobi_buffer(ctx, data, size, fdoc, info, accel);
         free(data);
         if (st == EB_OK) return st;
         if (mobi_fatal(st, info)) {
@@ -228,18 +241,35 @@ static eb_status open_source_file(fz_context* ctx, FILE* file, const char* magic
         eb_mobi_info_free(info);
     }
     if (_fseeki64(file, 0, SEEK_SET) != 0) return eb_fail_msg(EB_E_OPEN, "cannot seek file");
-    return open_stream(ctx, file, magic, fdoc);
+    return open_stream(ctx, file, magic, fdoc, accel);
 }
 
-eb_status eb_open(const wchar_t* path, eb_doc** out)
+/* A cache that MuPDF rejects at open must not make the book unreadable: retry once without it. */
+static eb_status open_with_cache(fz_context* ctx, FILE* file, const char* magic, const wchar_t* cache_path, const eb_stamp* stamp,
+                                 fz_document** fdoc, eb_mobi_info* info)
+{
+    eb_accel accel = {NULL, 0};
+    uint8_t* blob = eb_cache_load(cache_path, stamp, &accel.size);
+    eb_status st = EB_OK;
+    accel.data = blob;
+    st = open_source_file(ctx, file, magic, fdoc, info, blob ? &accel : NULL);
+    const int retry = st != EB_OK && blob && !mobi_fatal(st, info) && st != EB_E_NOMEM && st != EB_E_DRM && st != EB_E_LIMIT;
+    if (retry && _fseeki64(file, 0, SEEK_SET) == 0) st = open_source_file(ctx, file, magic, fdoc, info, NULL);
+    free(blob);
+    return st;
+}
+
+static eb_status open_path(const wchar_t* path, const wchar_t* cache_path, eb_doc** out)
 {
     fz_document* fdoc = NULL;
     fz_context* ctx = NULL;
     FILE* file = NULL;
     char magic[EB_MAX_MAGIC_CHARS + 1];
     eb_mobi_info info;
+    eb_stamp stamp;
     eb_status st = EB_OK;
     memset(&info, 0, sizeof info);
+    memset(&stamp, 0, sizeof stamp);
     if (!out) return eb_fail_msg(EB_E_ARG, "null out");
     *out = NULL;
     if (!path || wcsnlen(path, EB_MAX_PATH_CHARS + 1) > EB_MAX_PATH_CHARS) return eb_fail_msg(EB_E_ARG, "bad path");
@@ -249,17 +279,26 @@ eb_status eb_open(const wchar_t* path, eb_doc** out)
     st = open_file(path, &file);
     if (st == EB_OK) {
         extension_magic(path, magic);
-        st = open_source_file(ctx, file, magic, &fdoc, &info);
+        eb_stamp_of(file, &stamp);
+        st = open_with_cache(ctx, file, magic, cache_path, &stamp, &fdoc, &info);
     }
     if (st == EB_OK && info.format) {
         fclose(file);
         file = NULL;
     }
-    if (st == EB_OK) return adopt(ctx, fdoc, file, &info, NULL, out);
+    if (st == EB_OK) {
+        st = adopt(ctx, fdoc, file, &info, NULL, out);
+        if (st == EB_OK) (*out)->stamp = stamp;
+        return st;
+    }
     if (file) fclose(file);
     eb_release_ctx(ctx);
     return st;
 }
+
+eb_status eb_open(const wchar_t* path, eb_doc** out) { return open_path(path, NULL, out); }
+
+eb_status eb_open_cached(const wchar_t* path, const wchar_t* cache_path, eb_doc** out) { return open_path(path, cache_path, out); }
 
 eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_doc** out)
 {
@@ -277,7 +316,7 @@ eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_do
     ctx = eb_acquire_ctx();
     if (!ctx) return eb_take_oom() ? eb_fail_msg(EB_E_NOMEM, "out of memory") : eb_fail_msg(EB_E_ARG, "eb_init not called");
     if (eb_mobi_sniff(data, size)) {
-        st = open_mobi_buffer(ctx, data, size, &fdoc, &info);
+        st = open_mobi_buffer(ctx, data, size, &fdoc, &info, NULL);
         if (st == EB_OK) return adopt(ctx, fdoc, NULL, &info, NULL, out);
         const int fatal = mobi_fatal(st, &info);
         eb_mobi_info_free(&info);

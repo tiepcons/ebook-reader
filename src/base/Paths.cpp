@@ -73,9 +73,10 @@ Result<AppPaths> resolve_paths(const fs::path& exe_dir, const fs::path& local_ro
         p.crash = p.data / L"crash";
         p.logs = p.data / L"logs";
         p.voices = p.data / L"voices";
+        p.cache = p.data / L"cache";
         for (const fs::path* d : {&p.ebooks, &p.fonts, &p.libs})
             make_dir(*d);
-        for (const fs::path* d : {&p.data, &p.covers, &p.tts_cache, &p.crash, &p.logs, &p.voices}) {
+        for (const fs::path* d : {&p.data, &p.covers, &p.tts_cache, &p.crash, &p.logs, &p.voices, &p.cache}) {
             if (!make_dir(*d))
                 return fail(ErrorCode::Io, L"cannot create " + d->wstring());
         }

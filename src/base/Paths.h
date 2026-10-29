@@ -6,7 +6,7 @@
 namespace eb {
 
 struct AppPaths {
-    std::filesystem::path exe_dir, ebooks, data, covers, tts_cache, crash, logs, libs, fonts, voices;
+    std::filesystem::path exe_dir, ebooks, data, covers, tts_cache, crash, logs, libs, fonts, voices, cache;
 };
 
 using WritableProbe = bool (*)(const std::filesystem::path&) noexcept;

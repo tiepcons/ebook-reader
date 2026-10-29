@@ -21,6 +21,7 @@ typedef struct file_ent {
     wchar_t* path;
     size_t size;
     fz_buffer* buf; /* shared by every face of the file once loaded */
+    uint64_t mtime;
 } file_ent;
 
 typedef struct face {
@@ -54,6 +55,36 @@ static state g_st;
 static unsigned g_gen;
 static size_t g_cached;
 static int g_installed;
+static uint64_t g_digest;
+
+static uint64_t fnv_add(uint64_t h, const void* data, size_t n)
+{
+    const unsigned char* p = data;
+    for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 1099511628211ull;
+    return h;
+}
+
+static uint64_t digest_of(const state* s)
+{
+    uint64_t h = 14695981039346656037ull;
+    if (s->nfiles == 0) return 0;
+    for (int i = 0; i < s->nfiles; ++i) {
+        const file_ent* f = &s->files[i];
+        h = fnv_add(h, f->path, wcslen(f->path) * sizeof(wchar_t));
+        h = fnv_add(h, &f->size, sizeof f->size);
+        h = fnv_add(h, &f->mtime, sizeof f->mtime);
+    }
+    return h;
+}
+
+uint64_t eb_font_digest(void)
+{
+    uint64_t v = 0;
+    AcquireSRWLockShared(&g_font_lock);
+    v = g_digest;
+    ReleaseSRWLockShared(&g_font_lock);
+    return v;
+}
 
 static const char* const k_serif[] = {"Literata", "Georgia", "Times New Roman", "Cambria", "Palatino Linotype"};
 static const char* const k_sans[] = {"Be Vietnam Pro", "Segoe UI", "Arial", "Tahoma", "Calibri"};
@@ -170,7 +201,7 @@ static int file_read(void* user, uint64_t off, void* dst, size_t len)
            ReadFile(((file_reader*)user)->h, dst, (DWORD)len, &got, NULL) && got == len;
 }
 
-static HANDLE open_font_file(const wchar_t* path, DWORD* size)
+static HANDLE open_font_file(const wchar_t* path, DWORD* size, uint64_t* mtime)
 {
     BY_HANDLE_FILE_INFORMATION info;
     HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
@@ -182,13 +213,14 @@ static HANDLE open_font_file(const wchar_t* path, DWORD* size)
         return INVALID_HANDLE_VALUE;
     }
     *size = info.nFileSizeLow;
+    if (mtime) *mtime = (uint64_t)info.ftLastWriteTime.dwHighDateTime << 32 | info.ftLastWriteTime.dwLowDateTime;
     return h;
 }
 
 static fz_buffer* read_font_file(fz_context* ctx, const wchar_t* path)
 {
     DWORD size = 0, got = 0;
-    HANDLE h = open_font_file(path, &size);
+    HANDLE h = open_font_file(path, &size, NULL);
     fz_buffer* buf = NULL;
     fz_var(buf);
     if (h == INVALID_HANDLE_VALUE) fz_throw(ctx, FZ_ERROR_LIBRARY, "cannot open font file");
@@ -210,7 +242,8 @@ static fz_buffer* read_font_file(fz_context* ctx, const wchar_t* path)
 static void add_file(const wchar_t* path, state* s)
 {
     DWORD size = 0;
-    HANDLE h = open_font_file(path, &size);
+    uint64_t mtime = 0;
+    HANDLE h = open_font_file(path, &size, &mtime);
     file_reader rd = {h};
     eb_sfnt_face found[EB_SFNT_MAX_FACES];
     int idx[EB_SFNT_MAX_FACES];
@@ -224,7 +257,7 @@ static void add_file(const wchar_t* path, state* s)
     if (n == 0) return;
     if (s->nfiles == s->capfiles && !grow((void**)&s->files, &s->capfiles, sizeof *s->files)) s->oom = 1;
     if (s->oom) return;
-    s->files[s->nfiles] = (file_ent){_wcsdup(path), size, NULL};
+    s->files[s->nfiles] = (file_ent){_wcsdup(path), size, NULL, mtime};
     if (!s->files[s->nfiles].path) {
         s->oom = 1;
         return;
@@ -496,6 +529,7 @@ eb_status eb_set_font_dirs(const wchar_t* const* dirs, int32_t count)
     AcquireSRWLockExclusive(&g_font_lock);
     old = g_st;
     g_st = fresh;
+    g_digest = digest_of(&fresh);
     ++g_gen;
     g_cached = 0;
     if (!g_installed) {
@@ -514,6 +548,7 @@ void eb_fonts_release(fz_context* ctx)
     AcquireSRWLockExclusive(&g_font_lock);
     old = g_st;
     memset(&g_st, 0, sizeof g_st);
+    g_digest = 0;
     ++g_gen;
     g_cached = 0;
     g_installed = 0;

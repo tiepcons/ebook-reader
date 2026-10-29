@@ -1,6 +1,7 @@
 #include "MainWnd.h"
 
 #include "base/Log.h"
+#include "base/PathSafety.h"
 #include "base/Text.h"
 #include "GotoPercent.h"
 #include "ReaderSettings.h"
@@ -27,6 +28,13 @@ constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80, kAaW = 44;
 constexpr UINT kResumeBarMs = 6000;
 constexpr UINT kReaderTickMs = 500;
 constexpr int kStatusBad = 2;
+
+// Book ids are hex digests; anything else gets no cache rather than a path built from untrusted text.
+std::filesystem::path cache_file(const std::filesystem::path& dir, const std::string& id)
+{
+    const bool plain = !id.empty() && std::ranges::all_of(id, [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+    return plain && is_plain_dir_chain(dir) ? dir / (std::wstring(id.begin(), id.end()) + L".lc") : std::filesystem::path{};
+}
 
 void show_all(std::initializer_list<HWND> list, int cmd) noexcept
 {
@@ -126,7 +134,7 @@ void MainWnd::open_book(const std::string& id)
     load_tts_prefs_once();
     set_tts_state(TtsState::Idle);
     layout();
-    if (!reader_.open(OpenJob{*path, paths_.data / L"pending", id, fmt})) {
+    if (!reader_.open(OpenJob{*path, paths_.data / L"pending", id, fmt, cache_file(paths_.cache, id)})) {
         close_book();
         show_notice(L"Không mở được sách: không đủ bộ nhớ.");
         return;

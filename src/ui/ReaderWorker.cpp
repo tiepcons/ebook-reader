@@ -205,7 +205,9 @@ eb_status RenderWorker::open_doc(const OpenJob& job)
     eb_doc* doc = nullptr;
     eb_status st = EB_E_INTERNAL;
     try {
-        st = job.fmt == "txt" ? open_txt(job, &doc) : eb_open(job.path.c_str(), &doc);
+        cache_ = job.cache;
+        st = job.fmt == "txt" ? open_txt(job, &doc)
+                              : eb_open_cached(job.path.c_str(), cache_.empty() ? nullptr : cache_.c_str(), &doc);
     } catch (const std::bad_alloc&) {
         st = EB_E_NOMEM;
     } catch (...) {
@@ -301,7 +303,27 @@ eb_status RenderWorker::apply_layout(const LayoutParams& lp, const std::string& 
     applied_ = lp;
     applied_css_ = css;
     laid_out_ = true;
+    save_cache();
     return EB_OK;
+}
+
+void RenderWorker::save_cache() noexcept
+{
+    if (cache_.empty() || (saved_ && saved_->first == applied_ && saved_->second == applied_css_))
+        return;
+    const eb_status st = eb_save_cache(doc_, cache_.c_str());
+    if (st == EB_OK) {
+        try {
+            saved_.emplace(applied_, applied_css_);
+        } catch (...) {
+            saved_.reset();
+        }
+        return;
+    }
+    if (st == EB_E_FORMAT || cache_failed_)
+        return;
+    cache_failed_ = true;
+    log::error("reader: layout cache not saved: {}", eb_status_text(st));
 }
 
 // The bookmark of the page the UI shows, taken before a relayout; the UI's own mark wins, then the last delivered one.
