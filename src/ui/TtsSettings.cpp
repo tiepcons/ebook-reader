@@ -17,7 +17,7 @@ namespace {
 constexpr UINT_PTR kVoicePollTimer = 1;
 constexpr UINT kVoicePollMs = 1000;
 constexpr int kMaxVoicePolls = 20;
-constexpr std::array<const wchar_t*, kTtsKinds> kEngineNames{L"Giọng Windows (có sẵn)", L"Piper (ngoại tuyến)", L"Azure (trực tuyến)"};
+constexpr std::array<const wchar_t*, kTtsKinds> kEngineNames{L"Giọng Windows (có sẵn)", L"Piper (ngoại tuyến)", L"Azure (trực tuyến)", L"VieNeu (ngoại tuyến, tự nhiên hơn)"};
 constexpr std::array<int, 2> kVoiceCombos{IDC_TTS_VOICE_EN, IDC_TTS_VOICE_VI};
 constexpr std::array<int, 2> kPreviewButtons{IDC_TTS_PREVIEW_EN, IDC_TTS_PREVIEW_VI};
 

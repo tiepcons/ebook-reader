@@ -7,6 +7,7 @@
 namespace eb {
 namespace {
 
+constexpr std::size_t kMaxLookahead = 16;
 constexpr std::string_view kSampleEn = "Hello, this is a sample of the reading voice.";
 constexpr std::string_view kSampleVi = "Xin chào, đây là giọng đọc thử của sách điện tử.";
 
@@ -152,8 +153,8 @@ void TtsController::on_text(int32_t page, std::string utf8)
         enter_page(std::move(p), std::exchange(start_offset_, -1));
     } else if (page_.number >= 0 && page == page_.number + 1) {
         next_ = std::move(p);
-        if (idx_ + 1 >= page_.sentences.size() && !next_.sentences.empty())
-            prepare_sentence(next_, 0);
+        if (idx_ + engine()->lookahead() >= page_.sentences.size() && !next_.sentences.empty())
+            prefetch();
     }
 }
 
@@ -241,21 +242,29 @@ void TtsController::speak_current()
         on_error(kTtsSynthFailed);
 }
 
-void TtsController::prepare_sentence(const Page& p, std::size_t i)
+void TtsController::prepare_sentence(const Page& p, std::size_t i, std::size_t ahead)
 {
     const std::string text = one_line(sentence_text(p.text, p.sentences[i]));
-    engine()->prepare(counter_ + 1, text, voice_for(text), prefs_.rate);
+    engine()->prepare(counter_ + static_cast<uint32_t>(ahead), text, voice_for(text), prefs_.rate);
 }
 
 void TtsController::prefetch()
 {
-    if (idx_ + 1 < page_.sentences.size()) {
-        prepare_sentence(page_, idx_ + 1);
-    } else if (next_.number == page_.number + 1 && !next_.sentences.empty()) {
-        prepare_sentence(next_, 0);
-    } else if (next_requested_ != page_.number + 1 && page_.number + 1 < host_.page_count()) {
-        next_requested_ = page_.number + 1;
-        host_.request_text(next_requested_);
+    const std::size_t ahead = std::clamp<std::size_t>(engine()->lookahead(), 1, kMaxLookahead);
+    const std::size_t here = page_.sentences.size();
+    for (std::size_t n = 1; n <= ahead; ++n) {
+        const std::size_t i = idx_ + n;
+        if (i < here) {
+            prepare_sentence(page_, i, n);
+        } else if (next_.number == page_.number + 1 && i - here < next_.sentences.size()) {
+            prepare_sentence(next_, i - here, n);
+        } else {
+            if (next_requested_ != page_.number + 1 && page_.number + 1 < host_.page_count()) {
+                next_requested_ = page_.number + 1;
+                host_.request_text(next_requested_);
+            }
+            return;
+        }
     }
 }
 

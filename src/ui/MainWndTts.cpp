@@ -226,7 +226,7 @@ void MainWnd::notice(const wchar_t* text)
 std::vector<TtsKind> MainWnd::available()
 {
     std::vector<TtsKind> out;
-    for (const TtsKind k : {TtsKind::WinRt, TtsKind::Piper, TtsKind::Azure}) {
+    for (const TtsKind k : {TtsKind::WinRt, TtsKind::Piper, TtsKind::Azure, TtsKind::VieNeu}) {
         if (tts_ && tts_->available(k))
             out.push_back(k);
     }

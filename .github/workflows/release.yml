@@ -68,6 +68,7 @@ jobs:
             dist/EbookReader-${{ steps.ver.outputs.version }}-win-x64.zip
             dist/EbookReader-${{ steps.ver.outputs.version }}-piper-pack.zip
             dist/EbookReader-${{ steps.ver.outputs.version }}-piper-sources.zip
+            dist/EbookReader-${{ steps.ver.outputs.version }}-vieneu-pack.zip
           if-no-files-found: error
 
   sign:

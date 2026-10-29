@@ -68,7 +68,8 @@ add_test(NAME ui_single_instance COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:Eb
   -P ${CMAKE_CURRENT_SOURCE_DIR}/ui/single_instance.cmake)
 set_tests_properties(ui_single_instance PROPERTIES TIMEOUT 40)
 target_sources(eb_tests PRIVATE unit/test_theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/Theme.cpp ${CMAKE_SOURCE_DIR}/src/ui/FontPrefs.cpp)
-target_sources(eb_tests PRIVATE unit/test_tts_piper.cpp)
+target_sources(eb_tests PRIVATE unit/test_tts_piper.cpp unit/test_tts_vieneu_text.cpp unit/test_tts_vieneu.cpp)
+target_compile_definitions(eb_tests PRIVATE EB_VIENEU_SPIKE="${CMAKE_SOURCE_DIR}/build/spike/vieneu")
 target_sources(eb_tests PRIVATE unit/test_tts_azure_proto.cpp unit/test_tts_azure_cache.cpp unit/test_tts_azure_engine.cpp)
 set(EB_PIPER_DIR "${CMAKE_SOURCE_DIR}/build/spike/piper/bin/piper" CACHE PATH "Piper runtime used by the real-Piper tests")
 target_compile_definitions(eb_tests PRIVATE EB_PIPER_DIR="${EB_PIPER_DIR}"

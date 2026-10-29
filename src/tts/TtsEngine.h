@@ -50,6 +50,8 @@ public:
     virtual void resume() noexcept = 0;
     virtual void stop() noexcept = 0;
     virtual void set_sink(HWND hwnd, UINT msg) noexcept = 0;
+    // How many upcoming utterances the caller should announce through prepare() so the engine can batch them.
+    [[nodiscard]] virtual size_t lookahead() const noexcept { return 1; }
 };
 
 }

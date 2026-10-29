@@ -13,7 +13,7 @@ namespace eb {
 namespace {
 
 constexpr std::string_view kKeyEngine = "tts.engine", kKeyRatePct = "tts.rate_pct";
-constexpr std::array<std::string_view, kTtsKinds> kKindNames{"winrt", "piper", "azure"};
+constexpr std::array<std::string_view, kTtsKinds> kKindNames{"winrt", "piper", "azure", "vieneu"};
 constexpr std::array<std::string_view, 2> kLangNames{"en", "vi"};
 
 std::string voice_key(std::size_t kind, std::size_t lang)

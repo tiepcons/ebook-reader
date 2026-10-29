@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <mutex>
 #include <set>
 
@@ -190,13 +191,15 @@ bool WinRtPlayer::open_bytes(std::span<const std::byte> audio, const wchar_t* mi
     }
 }
 
-bool WinRtPlayer::play(double volume, OnEvent on_event) noexcept
+bool WinRtPlayer::play(double volume, OnEvent on_event, double rate) noexcept
 {
     try {
         const std::scoped_lock lk(impl_->m);
         auto h = std::make_shared<Hook>();
         h->on_event = std::move(on_event);
         impl_->mp.Volume(std::clamp(volume, 0.0, 1.0));
+        if (std::abs(rate - 1.0) > 1e-3)
+            impl_->mp.PlaybackSession().PlaybackRate(std::clamp(rate, 0.5, 3.0));
         hook_player(impl_->mp, impl_->item, h);
         impl_->mp.Play();
         return true;

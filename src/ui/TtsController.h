@@ -86,7 +86,7 @@ private:
     void speak_current();
     void advance();
     void restart_at_shown();
-    void prepare_sentence(const Page& p, std::size_t i);
+    void prepare_sentence(const Page& p, std::size_t i, std::size_t ahead);
     void prefetch();
     void on_error(uint32_t code);
     void fall_back();

@@ -14,16 +14,19 @@ namespace eb::piper {
 
 namespace fs = std::filesystem;
 
+// Where a child synthesizer lives: `piper` is its folder (also its PATH and working directory), `voices` the data it
+// reads, `temp` the Low-integrity folder it writes to. VieNeu reuses this with its own folders and exe_name.
 struct Cfg {
     fs::path piper;
     fs::path voices;
     fs::path temp;
-    fs::path exe() const { return piper / L"piper.exe"; }
+    fs::path exe_name = L"piper.exe";
+    fs::path exe() const { return piper / exe_name; }
 };
 
 // True for reparse points and for paths that do not exist.
 bool is_reparse(const fs::path& p) noexcept;
-// True when piper.exe is an absolute, regular, non-reparse file that really lives inside Cfg::piper.
+// True when the exe is an absolute, regular, non-reparse file that really lives inside Cfg::piper.
 bool safe_exe(const Cfg& c) noexcept;
 // Empty unless <voices>\<id>.onnx and its .onnx.json exist and id is a plain file stem.
 fs::path voice_model(const Cfg& c, const std::wstring& id);
@@ -55,7 +58,8 @@ struct Proc {
     bool alive() noexcept;
     // Never blocks past a few seconds: the write is overlapped and abandoned when cancel() turns true.
     bool send(const std::string& line, const Cancel& cancel) noexcept;
-    Wait await(const Cancel& cancel, std::chrono::seconds limit) noexcept;
+    // Waits for the next stdout line that ends in ".wav" (other lines are dropped); `line` receives it when not null.
+    Wait await(const Cancel& cancel, std::chrono::seconds limit, std::string* line = nullptr) noexcept;
 
 private:
     void push_line(std::string&& l);

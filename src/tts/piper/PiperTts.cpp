@@ -3,6 +3,7 @@
 #include "base/Text.h"
 #include "tts/Utf8.h"
 #include "tts/piper/PiperProc.h"
+#include "tts/proc/ProcShared.h"
 #include "tts/winrt/WinRtPlayer.h"
 
 #include <algorithm>
@@ -40,87 +41,7 @@ std::chrono::seconds synth_limit(size_t utf8_bytes)
     return std::min(kBaseLimit + std::chrono::seconds(utf8_bytes / 200), kMaxLimit);
 }
 
-struct Shared {
-    std::mutex m;
-    HWND hwnd = nullptr;
-    UINT msg = 0;
-    uint32_t gen = 0;
-    uint32_t epoch = 0;
-    std::atomic<bool> dead{false};
-    std::atomic<bool> quit{false};
-    std::map<std::wstring, int> fails;
-    std::mutex pm;
-    WinRtPlayer playing;
-
-    bool current(uint32_t g) noexcept
-    {
-        const std::scoped_lock lk(m);
-        return g == gen;
-    }
-    bool epoch_is(uint32_t e) noexcept
-    {
-        const std::scoped_lock lk(m);
-        return e == epoch;
-    }
-    uint32_t epoch_now() noexcept
-    {
-        const std::scoped_lock lk(m);
-        return epoch;
-    }
-    uint32_t bump_gen() noexcept
-    {
-        const std::scoped_lock lk(m);
-        return ++gen;
-    }
-    void invalidate_all() noexcept
-    {
-        const std::scoped_lock lk(m);
-        ++gen;
-        ++epoch;
-    }
-    void post(uint32_t g, uint32_t id, TtsEvent ev, uint32_t value) noexcept
-    {
-        const std::scoped_lock lk(m);
-        if (g == gen && hwnd != nullptr)
-            PostMessageW(hwnd, msg, id, pack_tts(ev, value));
-    }
-    bool voice_dead(const std::wstring& v) noexcept
-    {
-        try {
-            const std::scoped_lock lk(m);
-            const auto it = fails.find(v);
-            return it != fails.end() && it->second >= 2;
-        } catch (...) {
-            return true;
-        }
-    }
-    void note(const std::wstring& v, bool ok) noexcept
-    {
-        try {
-            const std::scoped_lock lk(m);
-            int& n = fails[v];
-            n = ok ? 0 : n + 1;
-        } catch (...) { // NOLINT(bugprone-empty-catch): the counter is advisory
-        }
-    }
-    void set_playing(WinRtPlayer p) noexcept
-    {
-        const std::scoped_lock lk(pm);
-        playing = std::move(p);
-    }
-    void with_playing(bool play) noexcept
-    {
-        WinRtPlayer p;
-        {
-            const std::scoped_lock lk(pm);
-            p = playing;
-        }
-        if (play)
-            p.resume();
-        else
-            p.pause();
-    }
-};
+using proc::Shared;
 
 struct Req {
     uint32_t gen = 0;
@@ -155,66 +76,22 @@ struct Prepared {
 struct Engine;
 using Task = std::function<void(Engine&)>;
 
-struct Queue {
-    std::mutex m;
-    std::condition_variable cv;
-    std::deque<Task> q;
-    bool quit = false;
-
-    void push(Task t) noexcept
-    {
-        try {
-            {
-                const std::scoped_lock lk(m);
-                q.push_back(std::move(t));
-            }
-            cv.notify_one();
-        } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
-        }
-    }
-};
+using Queue = proc::Queue<Engine>;
 
 struct Engine {
     Cfg cfg;
     std::shared_ptr<Shared> sh;
     UniqueHandle job;
     std::vector<std::unique_ptr<Proc>> procs;
-    std::vector<fs::path> pending;
+    proc::Trash trash;
     Prepared cur;
     Prepared prep;
     uint32_t serial = 0;
 
     bool make_job() noexcept
     {
-        job.reset(CreateJobObjectW(nullptr, nullptr));
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_JOB_MEMORY
-            | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
-        info.BasicLimitInformation.ActiveProcessLimit = kMaxProcs;
-        info.JobMemoryLimit = kJobMemory;
-        return job.valid() && SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation, &info, sizeof info);
-    }
-
-    // A WAV that cannot be deleted yet (still open elsewhere) is retried on the next request and at shutdown.
-    void discard(const fs::path& p) noexcept
-    {
-        if (p.empty())
-            return;
-        try {
-            std::error_code ec;
-            fs::remove(p, ec);
-            if (ec)
-                pending.push_back(p);
-        } catch (...) { // NOLINT(bugprone-empty-catch): stale files are removed at the next start
-        }
-    }
-
-    void retry_pending() noexcept
-    {
-        std::vector<fs::path> again;
-        again.swap(pending);
-        for (const auto& p : again)
-            discard(p);
+        job = proc::make_job(kMaxProcs, kJobMemory);
+        return job.valid();
     }
 
     Proc* acquire(const std::wstring& voice, int rk) noexcept
@@ -257,7 +134,7 @@ struct Engine {
 void close_prepared(Engine& e, Prepared& p) noexcept
 {
     p.player.close();
-    e.discard(p.wav);
+    e.trash.discard(p.wav);
     p = Prepared{};
 }
 
@@ -303,7 +180,7 @@ Synth run_request(Engine& e, Proc& p, const Req& r, const Cancel& cancel, fs::pa
 // Timeouts and cancellations do not count against the voice.
 Synth synth(Engine& e, const Req& r, const Cancel& cancel, fs::path& wav)
 {
-    e.retry_pending();
+    e.trash.retry();
     if (!has_content(r.text))
         return Synth::Failed;
     if (piper::voice_model(e.cfg, r.voice).empty())
@@ -313,7 +190,7 @@ Synth synth(Engine& e, const Req& r, const Cancel& cancel, fs::path& wav)
     if (res != Synth::Ok) {
         if (p != nullptr)
             e.drop(p);
-        e.discard(wav);
+        e.trash.discard(wav);
     }
     if (res == Synth::Ok || res == Synth::Failed)
         e.sh->note(r.voice, res == Synth::Ok);
@@ -323,14 +200,7 @@ Synth synth(Engine& e, const Req& r, const Cancel& cancel, fs::path& wav)
 void play_new(Engine& e, Prepared p, const Req& r)
 {
     close_cur(e);
-    const bool ok = p.player.play(r.volume, [sh = e.sh, gen = r.gen, id = r.id](PlayEvent ev, uint32_t) {
-        switch (ev) {
-        case PlayEvent::Started: sh->post(gen, id, TtsEvent::Started, 0); break;
-        case PlayEvent::Finished: sh->post(gen, id, TtsEvent::Finished, 0); break;
-        case PlayEvent::Failed: sh->post(gen, id, TtsEvent::Error, kTtsPlayFailed); break;
-        case PlayEvent::Word: break;
-        }
-    });
+    const bool ok = proc::play_wav(e.sh, p.player, r.volume, 1.0, r.gen, r.id);
     if (!ok) {
         close_prepared(e, p);
         e.sh->post(r.gen, r.id, TtsEvent::Error, kTtsPlayFailed);
@@ -435,7 +305,7 @@ struct PiperTts::Impl {
             loop(e);
         close_cur(e);
         close_prepared(e, e.prep);
-        e.retry_pending();
+        e.trash.retry();
     }
 
     void loop(Engine& e) noexcept

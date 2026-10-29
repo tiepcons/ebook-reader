@@ -8,8 +8,8 @@
 
 namespace eb {
 
-enum class TtsKind : uint8_t { WinRt, Piper, Azure };
-inline constexpr std::size_t kTtsKinds = 3;
+enum class TtsKind : uint8_t { WinRt, Piper, Azure, VieNeu };
+inline constexpr std::size_t kTtsKinds = 4;
 inline constexpr double kMinTtsRate = 0.5, kMaxTtsRate = 2.0;
 inline constexpr std::size_t kMaxVoiceIdChars = 256;
 

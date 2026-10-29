@@ -15,9 +15,13 @@ $maxBasicBytes = 10MB
 
 $piperPins = Import-PowerShellDataFile "$PSScriptRoot/piper_pins.psd1"
 $pins = @{ tashkeelLic = @($piperPins.TashkeelLicense.Url, $piperPins.TashkeelLicense.Sha256) }
+$vieneuPins = Import-PowerShellDataFile "$PSScriptRoot/vieneu_pins.psd1"
 
 function Get-Pinned([string]$Key) {
-    $url, $sha = $pins[$Key]
+    Get-PinnedUrl $pins[$Key][0] $pins[$Key][1]
+}
+
+function Get-PinnedUrl([string]$url, [string]$sha) {
     $file = Join-Path $dl "$sha-$([IO.Path]::GetFileName(([Uri]$url).AbsolutePath))"
     if (-not (Test-Path $file) -or (Get-FileHash $file -Algorithm SHA256).Hash -ne $sha.ToUpper()) {
         New-Item -ItemType Directory -Force $dl | Out-Null
@@ -70,6 +74,8 @@ EBOOK READER $Version
 - Bo sach (PDF, EPUB, MOBI, ...) vao thu muc ebooks\ canh EbookReader.exe.
 - Doc to offline bang Piper (tuy chon): giai nen goi $name-piper-pack.zip len cung thu muc,
   roi tu tai giong noi (.onnx va .onnx.json) vao data\voices\ (xem muc VOICES ben duoi). Goi nay KHONG kem giong noi.
+- Doc to bang VieNeu (tuy chon, giong Viet tu nhien hon, can khoang 270 MB o dia va 1 GB RAM): giai nen goi
+  $name-vieneu-pack.zip len cung thu muc, roi lam theo README-VieNeu.txt trong goi do de tai mo hinh va giong vao data\vieneu\.
 - Ban alpha: neu file khong co chu ky hop le, Windows SmartScreen co the canh bao.
 - Go bo: xoa thu muc ung dung; xoa du lieu o data\ canh EbookReader.exe (hoac %LOCALAPPDATA%\EbookReader neu thu muc
   ung dung khong ghi duoc); neu da dung Azure Speech: cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1
@@ -81,6 +87,8 @@ EBOOK READER $Version
 - Put your books (PDF, EPUB, MOBI, ...) in the ebooks\ folder next to EbookReader.exe.
 - Optional offline read-aloud with Piper: extract $name-piper-pack.zip into the same folder, then download a voice
   (.onnx and .onnx.json) into data\voices\ yourself (see VOICES below). The pack contains no voices.
+- Optional, more natural offline voices with VieNeu (about 270 MB of disk and 1 GB of RAM): extract $name-vieneu-pack.zip
+  into the same folder, then follow the README-VieNeu.txt inside it to download the model and voices into data\vieneu\.
 - This alpha may be unsigned or self-signed, so Windows SmartScreen may warn.
 - Uninstall: delete the app folder; delete data\ next to EbookReader.exe (or %LOCALAPPDATA%\EbookReader when the app folder
   is not writable); if you used Azure Speech, also run: cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1
@@ -331,6 +339,8 @@ Ebook Reader's own source: https://github.com/tiepcons/ebook-reader
 "@ | Set-Content $Path -Encoding utf8
 }
 
+. "$PSScriptRoot/package_vieneu.ps1"
+
 $suffix = if ($Version -match '^\d+\.\d+\.\d+(-.+)$') { $Matches[1] } else { '' }
 $b = & "$PSScriptRoot/build.ps1" -Preset release -VersionSuffix $suffix
 if ($LASTEXITCODE -ne 0) { $b; throw 'release build failed' }
@@ -339,5 +349,5 @@ foreach ($f in 'EbookReader.exe', 'libs/eb_mupdf.dll') {
     if ($pv -ne $Version) { throw "$f has ProductVersion '$pv' but -Version is '$Version'; bump project(VERSION) in CMakeLists.txt" }
 }
 Get-ChildItem $dist -Filter "EbookReader-$Version*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force # keep other versions the PO may be testing
-$zips = @((Build-Basic), (Build-PiperPack), (New-SourcesZip (Join-Path $dist "$name-piper-sources.zip")))
+$zips = @((Build-Basic), (Build-PiperPack), (New-SourcesZip (Join-Path $dist "$name-piper-sources.zip")), (Build-VieNeuPack))
 foreach ($z in $zips) { 'ARTIFACT {0} {1:N2} MB' -f (Split-Path $z -Leaf), ((Get-Item $z).Length / 1MB) }

@@ -25,7 +25,9 @@ struct FakeEngine final : eb::TtsEngine {
     std::vector<Spoken> spoken, prepared;
     int stops = 0, pauses = 0, resumes = 0;
     bool accept = true;
+    size_t look = 1;
 
+    size_t lookahead() const noexcept override { return look; }
     std::vector<eb::Voice> voices() noexcept override { return list; }
     bool speak(uint32_t id, std::string_view utf8, const std::wstring& voice, double, double) noexcept override
     {
@@ -99,6 +101,31 @@ TEST_CASE("tts controller: sentences are spoken in order, highlighted and record
     CHECK(r.winrt.spoken[1].id == r.winrt.prepared[0].id);
     CHECK(r.host.saved.back().second == 11);
     CHECK(r.host.marks.back() == std::pair<uint32_t, uint32_t>{11, 22});
+}
+
+TEST_CASE("tts controller: an engine that wants a lookahead gets the next sentences announced, across pages too")
+{
+    Rig r;
+    r.winrt.look = 3;
+    r.host.pages = 2;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One. Two. Three. Four.");
+    REQUIRE(r.winrt.prepared.size() == 3);
+    CHECK(r.winrt.prepared[0].text == "Two.");
+    CHECK(r.winrt.prepared[0].id == 2);
+    CHECK(r.winrt.prepared[2].text == "Four.");
+    CHECK(r.winrt.prepared[2].id == 4);
+    r.ctl.on_event(1, finished());
+    REQUIRE(r.winrt.spoken.size() == 2);
+    CHECK(r.winrt.spoken[1].id == 2);
+    REQUIRE(r.winrt.prepared.size() == 3 + 2);
+    CHECK(r.winrt.prepared[3].text == "Three.");
+    CHECK(r.winrt.prepared[3].id == 3);
+    CHECK(r.host.requests.back() == 1);
+    r.ctl.on_text(1, "Five. Six. Seven.");
+    REQUIRE(r.winrt.prepared.size() == 3 + 2 + 3);
+    CHECK(r.winrt.prepared.back().text == "Five.");
+    CHECK(r.winrt.prepared.back().id == 5);
 }
 
 TEST_CASE("tts controller: stale, foreign and paused-time events are ignored")
@@ -429,6 +456,10 @@ TEST_CASE("tts prefs: round trip, clamping and unknown values")
     p.rate = 1.5;
     p.voice[2][1] = L"vi-VN-HoaiMyNeural";
     p.voice[0][0] = L"Microsoft David";
+    REQUIRE(eb::save_tts_prefs(db, p));
+    CHECK(eb::load_tts_prefs(db) == p);
+    p.engine = TtsKind::VieNeu;
+    p.voice[eb::kind_index(TtsKind::VieNeu)][1] = L"ngoc_huyen";
     REQUIRE(eb::save_tts_prefs(db, p));
     CHECK(eb::load_tts_prefs(db) == p);
     CHECK(eb::clamp_tts_rate(9.0) == eb::kMaxTtsRate);

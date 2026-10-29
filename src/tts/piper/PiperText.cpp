@@ -29,6 +29,8 @@ void escape_ascii(std::string& out, char ch)
     }
 }
 
+}
+
 std::string_view string_after_key(std::string_view j, std::string_view key, size_t from, size_t limit)
 {
     const std::string quoted = "\"" + std::string(key) + "\"";
@@ -45,8 +47,6 @@ std::string_view string_after_key(std::string_view j, std::string_view key, size
     if (end == std::string_view::npos)
         return {};
     return j.substr(p + 1, end - p - 1);
-}
-
 }
 
 std::string json_escape(std::string_view s)

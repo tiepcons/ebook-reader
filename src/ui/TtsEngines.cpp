@@ -14,6 +14,12 @@ std::unique_ptr<PiperTts> make_piper(const AppPaths& paths)
     return piper->voices().empty() ? nullptr : std::move(piper);
 }
 
+std::unique_ptr<VieNeuTts> make_vieneu(const AppPaths& paths)
+{
+    auto vieneu = std::make_unique<VieNeuTts>(paths.libs / L"vieneu", paths.data / L"vieneu", paths.tts_cache / L"vieneu" / L"tmp");
+    return vieneu->voices().empty() ? nullptr : std::move(vieneu);
+}
+
 std::unique_ptr<AzureTts> make_azure(const AppPaths& paths, Db& db, HWND sink)
 {
     const auto region = kv_get(db, kAzureRegionKey);
@@ -60,6 +66,9 @@ TtsEngines make_tts_engines(const AppPaths& paths, Db& db, HWND sink) noexcept
         e.azure = make_azure(paths, db, sink);
         if (e.azure)
             e.azure->set_sink(sink, WM_APP_TTS_EVENT);
+        e.vieneu = make_vieneu(paths);
+        if (e.vieneu)
+            e.vieneu->set_sink(sink, WM_APP_TTS_EVENT);
     } catch (...) {
         log::error("tts: an optional voice engine could not start");
     }

@@ -213,8 +213,13 @@ void remove_stale(const fs::path& dir)
     std::error_code ec;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
         const std::wstring name = it->path().filename().wstring();
-        if (name.starts_with(L"eb-") && name.ends_with(L".wav"))
-            fs::remove(it->path(), ec);
+        std::error_code rec;
+        if (!name.starts_with(L"eb-"))
+            continue;
+        if (name.ends_with(L".wav"))
+            fs::remove(it->path(), rec);
+        else if (!is_reparse(it->path()) && it->is_directory(rec))
+            fs::remove_all(it->path(), rec);
     }
 }
 
@@ -306,6 +311,8 @@ Proc::~Proc()
 
 void Proc::push_line(std::string&& l)
 {
+    if (!l.ends_with(".wav"))
+        return;
     {
         const std::scoped_lock lk(m_);
         if (lines_.size() < kMaxQueuedLines)
@@ -418,17 +425,18 @@ bool Proc::send(const std::string& line, const Cancel& cancel) noexcept
     }
 }
 
-Wait Proc::await(const Cancel& cancel, std::chrono::seconds limit) noexcept
+Wait Proc::await(const Cancel& cancel, std::chrono::seconds limit, std::string* line) noexcept
 {
     try {
         const auto deadline = std::chrono::steady_clock::now() + limit;
         std::unique_lock lk(m_);
         for (;;) {
-            while (!lines_.empty()) {
-                const std::string l = std::move(lines_.front());
+            if (!lines_.empty()) {
+                std::string l = std::move(lines_.front());
                 lines_.pop_front();
-                if (l.ends_with(".wav"))
-                    return Wait::Done;
+                if (line != nullptr)
+                    *line = std::move(l);
+                return Wait::Done;
             }
             if (eof_)
                 return Wait::Dead;

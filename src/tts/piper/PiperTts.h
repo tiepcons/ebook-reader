@@ -10,6 +10,8 @@ std::string json_escape(std::string_view utf8);
 std::string request_line(std::string_view utf8, std::string_view wav_path_utf8);
 std::wstring quote_arg(std::wstring_view arg);
 std::wstring lang_from_model_json(std::string_view json);
+// Value of the first `"key": "value"` at or after `from` and before `limit`; empty when absent.
+std::string_view string_after_key(std::string_view j, std::string_view key, size_t from, size_t limit);
 
 }
 

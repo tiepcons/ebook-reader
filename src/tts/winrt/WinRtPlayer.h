@@ -39,7 +39,8 @@ public:
     // stream is any WinRT object implementing IRandomAccessStream, passed as its IUnknown.
     bool open_stream(IUnknown* stream, const wchar_t* mime) noexcept;
     [[nodiscard]] bool valid() const noexcept { return impl_ != nullptr; }
-    bool play(double volume, OnEvent on_event) noexcept;
+    // rate is the playback speed (1.0 = as recorded).
+    bool play(double volume, OnEvent on_event, double rate = 1.0) noexcept;
     void pause() noexcept;
     void resume() noexcept;
     void close() noexcept;
