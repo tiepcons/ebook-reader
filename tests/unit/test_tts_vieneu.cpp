@@ -176,8 +176,11 @@ TEST_CASE("vieneu command line: batch, output dir, voice files and g2p options a
     CHECK(cmd.find(L"--log") != std::wstring::npos);
     CHECK(cmd.find(L"--batch-text-file \"" + (c.temp / L"b 1" / L"in.txt").wstring() + L"\"") != std::wstring::npos);
     CHECK(cmd.find(L"--out-dir \"" + (c.temp / L"b 1").wstring() + L"\"") != std::wstring::npos);
-    CHECK(cmd.find(L"g2p_dict_file=") != std::wstring::npos);
-    CHECK(cmd.find(L"g2p_library=") != std::wstring::npos);
+    // audio.cpp silently ignores unprefixed session options (the text is then read as phonemes).
+    CHECK(cmd.find(L"vieneu_v3_turbo.g2p_dict_file=") != std::wstring::npos);
+    CHECK(cmd.find(L"vieneu_v3_turbo.g2p_library=") != std::wstring::npos);
+    CHECK(cmd.find(L" g2p_dict_file=") == std::wstring::npos);
+    CHECK(cmd.find(L"\"g2p_dict_file=") == std::wstring::npos);
     CHECK(cmd.find(L"speaker_embedding_file=") != std::wstring::npos);
     CHECK(cmd.find(L"reference_codes_file=") != std::wstring::npos);
     CHECK(cmd.find(L"--server") == std::wstring::npos);

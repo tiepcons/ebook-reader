@@ -114,8 +114,9 @@ std::wstring command_line(const piper::Cfg& c, const Assets& a, const Preset& vo
     cmd += L" --threads " + std::to_wstring(threads);
     cmd += option(L"--batch-text-file", batch_txt);
     cmd += option(L"--out-dir", out_dir);
-    cmd += key_value(L"--session-option", L"g2p_dict_file", a.g2p_dict);
-    cmd += key_value(L"--session-option", L"g2p_library", a.g2p_lib);
+    // Session options need the family prefix: without it audio.cpp silently drops them and reads the text as phonemes.
+    cmd += key_value(L"--session-option", L"vieneu_v3_turbo.g2p_dict_file", a.g2p_dict);
+    cmd += key_value(L"--session-option", L"vieneu_v3_turbo.g2p_library", a.g2p_lib);
     cmd += key_value(L"--request-option", L"speaker_embedding_file", voice.emb);
     cmd += key_value(L"--request-option", L"reference_codes_file", voice.codes);
     return cmd;
