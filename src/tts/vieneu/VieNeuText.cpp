@@ -1,12 +1,12 @@
 #include "tts/vieneu/VieNeuText.h"
 
+#include "base/FileIo.h"
 #include "base/Text.h"
 #include "tts/Utf8.h"
 #include "tts/piper/PiperProc.h"
 #include "tts/piper/PiperTts.h"
 
 #include <algorithm>
-#include <fstream>
 
 namespace eb::vieneu {
 
@@ -109,11 +109,7 @@ std::string header(const WavInfo& w, size_t data_len)
 
 std::string read_head(const fs::path& p)
 {
-    std::ifstream f(p, std::ios::binary);
-    std::string s(kManifestMax, '\0');
-    f.read(s.data(), static_cast<std::streamsize>(s.size()));
-    s.resize(static_cast<size_t>(f.gcount()));
-    return s;
+    return eb::read_head(p, kManifestMax);
 }
 
 bool plain_id(const std::wstring& id) noexcept

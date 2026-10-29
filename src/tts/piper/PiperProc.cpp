@@ -1,5 +1,6 @@
 #include "tts/piper/PiperProc.h"
 
+#include "base/FileIo.h"
 #include "base/PathSafety.h"
 #include "tts/piper/PiperTts.h"
 #include "tts/proc/ProcShared.h"
@@ -10,7 +11,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
-#include <fstream>
 #include <vector>
 
 namespace eb::piper {
@@ -27,11 +27,7 @@ constexpr auto kWriteLimit = std::chrono::seconds(5);
 
 std::string read_head(const fs::path& p)
 {
-    std::ifstream f(p, std::ios::binary);
-    std::string s(kJsonMax, '\0');
-    f.read(s.data(), static_cast<std::streamsize>(s.size()));
-    s.resize(static_cast<size_t>(f.gcount()));
-    return s;
+    return eb::read_head(p, kJsonMax);
 }
 
 struct Pipes {

@@ -1,9 +1,9 @@
+#include "base/FileIo.h"
 #include "base/Text.h"
 #include "tts/vieneu/VieNeuEngine.h"
 
 #include <algorithm>
 #include <charconv>
-#include <fstream>
 #include <set>
 
 namespace eb::vieneu::engine {
@@ -43,20 +43,15 @@ std::optional<std::string> read_all(const fs::path& p)
     const auto size = fs::file_size(p, ec);
     if (ec || size > kMaxWavBytes)
         return std::nullopt;
-    std::ifstream f(p, std::ios::binary);
-    std::string s(static_cast<size_t>(size), '\0');
-    f.read(s.data(), static_cast<std::streamsize>(s.size()));
-    if (static_cast<size_t>(f.gcount()) != s.size())
+    auto s = eb::read_all(p, kMaxWavBytes);
+    if (!s)
         return std::nullopt;
-    return s;
+    return std::move(*s);
 }
 
 bool write_all(const fs::path& p, std::string_view data)
 {
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    f.write(data.data(), static_cast<std::streamsize>(data.size()));
-    f.flush();
-    return f.good();
+    return eb::write_file(p, data);
 }
 
 // Posts the error for the utterance the caller waits on and forgets the failed items.

@@ -1,11 +1,11 @@
 #include "ReaderWorker.h"
 
+#include "base/FileIo.h"
 #include "base/Log.h"
 #include "doc/TxtToFb2.h"
 
 #include <algorithm>
 #include <cstddef>
-#include <fstream>
 #include <memory>
 #include <new>
 
@@ -32,16 +32,11 @@ std::string trim_utf8(const char* s)
 
 eb_status open_txt(const OpenJob& job, eb_doc** doc)
 {
-    std::ifstream in(job.path, std::ios::binary | std::ios::ate);
-    if (!in)
-        return EB_E_OPEN;
-    const auto size = in.tellg();
-    if (size < 0 || static_cast<uint64_t>(size) > kMaxTxtBytes)
-        return EB_E_LIMIT;
-    std::vector<std::byte> raw(static_cast<std::size_t>(size));
-    in.seekg(0);
-    if (!in.read(reinterpret_cast<char*>(raw.data()), size))
-        return EB_E_OPEN;
+    const auto bytes = read_all(job.path, kMaxTxtBytes);
+    if (!bytes)
+        return bytes.error().code == ErrorCode::Limit ? EB_E_LIMIT : EB_E_OPEN;
+    const auto* first = reinterpret_cast<const std::byte*>(bytes->data());
+    const std::vector<std::byte> raw(first, first + bytes->size());
     const auto fb2 = txt_to_fb2(raw, job.path.stem().wstring());
     if (!fb2)
         return fb2.error().code == ErrorCode::Limit ? EB_E_LIMIT : EB_E_FORMAT;

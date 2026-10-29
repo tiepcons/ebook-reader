@@ -1,6 +1,7 @@
 ﻿#include "CrashGuard.h"
 
 #include "AtomicFile.h"
+#include "FileIo.h"
 #include "Handle.h"
 #include "Log.h"
 
@@ -13,7 +14,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
-#include <fstream>
 #include <new>
 #include <vector>
 
@@ -168,10 +168,7 @@ void install_crash_handler(const std::filesystem::path& crash_dir) noexcept
 CrashLoopGuard::CrashLoopGuard(std::filesystem::path marker_file) noexcept : marker_(std::move(marker_file))
 {
     try {
-        std::ifstream in(marker_, std::ios::binary);
-        std::string line(kMaxMarker, '\0');
-        in.read(line.data(), static_cast<std::streamsize>(line.size()));
-        line.resize(static_cast<size_t>(in.gcount()));
+        const std::string line = read_head(marker_, kMaxMarker);
         const size_t tab = line.find('\t');
         if (tab != std::string::npos)
             suspect_ = line.substr(tab + 1);

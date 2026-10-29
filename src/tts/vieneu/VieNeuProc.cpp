@@ -1,11 +1,11 @@
 #include "tts/vieneu/VieNeuProc.h"
 
+#include "base/FileIo.h"
 #include "base/PathSafety.h"
 #include "tts/piper/PiperTts.h"
 #include "tts/proc/ProcShared.h"
 
 #include <algorithm>
-#include <fstream>
 #include <thread>
 
 namespace eb::vieneu {
@@ -31,10 +31,7 @@ bool plain_file(const fs::path& p, uintmax_t lo, uintmax_t hi) noexcept
 
 bool has_gguf_magic(const fs::path& p)
 {
-    std::ifstream f(p, std::ios::binary);
-    char magic[4] = {};
-    f.read(magic, sizeof magic);
-    return f.gcount() == 4 && std::string_view(magic, 4) == "GGUF";
+    return eb::read_head(p, 4) == "GGUF";
 }
 
 bool is_model_name(const std::wstring& name)

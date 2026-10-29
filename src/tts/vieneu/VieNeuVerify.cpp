@@ -1,15 +1,15 @@
 #include "tts/vieneu/VieNeuVerify.h"
 
 #include "VieNeuPins.h"
+#include "base/FileIo.h"
 #include "base/Text.h"
 
 #include <bcrypt.h>
 
 #include <algorithm>
 #include <array>
-#include <fstream>
 #include <map>
-#include <sstream>
+#include <ranges>
 
 namespace eb::vieneu {
 
@@ -70,14 +70,11 @@ class HashCache {
 public:
     explicit HashCache(fs::path file) : file_(std::move(file))
     {
-        std::ifstream f(file_, std::ios::binary);
-        std::string text(kCacheMax, '\0');
-        f.read(text.data(), static_cast<std::streamsize>(text.size()));
-        text.resize(static_cast<size_t>(f.gcount()));
-        std::istringstream in(text);
-        for (std::string line; std::getline(in, line);) {
-            if (line.size() > 65 && line[64] == ' ')
-                old_[line.substr(65)] = line.substr(0, 64);
+        const std::string text = eb::read_head(file_, kCacheMax);
+        for (const auto line : std::views::split(std::string_view(text), '\n')) {
+            const std::string_view l(line.begin(), line.end());
+            if (l.size() > 65 && l[64] == ' ')
+                old_[std::string(l.substr(65))] = std::string(l.substr(0, 64));
         }
     }
 
@@ -113,7 +110,7 @@ public:
             out += key;
             out += '\n';
         }
-        std::ofstream(file_, std::ios::binary | std::ios::trunc) << out;
+        (void)eb::write_file(file_, out);
     }
 
 private:
@@ -172,14 +169,16 @@ std::string sha256_file(const fs::path& file, uintmax_t max_bytes) noexcept
         std::error_code ec;
         if (piper::is_reparse(file) || !fs::is_regular_file(file, ec) || fs::file_size(file, ec) > max_bytes || ec)
             return {};
-        std::ifstream f(file, std::ios::binary);
+        eb::FileReader f(file);
+        if (!f.ok())
+            return {};
         Sha256 h;
         std::vector<char> buf(kChunk);
-        while (f.read(buf.data(), static_cast<std::streamsize>(buf.size())) || f.gcount() > 0) {
-            if (!h.add(buf.data(), static_cast<size_t>(f.gcount())))
+        for (size_t got = 1; got > 0;) {
+            if (!f.read(buf.data(), buf.size(), got) || !h.add(buf.data(), got))
                 return {};
         }
-        return f.eof() ? h.finish() : std::string{};
+        return h.finish();
     } catch (...) {
         return {};
     }

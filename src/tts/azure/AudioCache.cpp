@@ -1,6 +1,7 @@
 #include "tts/azure/AudioCache.h"
 
 #include "base/AtomicFile.h"
+#include "base/FileIo.h"
 #include "base/PathSafety.h"
 #include "tts/azure/AzureHttp.h"
 
@@ -9,7 +10,6 @@
 
 #include <algorithm>
 #include <array>
-#include <fstream>
 
 namespace eb {
 namespace {
@@ -135,17 +135,11 @@ std::optional<std::vector<std::byte>> AudioCache::get(std::string_view key) noex
         uint64_t mtime = 0;
         if (!is_plain_dir_chain(dir_) || !plain_file_info(path, on_disk, mtime))
             return std::nullopt;
-        std::ifstream f(path, std::ios::binary | std::ios::ate);
-        if (!f)
+        const auto bytes = read_all(path, kAzureMaxResponse);
+        if (!bytes || bytes->empty())
             return std::nullopt;
-        const auto size = static_cast<size_t>(f.tellg());
-        if (size == 0 || size > kAzureMaxResponse)
-            return std::nullopt;
-        std::vector<std::byte> data(size);
-        f.seekg(0);
-        if (!f.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size)))
-            return std::nullopt;
-        f.close();
+        const auto* first = reinterpret_cast<const std::byte*>(bytes->data());
+        std::vector<std::byte> data(first, first + bytes->size());
         std::error_code ec;
         std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
         return data;
