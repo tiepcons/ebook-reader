@@ -1,4 +1,4 @@
-# Nghiệm thu tay (PO) — bản 0.9.0-alpha.6
+# Nghiệm thu tay (PO) — bản 0.9.0-alpha.7
 
 Tick `[x]` khi đạt. Nếu lỗi, ghi ngắn vào cột **Ghi chú** (đã làm gì → thấy gì). Gửi lại file này là đủ để sửa.
 Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).
@@ -34,6 +34,7 @@ Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).
 | 2.7 | Ctrl+T (mục lục), Ctrl+B (đặt/bỏ dấu trang), Ctrl+G (đi đến %) | Hoạt động đúng | [ ] | |
 | 2.7b | Mở 1 truyện có trang mục lục trong sách: bấm vào tên chương; rê chuột lên liên kết | Nhảy đúng chương; con trỏ thành bàn tay | [ ] | |
 | 2.7c | Ô chọn chương ở thanh trên: chọn 1 chương; lật trang qua chương khác | Nhảy ngay tới chương; ô tự đổi theo chương đang đọc; mũi tên vẫn lật trang | [ ] | |
+| 2.7d | Mở 1 truyện EPUB lớn (vd. trong `D:\Truyen`), đọc tới giữa truyện, quay về thư viện rồi mở lại (giữ nguyên cỡ cửa sổ, cỡ chữ). Thoát app, mở lại lần nữa | Lần đầu chậm như cũ; các lần mở lại hiện ngay (< 1 s) đúng trang đang đọc | [ ] | |
 | 2.8 | **Đo RAM** khi đang đọc (cột private working set) | **≤ 120 MB**. Ghi lại số đo | [ ] | MB = |
 | 2.9 | Đo RAM khi đang xem thư viện | ≤ 40 MB. Ghi lại số đo | [ ] | MB = |
 
