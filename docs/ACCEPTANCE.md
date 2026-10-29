@@ -1,16 +1,16 @@
-# Nghiệm thu tay (PO) — bản 0.9.0-alpha.3
+# Nghiệm thu tay (PO) — bản 0.9.0-alpha.5
 
 Tick `[x]` khi đạt. Nếu lỗi, ghi ngắn vào cột **Ghi chú** (đã làm gì → thấy gì). Gửi lại file này là đủ để sửa.
 Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).
 
 ## 0. Chuẩn bị (5 phút)
 
-1. Giải nén `D:\eBook Reader\dist\EbookReader-0.9.0-alpha.3-win-x64.zip` vào thư mục **riêng**, ví dụ `D:\EbookAlpha\`.
+1. Giải nén `D:\eBook Reader\dist\EbookReader-0.9.0-alpha.5-win-x64.zip` vào thư mục **riêng**, ví dụ `D:\EbookAlpha\`.
    - Không chạy exe trong `build\` (soak test có thể đang chạy ở đó).
 2. Chuẩn bị khoảng 100 sách nhiều định dạng: EPUB, PDF, MOBI, AZW3, FB2, CBZ, TXT (có ít nhất 1 TXT tiếng Việt).
    Để trong vài tầng thư mục con, ví dụ `Tiểu thuyết\Việt Nam\...`.
 3. Mở Task Manager → tab **Details** → chuột phải tiêu đề cột → thêm cột **Memory (private working set)**. Cột này dùng để đo RAM.
-4. *(Tùy chọn)* Piper: giải nén `EbookReader-0.9.0-alpha.3-piper-pack.zip` **đè** vào `D:\EbookAlpha\`.
+4. *(Tùy chọn)* Piper: giải nén `EbookReader-0.9.0-alpha.5-piper-pack.zip` **đè** vào `D:\EbookAlpha\`.
    Tải giọng theo `README.txt` vào `data\voices\`.
 
 ## 1. Thư viện — T3.7
@@ -58,6 +58,7 @@ Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).
 | 4.3 | Đang đọc thì đưa app xuống khay | Vẫn đọc tiếp. Dừng/tiếp được từ menu khay | [ ] | |
 | 4.4 | Piper (nếu đã giải nén gói và tải giọng): đọc tiếng Việt | Đọc được | [ ] | |
 | 4.5 | Xóa hoặc đổi tên `libs\piper` rồi mở app | App vẫn chạy, chỉ không còn Piper trong danh sách | [ ] | |
+| 4.6 | *(Tùy chọn)* VieNeu: giải nén `…-vieneu-pack.zip` đè vào thư mục app, tải model + giọng theo `README-VieNeu.txt` vào `data\vieneu\`. Mở lại app (chờ vài giây để app kiểm tra file), chọn engine VieNeu, đọc 1 chương có tiêu đề `Chương …:` | Nghe rõ tiêu đề chương, đọc liên tục, câu được tô sáng; đổi tốc độ được | [ ] | |
 
 ## 5. Azure — T7.1 + T7.8
 
