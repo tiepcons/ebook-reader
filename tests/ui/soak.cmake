@@ -12,7 +12,7 @@ execute_process(COMMAND "${dir}/EbookReader.exe" --smoke --smoke-soak 1 RESULT_V
 if(NOT rc EQUAL 0)
   message(FATAL_ERROR "soak exited with '${rc}'")
 endif()
-file(READ "${dir}/data/logs/app.log" log)
+file(READ "${dir}/data/logs/soak.log" log)
 if(NOT log MATCHES "soak: t=1 books=([1-9][0-9]*) pages=([1-9][0-9]*)")
   message(FATAL_ERROR "the soak never opened a book and turned pages")
 endif()

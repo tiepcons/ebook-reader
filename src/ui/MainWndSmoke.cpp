@@ -1,6 +1,7 @@
 #include "MainWnd.h"
 
 #include "ReaderSettings.h"
+#include "base/FileIo.h"
 #include "base/Log.h"
 #include "base/Text.h"
 
@@ -8,6 +9,7 @@
 #include <shellapi.h>
 
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <string_view>
 
@@ -91,6 +93,11 @@ void MainWnd::smoke_open_book()
 
 void MainWnd::smoke_step(int page)
 {
+    if (soak_.minutes != 0) {
+        if (soak_.last_page >= 0 && page != soak_.last_page)
+            ++soak_.pages;
+        soak_.last_page = page;
+    }
     if (smoke_open_.empty())
         return;
     if (smoke_tts_ || smoke_tts_run_) {
@@ -145,8 +152,11 @@ void MainWnd::soak_log()
     DWORD handles = 0;
     GetProcessHandleCount(GetCurrentProcess(), &handles);
     const auto t = std::chrono::duration_cast<std::chrono::minutes>(std::chrono::steady_clock::now() - soak_.t0).count();
-    log::info("soak: t={} books={} pages={} ws={} private={} handles={} gdi={}", t, soak_.books, soak_.pages,
-        pmc.WorkingSetSize / kBytesPerKb, pmc.PrivateUsage / kBytesPerKb, handles, GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS));
+    const std::string line = std::format("soak: t={} books={} pages={} ws={} private={} handles={} gdi={}\n", t, soak_.books,
+        soak_.pages, pmc.WorkingSetSize / kBytesPerKb, pmc.PrivateUsage / kBytesPerKb, handles,
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS));
+    if (!append_file(paths_.logs / L"soak.log", line))
+        log::error("soak: cannot append to soak.log");
 }
 
 void MainWnd::soak_tick()
@@ -172,12 +182,12 @@ void MainWnd::soak_tick()
     if (!in_reader_) {
         open_book(soak_.ids[soak_.next++ % soak_.ids.size()]);
         soak_.book_pages = 0;
+        soak_.last_page = -1;
         soak_.tray_visit = false;
         soak_.books += in_reader_ ? 1 : 0;
     } else if (soak_.book_pages < kSoakPagesPerBook) {
         PostMessageW(reader_.hwnd(), WM_KEYDOWN, VK_RIGHT, 0);
         ++soak_.book_pages;
-        ++soak_.pages;
     } else if (soak_.books % kSoakTrayEvery == 0 && !soak_.tray_visit) {
         soak_.tray_visit = true;
         send_to_tray();

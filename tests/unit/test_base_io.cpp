@@ -241,3 +241,12 @@ TEST_CASE("write_new creates a file and refuses to touch an existing one")
     CHECK(eb::write_file(f, "again"));
     CHECK(eb::read_all(f, 100).value() == "again");
 }
+
+TEST_CASE("append_file creates the file and appends")
+{
+    const ebtest::TempDir t;
+    const fs::path f = t.path() / L"a.log";
+    CHECK(eb::append_file(f, "one\n"));
+    CHECK(eb::append_file(f, "two\n"));
+    CHECK(eb::read_all(f, 100).value() == "one\ntwo\n");
+}

@@ -207,7 +207,7 @@ private:
         std::chrono::steady_clock::time_point t0, deadline;
         std::size_t next = 0;
         long long minutes = 0, logged = -1, books = 0, pages = 0;
-        int book_pages = 0;
+        int book_pages = 0, last_page = -1;
         bool tray_visit = false;
         int tray_ticks = 0;
     } soak_;

@@ -94,9 +94,9 @@ Result<Buf> read_sized(const std::filesystem::path& p, size_t max)
     }
 }
 
-bool write_to(const std::filesystem::path& p, DWORD disposition, DWORD flags, std::string_view data) noexcept
+bool write_to(const std::filesystem::path& p, DWORD access, DWORD disposition, DWORD flags, std::string_view data) noexcept
 {
-    const UniqueHandle h(CreateFileW(p.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+    const UniqueHandle h(CreateFileW(p.c_str(), access,FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
         disposition, FILE_ATTRIBUTE_NORMAL | flags, nullptr));
     if (!h)
         return false;
@@ -124,12 +124,17 @@ Result<std::vector<std::byte>> read_all_bytes(const std::filesystem::path& p, si
 
 bool write_file(const std::filesystem::path& p, std::string_view data) noexcept
 {
-    return write_to(p, CREATE_ALWAYS, 0, data);
+    return write_to(p, GENERIC_WRITE, CREATE_ALWAYS, 0, data);
+}
+
+bool append_file(const std::filesystem::path& p, std::string_view data) noexcept
+{
+    return write_to(p, FILE_APPEND_DATA, OPEN_ALWAYS, 0, data);
 }
 
 bool write_new(const std::filesystem::path& p, std::string_view data) noexcept
 {
-    return write_to(p, CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT, data);
+    return write_to(p, GENERIC_WRITE, CREATE_NEW,FILE_FLAG_OPEN_REPARSE_POINT, data);
 }
 
 }

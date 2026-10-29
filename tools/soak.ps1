@@ -23,8 +23,9 @@ $null = $p.Handle
 if (-not $p.WaitForExit(($Minutes + 5) * 60000)) { Write-Output 'SOAK FAIL timeout (process left running)'; exit 1 }
 $code = $p.ExitCode
 $asan = (Test-Path $err) -and (Select-String -Path $err -Pattern 'AddressSanitizer' -Quiet)
-$logs = @("$dir/data/logs/app.1.log", "$dir/data/logs/app.log") | Where-Object { Test-Path $_ } # Log rotates at 1 MiB
-$rows = @(Get-Content $logs | ForEach-Object {
+$soaklog = "$dir/data/logs/soak.log"
+$lines = if (Test-Path $soaklog) { Get-Content $soaklog } else { @() }
+$rows = @($lines | ForEach-Object {
     if ($_ -match 'soak: t=(\d+) books=(\d+) pages=(\d+) ws=(\d+) private=(\d+) handles=(\d+) gdi=(\d+)') {
         [pscustomobject]@{ t = [int]$Matches[1]; books = [int]$Matches[2]; pages = [int]$Matches[3]; ws = [long]$Matches[4]
             priv = [long]$Matches[5]; handles = [long]$Matches[6]; gdi = [long]$Matches[7] }

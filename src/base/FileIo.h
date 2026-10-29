@@ -36,6 +36,9 @@ private:
 // Create or truncate, then write; true when every byte was written.
 [[nodiscard]] bool write_file(const std::filesystem::path& p, std::string_view data) noexcept;
 
+// Create if missing, then append; true when every byte was written.
+[[nodiscard]] bool append_file(const std::filesystem::path& p, std::string_view data) noexcept;
+
 // Create a new file (never follows or overwrites an existing entry, reparse points included); false if it exists.
 [[nodiscard]] bool write_new(const std::filesystem::path& p, std::string_view data) noexcept;
 
