@@ -76,7 +76,7 @@ LPARAM failed(uint32_t code) { return eb::pack_tts(TtsEvent::Error, code); }
 struct Rig {
     FakeHost host;
     FakeEngine winrt, piper, azure;
-    eb::TtsController ctl{host, {&winrt, nullptr, &azure}};
+    eb::TtsController ctl{host, {&winrt, nullptr, &azure}, false};
 };
 
 }
@@ -465,4 +465,39 @@ TEST_CASE("tts prefs: round trip, clamping and unknown values")
     CHECK(eb::clamp_tts_rate(9.0) == eb::kMaxTtsRate);
     CHECK(eb::clamp_tts_rate(0.0) == eb::kMinTtsRate);
     CHECK(eb::clamp_tts_rate(std::nan("")) == 1.0);
+}
+
+TEST_CASE("audio keep-alive: start, pause and stop are idempotent")
+{
+    eb::AudioKeepAlive k(false);
+    static_assert(noexcept(k.start()) && noexcept(k.pause()) && noexcept(k.stop()));
+    CHECK_FALSE(k.wanted());
+    k.start();
+    k.start();
+    CHECK(k.wanted());
+    k.pause();
+    k.pause();
+    CHECK_FALSE(k.wanted());
+    k.start();
+    CHECK(k.wanted());
+    k.stop();
+    k.stop();
+    CHECK_FALSE(k.wanted());
+}
+
+TEST_CASE("tts controller: keep-alive runs only while reading")
+{
+    Rig r;
+    CHECK_FALSE(r.ctl.keep_alive_wanted());
+    r.ctl.start(0, -1);
+    CHECK(r.ctl.keep_alive_wanted());
+    r.ctl.on_text(0, "First one. Second one.");
+    r.ctl.toggle();
+    REQUIRE(r.ctl.state() == TtsState::Paused);
+    CHECK_FALSE(r.ctl.keep_alive_wanted());
+    r.ctl.toggle();
+    REQUIRE(r.ctl.state() == TtsState::Playing);
+    CHECK(r.ctl.keep_alive_wanted());
+    r.ctl.stop();
+    CHECK_FALSE(r.ctl.keep_alive_wanted());
 }

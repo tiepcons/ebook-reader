@@ -3,6 +3,7 @@
 #include "TtsPrefs.h"
 #include "tts/Segmenter.h"
 #include "tts/TtsEngine.h"
+#include "tts/winrt/WinRtPlayer.h"
 
 #include <array>
 #include <cstdint>
@@ -44,7 +45,11 @@ class TtsController {
 public:
     using Engines = std::array<TtsEngine*, kTtsKinds>;
 
-    TtsController(TtsHost& host, Engines engines) noexcept : host_(host), engines_(engines) {}
+    // audible_keep_alive=false skips the real silent-audio stream (unit tests).
+    TtsController(TtsHost& host, Engines engines, bool audible_keep_alive = true) noexcept
+        : host_(host), engines_(engines), keep_alive_(audible_keep_alive)
+    {
+    }
     TtsController(const TtsController&) = delete;
     TtsController& operator=(const TtsController&) = delete;
 
@@ -57,6 +62,7 @@ public:
         return engines_[kind_index(k)] != nullptr && engines_[kind_index(k)]->ready();
     }
     [[nodiscard]] TtsKind active() const noexcept { return active_; }
+    [[nodiscard]] bool keep_alive_wanted() const noexcept { return keep_alive_.wanted(); }
     std::vector<Voice> voices(TtsKind k);
 
     void start(int32_t page, int64_t char_offset);
@@ -113,6 +119,7 @@ private:
     int empty_run_ = 0;
     bool fell_back_ = false, pending_advance_ = false, restart_ = false;
     std::optional<TtsKind> previewing_;
+    AudioKeepAlive keep_alive_;
 };
 
 }

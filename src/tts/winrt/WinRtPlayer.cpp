@@ -12,9 +12,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 #include <set>
+#include <utility>
+#include <vector>
 
 namespace eb {
 
@@ -124,17 +128,227 @@ void hook_player(const MediaPlayer& mp, const MediaPlaybackItem& item, const std
 
 }
 
+// Playback starts only once the stream is open: starting while it is still opening lets the endpoint swallow the
+// first words.
+struct Gate {
+    std::mutex m;
+    bool opened = false, want_play = false;
+    double rate = 1.0;
+};
+
 struct WinRtPlayer::Impl {
     std::mutex m;
     MediaPlayer mp;
     MediaPlaybackItem item{nullptr};
+    std::shared_ptr<Gate> gate = std::make_shared<Gate>();
 
     explicit Impl(const MediaSource& src) : item(src)
     {
         mp.AutoPlay(false);
+        mp.MediaOpened([g = gate](const MediaPlayer& sender, auto&&) {
+            try {
+                bool go = false;
+                double rate = 1.0;
+                {
+                    const std::scoped_lock lk(g->m);
+                    g->opened = true;
+                    go = std::exchange(g->want_play, false);
+                    rate = g->rate;
+                }
+                if (!go)
+                    return;
+                if (std::abs(rate - 1.0) > 1e-3)
+                    sender.PlaybackSession().PlaybackRate(rate);
+                sender.Play();
+            } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
+            }
+        });
         mp.Source(item);
     }
+
+    void play_when_open(double rate)
+    {
+        const std::scoped_lock lk(gate->m);
+        gate->rate = rate;
+        if (gate->opened)
+            mp.Play();
+        else
+            gate->want_play = true;
+    }
+
+    // A pause or close before the stream opened must cancel the pending start.
+    void cancel_pending(bool closing)
+    {
+        const std::scoped_lock lk(gate->m);
+        gate->want_play = false;
+        if (closing)
+            gate->opened = false;
+    }
 };
+
+
+struct KeepState {
+    enum Mode : uint8_t { Play, Pause, Done };
+
+    void set(Mode next)
+    {
+        {
+            const std::scoped_lock lk(m);
+            if (mode != Done)
+                mode = next;
+        }
+        cv.notify_all();
+    }
+    [[nodiscard]] bool mode_is(Mode x)
+    {
+        const std::scoped_lock lk(m);
+        return mode == x;
+    }
+    // Blocks until the mode differs from applied (or is Done) and returns it.
+    Mode wait_change(Mode applied)
+    {
+        std::unique_lock lk(m);
+        cv.wait(lk, [&] { return mode != applied || mode == Done; });
+        return mode;
+    }
+
+    std::mutex m;
+    std::condition_variable cv;
+    Mode mode = Play;
+};
+
+namespace {
+
+constexpr uint32_t kKeepRate = 48000;
+
+std::atomic<int> g_workers{0};
+
+void put32(std::vector<uint8_t>& v, uint32_t x)
+{
+    for (int i = 0; i < 4; ++i)
+        v.push_back(static_cast<uint8_t>(x >> (8 * i)));
+}
+
+void put16(std::vector<uint8_t>& v, uint16_t x)
+{
+    v.push_back(static_cast<uint8_t>(x));
+    v.push_back(static_cast<uint8_t>(x >> 8));
+}
+
+void put_tag(std::vector<uint8_t>& v, const char* tag)
+{
+    v.insert(v.end(), tag, tag + 4);
+}
+
+// One second of 16-bit mono PCM silence.
+std::vector<uint8_t> silence_wav()
+{
+    const uint32_t data = kKeepRate * 2;
+    std::vector<uint8_t> v;
+    v.reserve(44 + data);
+    put_tag(v, "RIFF");
+    put32(v, 36 + data);
+    put_tag(v, "WAVE");
+    put_tag(v, "fmt ");
+    put32(v, 16);
+    put16(v, 1);
+    put16(v, 1);
+    put32(v, kKeepRate);
+    put32(v, kKeepRate * 2);
+    put16(v, 2);
+    put16(v, 16);
+    put_tag(v, "data");
+    put32(v, data);
+    v.resize(44 + data, 0);
+    return v;
+}
+
+}
+
+AudioKeepAlive::AudioKeepAlive(bool audible) noexcept : audible_(audible) {}
+
+AudioKeepAlive::~AudioKeepAlive()
+{
+    stop();
+    for (int i = 0; i < 100 && g_workers.load() > 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+}
+
+// Runs on its own MTA thread: the setup awaits WinRT operations, which would block (and assert) on the UI thread.
+// It follows the requested mode until Done and checks it between setup steps so teardown stays quick.
+void AudioKeepAlive::run(const std::shared_ptr<KeepState>& s) noexcept
+{
+    try {
+        const WinRtApartment apartment;
+        if (!apartment.ok() || s->mode_is(KeepState::Done))
+            return;
+        const auto wav = silence_wav();
+        const InMemoryRandomAccessStream stream;
+        const DataWriter writer(stream);
+        writer.WriteBytes(wav);
+        writer.StoreAsync().get();
+        writer.DetachStream();
+        stream.Seek(0);
+        if (s->mode_is(KeepState::Done))
+            return;
+        const MediaPlayer mp;
+        mp.AutoPlay(false);
+        mp.IsLoopingEnabled(true);
+        mp.Volume(1.0);
+        mp.Source(MediaSource::CreateFromStream(stream, L"audio/wav"));
+        KeepState::Mode applied = KeepState::Done;
+        for (;;) {
+            const auto m = s->wait_change(applied);
+            if (m == KeepState::Done)
+                break;
+            applied = m;
+            if (m == KeepState::Play)
+                mp.Play();
+            else
+                mp.Pause();
+        }
+        mp.Pause();
+        mp.Close();
+    } catch (...) { // NOLINT(bugprone-empty-catch): no keep-alive is acceptable
+    }
+}
+
+void AudioKeepAlive::start() noexcept
+{
+    wanted_ = true;
+    if (!audible_)
+        return;
+    if (st_) {
+        st_->set(KeepState::Play);
+        return;
+    }
+    try {
+        st_ = std::make_shared<KeepState>();
+        ++g_workers;
+        std::thread([s = st_] {
+            run(s);
+            --g_workers;
+        }).detach();
+    } catch (...) {
+        --g_workers;
+        st_.reset();
+    }
+}
+
+void AudioKeepAlive::pause() noexcept
+{
+    wanted_ = false;
+    if (st_)
+        st_->set(KeepState::Pause);
+}
+
+void AudioKeepAlive::stop() noexcept
+{
+    wanted_ = false;
+    if (st_)
+        st_->set(KeepState::Done);
+    st_.reset();
+}
 
 WinRtApartment::WinRtApartment() noexcept
 {
@@ -201,7 +415,7 @@ bool WinRtPlayer::play(double volume, OnEvent on_event, double rate) noexcept
         if (std::abs(rate - 1.0) > 1e-3)
             impl_->mp.PlaybackSession().PlaybackRate(std::clamp(rate, 0.5, 3.0));
         hook_player(impl_->mp, impl_->item, h);
-        impl_->mp.Play();
+        impl_->play_when_open(std::clamp(rate, 0.5, 3.0));
         return true;
     } catch (...) {
         return false;
@@ -214,6 +428,7 @@ void WinRtPlayer::pause() noexcept
         return;
     const std::scoped_lock lk(impl_->m);
     try {
+        impl_->cancel_pending(false);
         if (impl_->mp)
             impl_->mp.Pause();
     } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
@@ -227,7 +442,7 @@ void WinRtPlayer::resume() noexcept
     const std::scoped_lock lk(impl_->m);
     try {
         if (impl_->mp)
-            impl_->mp.Play();
+            impl_->play_when_open(impl_->gate->rate);
     } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
     }
 }
@@ -238,6 +453,7 @@ void WinRtPlayer::close() noexcept
         return;
     const std::scoped_lock lk(impl_->m);
     try {
+        impl_->cancel_pending(true);
         if (impl_->mp) {
             impl_->mp.Pause();
             impl_->mp.Close();

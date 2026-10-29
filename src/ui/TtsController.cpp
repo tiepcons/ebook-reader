@@ -96,6 +96,7 @@ void TtsController::start(int32_t page, int64_t char_offset)
     empty_run_ = 0;
     fell_back_ = false;
     wait_page_ = next_requested_ = page;
+    keep_alive_.start();
     set_state(TtsState::Playing);
     host_.request_text(page);
 }
@@ -105,6 +106,7 @@ void TtsController::toggle()
     if (state_ == TtsState::Idle) {
         start(host_.shown_page(), host_.resume_offset());
     } else if (state_ == TtsState::Paused) {
+        keep_alive_.start();
         engine()->resume();
         set_state(TtsState::Playing);
         if (std::exchange(pending_advance_, false))
@@ -113,6 +115,7 @@ void TtsController::toggle()
         stop();
     } else {
         engine()->pause();
+        keep_alive_.pause();
         set_state(TtsState::Paused);
     }
 }
@@ -120,6 +123,7 @@ void TtsController::toggle()
 void TtsController::stop()
 {
     restart_ = pending_advance_ = false;
+    keep_alive_.stop();
     if (state_ == TtsState::Idle)
         return;
     if (engine() != nullptr)

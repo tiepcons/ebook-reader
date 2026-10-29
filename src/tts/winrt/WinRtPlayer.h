@@ -50,4 +50,30 @@ private:
     std::shared_ptr<Impl> impl_;
 };
 
+struct KeepState;
+
+// Loops an inaudible silent clip so the audio endpoint stays awake between utterances; otherwise it swallows the
+// first words of each one. A running stream blocks system idle sleep, so pause() it whenever reading is paused and
+// stop() it when done. One detached MTA worker serves a whole session and the calls never block the caller. No audio
+// device or any WinRT failure just means no keep-alive. audible=false only tracks the state (tests). Single thread.
+class AudioKeepAlive {
+public:
+    explicit AudioKeepAlive(bool audible = true) noexcept;
+    ~AudioKeepAlive();
+    AudioKeepAlive(const AudioKeepAlive&) = delete;
+    AudioKeepAlive& operator=(const AudioKeepAlive&) = delete;
+    // Begins the session, or resumes it after pause().
+    void start() noexcept;
+    void pause() noexcept;
+    void stop() noexcept;
+    // True while started and not paused, whether or not the stream could be opened.
+    [[nodiscard]] bool wanted() const noexcept { return wanted_; }
+
+private:
+    static void run(const std::shared_ptr<KeepState>& s) noexcept;
+    std::shared_ptr<KeepState> st_;
+    bool audible_;
+    bool wanted_ = false;
+};
+
 }
