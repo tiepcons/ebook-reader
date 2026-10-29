@@ -83,7 +83,8 @@ audio.cpp (audiocpp_cli.exe)    0.9.3      Apache-2.0    https://github.com/0xSh
   (audio.cpp's own license text: LICENSE-audio.cpp-Apache-2.0.txt; its external\ folder holds all vendored code. cpp-httplib
    is only used by audiocpp_server.exe, which is not shipped.)
 sea-g2p (sea_g2p_rs.dll)        0.10.0     Apache-2.0    https://github.com/pnnbao97/sea-g2p/tree/v0.10.0
-  Rust crates it is built from (Cargo.lock at that tag) and their licenses: rust-crates-sea-g2p.txt
+  Rust crates it is built from (Cargo.lock at that tag) and their licenses: rust-crates-sea-g2p.txt;
+  licence texts and copyright lines of the crates linked into the DLL: LICENSES-sea-g2p-crates.txt
 Microsoft Visual C++ runtime    app-local  Microsoft     MSVCP140.dll, VCRUNTIME140.dll, VCOMP140.dll and the other
   (libs\vieneu)                                          VC++ runtime DLLs imported by the pack, redistributed unmodified
                                                          under the Microsoft Visual Studio redistribution terms.
@@ -114,6 +115,7 @@ function Build-VieNeuPack {
     Add-VcRuntime $lib
     foreach ($k in $p.Licenses.Keys | Sort-Object) { Copy-Item (Get-PinnedUrl $p.Licenses[$k][0] $p.Licenses[$k][1]) "$lic/$k" }
     Copy-Item "$PSScriptRoot/vieneu_rust_crates.txt" "$lic/rust-crates-sea-g2p.txt"
+    Copy-Item "$PSScriptRoot/../licenses/LICENSES-sea-g2p-crates.txt" "$lic/LICENSES-sea-g2p-crates.txt"
     Write-VieNeuNotices "$lic/THIRD-PARTY-NOTICES-vieneu-pack.txt"
     Write-VieNeuReadme "$pk/README-VieNeu.txt"
     $zip = Join-Path $dist "$name-vieneu-pack.zip"
