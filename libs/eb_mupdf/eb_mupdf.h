@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-#define EB_ABI_VERSION 3 /* v2: font directories, render_opts bg for reflow; v3: eb_page_links */
+#define EB_ABI_VERSION 4 /* v2: font directories, render_opts bg for reflow; v3: eb_page_links; v4: layout cache */
 
 typedef enum eb_status {
     EB_OK = 0,
@@ -112,6 +112,15 @@ EB_API void eb_font_families_free(char** names, int32_t count);
 EB_API eb_status eb_open(const wchar_t* path, eb_doc** out);
 EB_API eb_status eb_open_memory(const void* data, size_t size, const char* magic, eb_doc** out); /* copies data */
 EB_API void eb_close(eb_doc* doc);
+/* Layout cache (v4) for reflowable books split into chapters (EPUB, and MOBI/AZW3/KF8 converted to EPUB): the file
+ * holds the page count of every chapter for one layout (size, em, user_css), so eb_layout with the same values skips
+ * laying out the whole book and only the chapters actually rendered are laid out.
+ * The cache is bound to the book's file size and last-write time. A missing, stale, foreign or damaged cache (or one
+ * larger than 1 MiB) is ignored: the open never fails because of it. cache_path NULL = eb_open. */
+EB_API eb_status eb_open_cached(const wchar_t* path, const wchar_t* cache_path, eb_doc** out);
+/* Writes the cache for the current layout, atomically (temp file + rename). Call after eb_layout succeeded.
+ * Docs without chapter caching (PDF, CBZ, FB2, TXT, HTML, eb_open_memory) return EB_E_FORMAT and write nothing. */
+EB_API eb_status eb_save_cache(eb_doc* doc, const wchar_t* cache_path);
 /* Thread-safe. Makes the doc's current or next render/text call return EB_E_ABORTED; reset on the next call. */
 EB_API void eb_abort(eb_doc* doc);
 EB_API int32_t eb_is_reflowable(eb_doc* doc);
