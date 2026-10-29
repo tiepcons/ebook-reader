@@ -15,7 +15,7 @@ inline constexpr const char* kAzureRegionKey = "tts.azure.region";
 
 // The engines this machine can use. WinRT is always tried; Piper needs libs\piper\piper.exe and at least one voice;
 // Azure needs a key in the Credential Manager and a region;
-// VieNeu needs libsieneu, dataieneu (model, sea_g2p.bin) and at least one voice preset.
+// VieNeu needs libs\vieneu, data\vieneu (model, sea_g2p.bin, voices) and shows up once their SHA-256 matched.
 struct TtsEngines {
     std::unique_ptr<WinRtTts> winrt;
     std::unique_ptr<PiperTts> piper;

@@ -2,6 +2,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 
@@ -269,4 +270,19 @@ TEST_CASE("vieneu presets: an unreadable or hostile manifest only costs the disp
     list = discover_presets(v);
     REQUIRE(list.size() == 1);
     CHECK(list[0].name == L"a");
+}
+
+TEST_CASE("vieneu batch file: hostile text cannot shift the line numbers audiocpp_cli uses as request ids")
+{
+    // audiocpp_cli v0.9.3 --batch-text-file: one request per non-empty line, id line_<file line number>, only CR trimmed.
+    const std::vector<std::string> texts = {"a\r\n\r\nb", "#comment\n// x", "\xE2\x80\xA8\xE2\x80\xA9" "tail", "line\x0B" "feed\x0C" "x"};
+    std::vector<std::string> lines;
+    for (const std::string& t : texts) {
+        const std::string l = batch_line(t);
+        REQUIRE_FALSE(l.empty());
+        CHECK(l.find_first_of("\r\n\x0B\x0C") == std::string::npos);
+        lines.push_back(l);
+    }
+    const std::string file = batch_file(lines);
+    CHECK(static_cast<size_t>(std::count(file.begin(), file.end(), '\n')) == texts.size());
 }

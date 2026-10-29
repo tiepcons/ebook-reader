@@ -46,6 +46,11 @@ POWERSHELL (run in the folder that holds EbookReader.exe; downloads everything)
     foreach ($f in 'speaker.emb.txt', 'ref_codes.txt') { Invoke-WebRequest "@@VOICE_BASE@@/$id/$f" -OutFile "$d\voices\$id\$f" }
   }
   Get-FileHash "$d\vieneu-v3-turbo-q8_0.gguf", "$d\sea_g2p.bin" | Format-List Hash, Path
+  Get-ChildItem "$d\voices" -Recurse -File | Get-FileHash | ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), $_.Path }
+
+Compare these hashes with the lists above. Ebook Reader checks the same SHA-256 values itself (they are built into the app):
+a model, dictionary or voice file that differs is ignored, and the "VieNeu" engine only appears when the model, the
+dictionary and at least one voice match. Only the model file named above is accepted; other VieNeu models (q4, bf16) are not.
 
 Licenses: licenses\vieneu-pack\ (audio.cpp, ggml and the other components of the runtime, sea-g2p). Model: VieNeu-TTS v3 Turbo,
 Apache-2.0, https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo . Source of Ebook Reader: https://github.com/tiepcons/ebook-reader
@@ -74,8 +79,11 @@ audio.cpp (audiocpp_cli.exe)    0.9.3      Apache-2.0    https://github.com/0xSh
   cJSON, libyaml                           MIT           LICENSE-cJSON-MIT.txt, LICENSE-libyaml-MIT.txt
   sentencepiece                            Apache-2.0    LICENSE-sentencepiece-Apache-2.0.txt
   utf8proc                                 MIT / Unicode LICENSE-utf8proc.txt
-  (audio.cpp's own license text: LICENSE-audio.cpp-Apache-2.0.txt; its external\ folder lists the vendored code)
+  llama_tokenizer (vendored tokenizer code derived from llama.cpp)  MIT  same text as LICENSE-ggml-MIT.txt (The ggml authors)
+  (audio.cpp's own license text: LICENSE-audio.cpp-Apache-2.0.txt; its external\ folder holds all vendored code. cpp-httplib
+   is only used by audiocpp_server.exe, which is not shipped.)
 sea-g2p (sea_g2p_rs.dll)        0.10.0     Apache-2.0    https://github.com/pnnbao97/sea-g2p/tree/v0.10.0
+  Rust crates it is built from (Cargo.lock at that tag) and their licenses: rust-crates-sea-g2p.txt
 Microsoft Visual C++ runtime    app-local  Microsoft     MSVCP140.dll, VCRUNTIME140.dll, VCOMP140.dll and the other
   (libs\vieneu)                                          VC++ runtime DLLs imported by the pack, redistributed unmodified
                                                          under the Microsoft Visual Studio redistribution terms.
@@ -105,6 +113,7 @@ function Build-VieNeuPack {
     Copy-Item (Get-PinnedUrl $p.SeaG2pDll.Url $p.SeaG2pDll.Sha256) "$lib/sea_g2p_rs.dll"
     Add-VcRuntime $lib
     foreach ($k in $p.Licenses.Keys | Sort-Object) { Copy-Item (Get-PinnedUrl $p.Licenses[$k][0] $p.Licenses[$k][1]) "$lic/$k" }
+    Copy-Item "$PSScriptRoot/vieneu_rust_crates.txt" "$lic/rust-crates-sea-g2p.txt"
     Write-VieNeuNotices "$lic/THIRD-PARTY-NOTICES-vieneu-pack.txt"
     Write-VieNeuReadme "$pk/README-VieNeu.txt"
     $zip = Join-Path $dist "$name-vieneu-pack.zip"

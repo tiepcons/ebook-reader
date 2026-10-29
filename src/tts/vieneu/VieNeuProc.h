@@ -28,6 +28,15 @@ inline fs::path voices_dir(const piper::Cfg& c)
     return c.voices / L"voices";
 }
 
+// Folder for the stitched WAVs the player reads: next to `temp`, writable by the engine only (the child runs at Low
+// integrity and cannot create or replace files there).
+inline fs::path play_dir(const piper::Cfg& c)
+{
+    return c.temp.parent_path() / (c.temp.filename().wstring() + L"-play");
+}
+// Creates play_dir (refusing reparse points on its path) and sweeps leftovers of an earlier run.
+bool prepare_play_dir(const fs::path& dir) noexcept;
+
 // Worker threads for the child: half the cores, 1 to 4.
 unsigned child_threads() noexcept;
 

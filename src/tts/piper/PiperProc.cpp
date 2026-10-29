@@ -2,6 +2,7 @@
 
 #include "base/PathSafety.h"
 #include "tts/piper/PiperTts.h"
+#include "tts/proc/ProcShared.h"
 
 #include <aclapi.h>
 #include <sddl.h>
@@ -219,7 +220,7 @@ void remove_stale(const fs::path& dir)
         if (name.ends_with(L".wav"))
             fs::remove(it->path(), rec);
         else if (!is_reparse(it->path()) && it->is_directory(rec))
-            fs::remove_all(it->path(), rec);
+            proc::remove_tree(it->path());
     }
 }
 

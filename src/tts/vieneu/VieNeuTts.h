@@ -1,5 +1,6 @@
 #pragma once
 #include "tts/TtsEngine.h"
+#include "tts/vieneu/VieNeuVerify.h"
 
 #include <filesystem>
 #include <memory>
@@ -10,11 +11,14 @@ namespace eb {
 // process per batch of upcoming sentences (the ~0.5 s model load is paid once per batch). No server, no network.
 // Needs libs_dir = libs\vieneu (audiocpp_cli.exe, sea_g2p_rs.dll, runtime DLLs) and data_dir = data\vieneu (the
 // vieneu*.gguf model, sea_g2p.bin and voices\<preset>\{speaker.emb.txt,ref_codes.txt}); voices() is empty when anything
-// is missing or implausible. Each preset is offered for both Vietnamese and English.
+// is missing, implausible or does not match its pinned hash. Each preset is offered for both Vietnamese and English.
 class VieNeuTts final : public TtsEngine {
 public:
     VieNeuTts(const std::filesystem::path& libs_dir, const std::filesystem::path& data_dir,
         const std::filesystem::path& temp_dir);
+    // Same, with explicit pins instead of the built-in ones (tests).
+    VieNeuTts(const std::filesystem::path& libs_dir, const std::filesystem::path& data_dir,
+        const std::filesystem::path& temp_dir, const vieneu::Pins& pins);
     ~VieNeuTts() override;
     VieNeuTts(const VieNeuTts&) = delete;
     VieNeuTts& operator=(const VieNeuTts&) = delete;
@@ -28,6 +32,8 @@ public:
     void stop() noexcept override;
     void set_sink(HWND hwnd, UINT msg) noexcept override;
     [[nodiscard]] size_t lookahead() const noexcept override;
+    // True once the model, dictionary and at least one voice matched their pinned SHA-256 (checked in the background).
+    [[nodiscard]] bool ready() const noexcept override;
 
 private:
     struct Impl;

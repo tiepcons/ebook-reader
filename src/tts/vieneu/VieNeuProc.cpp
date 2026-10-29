@@ -1,6 +1,8 @@
 #include "tts/vieneu/VieNeuProc.h"
 
+#include "base/PathSafety.h"
 #include "tts/piper/PiperTts.h"
+#include "tts/proc/ProcShared.h"
 
 #include <algorithm>
 #include <fstream>
@@ -84,6 +86,21 @@ std::optional<Assets> find_assets(const piper::Cfg& c)
         return a;
     } catch (...) {
         return std::nullopt;
+    }
+}
+
+bool prepare_play_dir(const fs::path& dir) noexcept
+{
+    try {
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        if (!is_plain_dir_chain(dir))
+            return false;
+        for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+            proc::remove_tree(it->path());
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 

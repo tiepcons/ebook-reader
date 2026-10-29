@@ -38,6 +38,8 @@ std::vector<std::string> lines_of(std::string_view text)
 std::optional<std::string> read_all(const fs::path& p)
 {
     std::error_code ec;
+    if (piper::is_reparse(p) || !fs::is_regular_file(p, ec))
+        return std::nullopt;
     const auto size = fs::file_size(p, ec);
     if (ec || size > kMaxWavBytes)
         return std::nullopt;
@@ -98,24 +100,26 @@ std::chrono::seconds batch_limit(const std::vector<std::string>& lines)
     return std::min(kBaseLimit + std::chrono::seconds(bytes / 100), kMaxLimit);
 }
 
-bool start_proc(Engine& e, Batch& b, const Preset& voice, const std::vector<std::string>& lines)
+bool start_proc(Engine& e, Batch& b, const Verified& v, const Preset& voice, const std::vector<std::string>& lines)
 {
     std::error_code ec;
     const fs::path txt = b.dir / L"in.txt";
     if (!fs::create_directory(b.dir, ec) || !write_all(txt, batch_file(lines)))
         return false;
-    const auto assets = find_assets(e.cfg);
-    if (!assets)
-        return false;
     b.proc = std::make_unique<piper::Proc>();
-    return b.proc->start(e.job.get(), e.cfg, command_line(e.cfg, *assets, voice, txt, b.dir, child_threads()));
+    return b.proc->start(e.job.get(), e.cfg, command_line(e.cfg, v.assets, voice, txt, b.dir, child_threads()));
 }
 
 void start_batch(Engine& e, const std::vector<uint32_t>& ids)
 {
     const std::wstring voice_id = e.items.at(ids[0]).key.voice;
-    const auto voice = find_preset(voices_dir(e.cfg), voice_id);
-    if (!voice) {
+    const auto v = e.verdict->get();
+    if (!v) {
+        fail_items(e, ids, kTtsSynthFailed);
+        return;
+    }
+    const auto voice = std::ranges::find(v->presets, voice_id, &Preset::id);
+    if (voice == v->presets.end()) {
         fail_items(e, ids, kTtsBadVoice);
         return;
     }
@@ -131,10 +135,9 @@ void start_batch(Engine& e, const std::vector<uint32_t>& ids)
     }
     b.dir = e.cfg.temp / (L"eb-b" + std::to_wstring(++e.serial));
     b.deadline = Clock::now() + batch_limit(lines);
-    if (!start_proc(e, b, *voice, lines)) {
+    if (!start_proc(e, b, *v, *voice, lines)) {
         b.proc.reset();
-        std::error_code ec;
-        fs::remove_all(b.dir, ec);
+        proc::remove_tree(b.dir);
         fail_items(e, ids, kTtsSynthFailed);
         return;
     }
@@ -144,40 +147,6 @@ void start_batch(Engine& e, const std::vector<uint32_t>& ids)
 void fail_item(Engine& e, uint32_t id)
 {
     fail_items(e, {id}, kTtsSynthFailed);
-}
-
-void finalize_item(Engine& e, uint32_t id)
-{
-    Item& it = e.items.at(id);
-    std::vector<std::string> data;
-    data.reserve(it.raw.size());
-    for (const fs::path& p : it.raw) {
-        auto bytes = read_all(p);
-        if (!bytes) {
-            fail_item(e, id);
-            return;
-        }
-        data.push_back(std::move(*bytes));
-    }
-    std::vector<WavPart> parts;
-    parts.reserve(data.size());
-    for (size_t i = 0; i < data.size(); ++i)
-        parts.push_back({data[i], i == 0 ? (it.lead ? kLeadSilenceMs : 0) : kHeadingPauseMs});
-    const auto joined = join_wavs(parts);
-    const fs::path wav = e.cfg.temp / (L"eb-" + std::to_wstring(++e.serial) + L".wav");
-    if (!joined || !write_all(wav, *joined)) {
-        e.trash.discard(wav);
-        fail_item(e, id);
-        return;
-    }
-    for (const fs::path& p : it.raw)
-        e.trash.discard(p);
-    it.raw.assign(it.raw.size(), fs::path{});
-    it.wav = wav;
-    it.ready = true;
-    it.queued = false;
-    e.sh->note(it.key.voice, true);
-    try_play(e);
 }
 
 std::optional<size_t> piece_of(const Batch& b, const fs::path& path)
@@ -227,13 +196,48 @@ void end_batch(Engine& e)
     }
     const fs::path dir = e.batch->dir;
     e.batch.reset();
-    std::error_code ec;
-    fs::remove_all(dir, ec);
+    proc::remove_tree(dir);
     fail_items(e, std::vector<uint32_t>(unfinished.begin(), unfinished.end()), kTtsSynthFailed);
     e.trash.retry();
     schedule(e);
 }
 
+}
+
+void finalize_item(Engine& e, uint32_t id)
+{
+    Item& it = e.items.at(id);
+    std::vector<std::string> data;
+    data.reserve(it.raw.size());
+    for (const fs::path& p : it.raw) {
+        auto bytes = read_all(p);
+        if (!bytes) {
+            it.queued = false;
+            fail_item(e, id);
+            return;
+        }
+        data.push_back(std::move(*bytes));
+    }
+    std::vector<WavPart> parts;
+    parts.reserve(data.size());
+    for (size_t i = 0; i < data.size(); ++i)
+        parts.push_back({data[i], i == 0 ? (it.lead ? kLeadSilenceMs : 0) : kHeadingPauseMs});
+    const auto joined = join_wavs(parts);
+    const fs::path wav = play_dir(e.cfg) / (L"eb-" + std::to_wstring(++e.serial) + L".wav");
+    if (!joined || !write_all(wav, *joined)) {
+        e.trash.discard(wav);
+        it.queued = false;
+        fail_item(e, id);
+        return;
+    }
+    for (const fs::path& p : it.raw)
+        e.trash.discard(p);
+    it.raw.assign(it.raw.size(), fs::path{});
+    it.wav = wav;
+    it.ready = true;
+    it.queued = false;
+    e.sh->note(it.key.voice, true);
+    try_play(e);
 }
 
 bool add_item(Engine& e, const ReqPtr& req, bool lead)
@@ -248,7 +252,6 @@ bool add_item(Engine& e, const ReqPtr& req, bool lead)
     if (lines.empty())
         return false;
     Item& it = e.items[req->id];
-    it.req = req;
     it.key = key;
     it.lead = lead;
     it.raw.resize(lines.size());
@@ -261,10 +264,8 @@ void discard_item(Engine& e, uint32_t id)
     const auto it = e.items.find(id);
     if (it == e.items.end())
         return;
-    if (it->second.queued && e.batch) {
+    if (it->second.queued && e.batch)
         abort_batch(e);
-        return;
-    }
     for (const fs::path& p : it->second.raw)
         e.trash.discard(p);
     e.trash.discard(it->second.wav);
@@ -277,15 +278,15 @@ void abort_batch(Engine& e)
         return;
     const fs::path dir = e.batch->dir;
     e.batch.reset();
-    std::error_code ec;
-    fs::remove_all(dir, ec);
-    std::vector<uint32_t> dead;
-    for (const auto& [id, it] : e.items) {
-        if (it.queued && !it.ready)
-            dead.push_back(id);
+    proc::remove_tree(dir);
+    for (auto& [id, it] : e.items) {
+        if (!it.ready) {
+            it.got = 0;
+            it.raw.assign(it.raw.size(), fs::path{});
+        }
+        it.queued = false;
     }
-    for (const uint32_t id : dead)
-        e.items.erase(id);
+    schedule(e);
 }
 
 void schedule(Engine& e)

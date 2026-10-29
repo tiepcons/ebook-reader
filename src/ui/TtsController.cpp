@@ -8,6 +8,11 @@ namespace eb {
 namespace {
 
 constexpr std::size_t kMaxLookahead = 16;
+
+std::size_t lookahead_of(const TtsEngine* e) noexcept
+{
+    return std::clamp<std::size_t>(e->lookahead(), 1, kMaxLookahead);
+}
 constexpr std::string_view kSampleEn = "Hello, this is a sample of the reading voice.";
 constexpr std::string_view kSampleVi = "Xin chào, đây là giọng đọc thử của sách điện tử.";
 
@@ -153,7 +158,7 @@ void TtsController::on_text(int32_t page, std::string utf8)
         enter_page(std::move(p), std::exchange(start_offset_, -1));
     } else if (page_.number >= 0 && page == page_.number + 1) {
         next_ = std::move(p);
-        if (idx_ + engine()->lookahead() >= page_.sentences.size() && !next_.sentences.empty())
+        if (idx_ + lookahead_of(engine()) >= page_.sentences.size() && !next_.sentences.empty())
             prefetch();
     }
 }
@@ -250,7 +255,7 @@ void TtsController::prepare_sentence(const Page& p, std::size_t i, std::size_t a
 
 void TtsController::prefetch()
 {
-    const std::size_t ahead = std::clamp<std::size_t>(engine()->lookahead(), 1, kMaxLookahead);
+    const std::size_t ahead = lookahead_of(engine());
     const std::size_t here = page_.sentences.size();
     for (std::size_t n = 1; n <= ahead; ++n) {
         const std::size_t i = idx_ + n;

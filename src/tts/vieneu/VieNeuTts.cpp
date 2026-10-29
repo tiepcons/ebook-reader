@@ -12,9 +12,18 @@ namespace vieneu::engine {
 namespace {
 
 constexpr size_t kLookahead = 4;
-constexpr DWORD kMaxProcs = 2;
-// audiocpp_cli commits about 9 GB (mostly reserved ggml contexts; its working set stays near 800 MB).
-constexpr SIZE_T kJobMemory = size_t{16} * 1024 * 1024 * 1024;
+constexpr DWORD kMaxProcs = 1;
+
+// audiocpp_cli commits about 9 GB (reserved ggml contexts; no session option shrinks it, its working set stays near
+// 800 MB). The cap must clear that, but never exceeds half of the commit limit (RAM + page file) of the machine.
+SIZE_T job_memory_limit() noexcept
+{
+    constexpr ULONGLONG kCap = ULONGLONG{12} * 1024 * 1024 * 1024;
+    MEMORYSTATUSEX ms{};
+    ms.dwLength = sizeof ms;
+    const ULONGLONG half = GlobalMemoryStatusEx(&ms) != 0 ? ms.ullTotalPageFile / 2 : kCap;
+    return static_cast<SIZE_T>(std::min(kCap, half));
+}
 
 void drop_older(Engine& e, uint32_t id)
 {
@@ -115,9 +124,24 @@ using vieneu::engine::Shared;
 
 struct VieNeuTts::Impl {
     piper::Cfg cfg;
+    vieneu::Pins pins;
     std::shared_ptr<Shared> sh = std::make_shared<Shared>();
     std::shared_ptr<Queue> queue = std::make_shared<Queue>();
+    std::shared_ptr<vieneu::engine::Verdict> verdict = std::make_shared<vieneu::engine::Verdict>();
     std::thread th;
+    std::thread verify_th;
+
+    void verify() noexcept
+    {
+        try {
+            if (auto v = vieneu::verify_install(cfg, pins, vieneu::cache_file_of(cfg))) {
+                const std::scoped_lock lk(verdict->m);
+                verdict->v = std::make_shared<const vieneu::Verified>(std::move(*v));
+            }
+        } catch (...) { // NOLINT(bugprone-empty-catch): the engine just stays hidden
+        }
+        verdict->done = true;
+    }
 
     void run() noexcept
     {
@@ -139,8 +163,9 @@ struct VieNeuTts::Impl {
         e.cfg = cfg;
         e.sh = sh;
         e.queue = queue;
-        e.job = proc::make_job(vieneu::engine::kMaxProcs, vieneu::engine::kJobMemory);
-        if (e.job.valid() && piper::prepare_temp_dir(cfg.temp))
+        e.verdict = verdict;
+        e.job = proc::make_job(vieneu::engine::kMaxProcs, vieneu::engine::job_memory_limit());
+        if (e.job.valid() && piper::prepare_temp_dir(cfg.temp) && vieneu::prepare_play_dir(vieneu::play_dir(cfg)))
             loop(e);
         vieneu::engine::do_stop(e);
     }
@@ -185,9 +210,16 @@ struct VieNeuTts::Impl {
 };
 
 VieNeuTts::VieNeuTts(const fs::path& libs_dir, const fs::path& data_dir, const fs::path& temp_dir)
+    : VieNeuTts(libs_dir, data_dir, temp_dir, vieneu::builtin_pins())
+{
+}
+
+VieNeuTts::VieNeuTts(const fs::path& libs_dir, const fs::path& data_dir, const fs::path& temp_dir, const vieneu::Pins& pins)
     : impl_(std::make_unique<Impl>())
 {
     impl_->cfg = vieneu::make_cfg(libs_dir, data_dir, temp_dir);
+    impl_->pins = pins;
+    impl_->verify_th = std::thread([p = impl_.get()] { p->verify(); });
     impl_->th = std::thread([p = impl_.get()] { p->run(); });
 }
 
@@ -202,6 +234,8 @@ VieNeuTts::~VieNeuTts()
     impl_->queue->cv.notify_one();
     if (impl_->th.joinable())
         impl_->th.join();
+    if (impl_->verify_th.joinable())
+        impl_->verify_th.join();
     const std::scoped_lock lk(impl_->sh->m);
     impl_->sh->hwnd = nullptr;
 }
@@ -210,10 +244,10 @@ std::vector<Voice> VieNeuTts::voices() noexcept
 {
     std::vector<Voice> out;
     try {
-        const piper::Cfg& c = impl_->cfg;
-        if (!vieneu::find_assets(c))
+        const auto v = impl_->verdict->get();
+        if (!v)
             return out;
-        for (const auto& p : vieneu::discover_presets(vieneu::voices_dir(c))) {
+        for (const auto& p : v->presets) {
             out.push_back({p.id, p.name, L"vi-VN"});
             out.push_back({p.id, p.name, L"en-US"});
         }
@@ -272,6 +306,11 @@ void VieNeuTts::set_sink(HWND hwnd, UINT msg) noexcept
     const std::scoped_lock lk(impl_->sh->m);
     impl_->sh->hwnd = hwnd;
     impl_->sh->msg = msg;
+}
+
+bool VieNeuTts::ready() const noexcept
+{
+    return impl_->verdict->get() != nullptr;
 }
 
 size_t VieNeuTts::lookahead() const noexcept

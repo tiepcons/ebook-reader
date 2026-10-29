@@ -16,8 +16,12 @@ std::unique_ptr<PiperTts> make_piper(const AppPaths& paths)
 
 std::unique_ptr<VieNeuTts> make_vieneu(const AppPaths& paths)
 {
-    auto vieneu = std::make_unique<VieNeuTts>(paths.libs / L"vieneu", paths.data / L"vieneu", paths.tts_cache / L"vieneu" / L"tmp");
-    return vieneu->voices().empty() ? nullptr : std::move(vieneu);
+    const std::filesystem::path libs = paths.libs / L"vieneu";
+    const std::filesystem::path data = paths.data / L"vieneu";
+    const std::filesystem::path temp = paths.tts_cache / L"vieneu" / L"tmp";
+    if (!vieneu::find_assets(vieneu::make_cfg(libs, data, temp)))
+        return nullptr;
+    return std::make_unique<VieNeuTts>(libs, data, temp);
 }
 
 std::unique_ptr<AzureTts> make_azure(const AppPaths& paths, Db& db, HWND sink)

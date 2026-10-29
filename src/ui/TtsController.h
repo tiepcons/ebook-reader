@@ -52,7 +52,10 @@ public:
     void set_book_lang(Lang l) noexcept { book_lang_ = l; }
     [[nodiscard]] const TtsPrefs& prefs() const noexcept { return prefs_; }
     [[nodiscard]] TtsState state() const noexcept { return state_; }
-    [[nodiscard]] bool available(TtsKind k) const noexcept { return engines_[kind_index(k)] != nullptr; }
+    [[nodiscard]] bool available(TtsKind k) const noexcept
+    {
+        return engines_[kind_index(k)] != nullptr && engines_[kind_index(k)]->ready();
+    }
     [[nodiscard]] TtsKind active() const noexcept { return active_; }
     std::vector<Voice> voices(TtsKind k);
 

@@ -69,8 +69,13 @@ struct Queue {
     }
 };
 
-// Kill-on-close job that holds the children: at most `max_procs` processes and `memory` committed bytes.
+// Kill-on-close job that holds the children: at most `max_procs` processes and `memory` committed bytes; no UI access
+// (clipboard, atoms, desktop, system parameters, exit-windows) and no crash dialogs.
 UniqueHandle make_job(DWORD max_procs, SIZE_T memory) noexcept;
+
+// Deletes `p` and everything below it without ever following a reparse point: junctions and symlinks are removed
+// themselves, their targets are left alone. For folders a child process could write to.
+void remove_tree(const std::filesystem::path& p) noexcept;
 
 // Files that could not be deleted yet (still open elsewhere) are retried on the next call and at shutdown.
 struct Trash {

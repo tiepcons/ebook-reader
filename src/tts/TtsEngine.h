@@ -52,6 +52,8 @@ public:
     virtual void set_sink(HWND hwnd, UINT msg) noexcept = 0;
     // How many upcoming utterances the caller should announce through prepare() so the engine can batch them.
     [[nodiscard]] virtual size_t lookahead() const noexcept { return 1; }
+    // False while the engine is not (yet) usable, e.g. its files are still being checked; the UI hides such engines.
+    [[nodiscard]] virtual bool ready() const noexcept { return true; }
 };
 
 }

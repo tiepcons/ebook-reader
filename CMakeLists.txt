@@ -152,7 +152,10 @@ add_custom_command(TARGET EbookReader POST_BUILD COMMAND ${CMAKE_COMMAND}
 
 target_sources(eb_tts PRIVATE src/tts/piper/PiperTts.cpp src/tts/piper/PiperProc.cpp src/tts/piper/PiperText.cpp
   src/tts/proc/ProcShared.cpp src/tts/vieneu/VieNeuText.cpp src/tts/vieneu/VieNeuProc.cpp
-  src/tts/vieneu/VieNeuBatch.cpp src/tts/vieneu/VieNeuTts.cpp)
+  src/tts/vieneu/VieNeuBatch.cpp src/tts/vieneu/VieNeuTts.cpp src/tts/vieneu/VieNeuVerify.cpp)
+include(cmake/vieneu_pins.cmake)
+eb_generate_vieneu_pins("${CMAKE_BINARY_DIR}/generated/VieNeuPins.h")
+target_include_directories(eb_tts PRIVATE "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(eb_tts PUBLIC advapi32)
 
 target_sources(eb_tts PRIVATE src/tts/azure/AzureTts.cpp src/tts/azure/AzureHttp.cpp src/tts/azure/AzureProto.cpp

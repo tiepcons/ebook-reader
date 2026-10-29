@@ -2,10 +2,13 @@
 #include "tts/piper/PiperProc.h"
 #include "tts/proc/ProcShared.h"
 #include "tts/vieneu/VieNeuProc.h"
+#include "tts/vieneu/VieNeuVerify.h"
 
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -37,7 +40,6 @@ struct Key {
 
 // One utterance the engine knows about. Its text becomes one batch line, or two when a heading is split off.
 struct Item {
-    ReqPtr req;
     Key key;
     bool lead = false;   // 300 ms of silence in front (first utterance after a start)
     bool queued = false; // its lines are in the running batch
@@ -68,6 +70,19 @@ struct Playing {
     std::filesystem::path wav;
 };
 
+// Result of the background hash check; `v` stays null (and the engine hidden) unless the install matched its pins.
+struct Verdict {
+    std::mutex m;
+    std::shared_ptr<const Verified> v;
+    std::atomic<bool> done{false};
+
+    [[nodiscard]] std::shared_ptr<const Verified> get() noexcept
+    {
+        const std::scoped_lock lk(m);
+        return v;
+    }
+};
+
 struct Engine;
 using Queue = proc::Queue<Engine>;
 
@@ -75,6 +90,7 @@ struct Engine {
     piper::Cfg cfg;
     std::shared_ptr<Shared> sh;
     std::shared_ptr<Queue> queue;
+    std::shared_ptr<Verdict> verdict;
     UniqueHandle job;
     proc::Trash trash;
     std::map<uint32_t, Item> items;
@@ -93,6 +109,9 @@ void close_cur(Engine& e);
 void try_play(Engine& e);
 
 bool add_item(Engine& e, const ReqPtr& req, bool lead);
+// Stitches the finished line files of item `id` into its WAV and starts it when the caller waits for it. A broken item
+// fails alone; the rest of the batch goes on.
+void finalize_item(Engine& e, uint32_t id);
 void discard_item(Engine& e, uint32_t id);
 void abort_batch(Engine& e);
 void schedule(Engine& e);
