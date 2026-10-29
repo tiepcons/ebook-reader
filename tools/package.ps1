@@ -2,7 +2,8 @@
 # build/downloads and verified against pinned SHA256; they are only extracted, never executed.
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$')][string]$Version,
-    [switch]$NoSign
+    [switch]$NoSign,
+    [string]$Deploy # test folder (e.g. D:\EbookReader-Test): unpack every engine there + VieNeu data; data\ and ebooks\ are kept
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
@@ -339,6 +340,37 @@ Ebook Reader's own source: https://github.com/tiepcons/ebook-reader
 "@ | Set-Content $Path -Encoding utf8
 }
 
+function Expand-Into([string]$Zip, [string]$Dest) {
+    $za = [IO.Compression.ZipFile]::OpenRead($Zip)
+    try {
+        foreach ($e in $za.Entries) {
+            $dst = Join-Path $Dest $e.FullName.Substring($name.Length + 1)
+            if ($e.FullName.EndsWith('/')) { New-Item -ItemType Directory -Force $dst | Out-Null; continue }
+            New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $dst, $true)
+        }
+    } finally { $za.Dispose() }
+}
+
+function Copy-Pinned([string]$Url, [string]$Sha, [string]$Dst) {
+    $src = Get-PinnedUrl $Url $Sha
+    if ((Test-Path $Dst) -and (Get-Item $Dst).Length -eq (Get-Item $src).Length) { return }
+    Copy-To $src $Dst
+}
+
+function Deploy-Test([string[]]$Zips) {
+    $exe = [IO.Path]::GetFullPath((Join-Path $Deploy 'EbookReader.exe'))
+    if (Get-Process EbookReader -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) { throw "Close $exe first" }
+    foreach ($z in $Zips | Where-Object { $_ -notmatch 'piper-sources' }) { Expand-Into $z $Deploy }
+    $p = $vieneuPins
+    $d = Join-Path $Deploy 'data/vieneu'
+    Copy-Pinned $p.Model.Url $p.Model.Sha256 "$d/vieneu-v3-turbo-q8_0.gguf"
+    Copy-Pinned $p.SeaG2pDict.Url $p.SeaG2pDict.Sha256 "$d/sea_g2p.bin"
+    Copy-Pinned "$($p.Voices.BaseUrl)/manifest.json" $p.Voices.Manifest "$d/voices/manifest.json"
+    foreach ($k in $p.Voices.Files.Keys) { Copy-Pinned "$($p.Voices.BaseUrl)/$k" $p.Voices.Files[$k] "$d/voices/$k" }
+    "DEPLOYED $Version -> $Deploy"
+}
+
 . "$PSScriptRoot/package_vieneu.ps1"
 
 $suffix = if ($Version -match '^\d+\.\d+\.\d+(-.+)$') { $Matches[1] } else { '' }
@@ -351,3 +383,4 @@ foreach ($f in 'EbookReader.exe', 'libs/eb_mupdf.dll') {
 Get-ChildItem $dist -Filter "EbookReader-$Version*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force # keep other versions the PO may be testing
 $zips = @((Build-Basic), (Build-PiperPack), (New-SourcesZip (Join-Path $dist "$name-piper-sources.zip")), (Build-VieNeuPack))
 foreach ($z in $zips) { 'ARTIFACT {0} {1:N2} MB' -f (Split-Path $z -Leaf), ((Get-Item $z).Length / 1MB) }
+if ($Deploy) { Deploy-Test $zips }
