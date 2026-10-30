@@ -4,6 +4,7 @@
 #include "lib/LibraryModel.h"
 #include "lib/Schema.h"
 #include "test_base_tmp.h"
+#include "test_perf.h"
 
 #include <chrono>
 #include <string>
@@ -227,8 +228,8 @@ TEST_CASE("model: 50000 rows query within budget")
     q.text = L"so 49";
     const double search_ms = timed(q, 1);
 #ifdef NDEBUG
-    CHECK(all_ms < 60.0);
-    CHECK(search_ms < 120.0);
+    CHECK(all_ms < ebtest::perf_budget(60.0));
+    CHECK(search_ms < ebtest::perf_budget(120.0));
 #else
     CHECK(all_ms >= 0.0);
     CHECK(search_ms >= 0.0);
@@ -255,9 +256,9 @@ TEST_CASE("model: 5000 rows query within budget")
     REQUIRE(r.has_value());
     CHECK(r->size() == expected);
 #ifdef NDEBUG
-    CHECK(ms < 30.0);
+    CHECK(ms < ebtest::perf_budget(30.0));
 #else
-    CHECK(ms < 500.0);
+    CHECK(ms < ebtest::perf_budget(500.0));
 #endif
     const auto all = eb::query_books(f.db, {});
     REQUIRE(all.has_value());

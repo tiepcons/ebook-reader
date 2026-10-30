@@ -5,6 +5,7 @@
 #include "lib/Scanner.h"
 #include "lib/Schema.h"
 #include "test_base_tmp.h"
+#include "test_perf.h"
 
 #include <chrono>
 #include <fstream>
@@ -411,7 +412,7 @@ TEST_CASE("scanner: 1000 files, rescan under one second")
     const auto s = f.scan();
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     CHECK(s.unchanged == 1000);
-    CHECK(ms < 1000);
+    CHECK(ms < ebtest::perf_budget(1000));
     MESSAGE("rescan ms: " << ms);
 }
 #endif

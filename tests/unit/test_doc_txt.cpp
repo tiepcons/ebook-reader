@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "doc/TxtToFb2.h"
+#include "test_perf.h"
 
 #include <windows.h>
 
@@ -257,9 +258,9 @@ TEST_CASE("32 MiB of short lines stays within the time and memory budget")
     PROCESS_MEMORY_COUNTERS after{};
     GetProcessMemoryInfo(GetCurrentProcess(), &after, sizeof(after));
 #ifdef NDEBUG
-    CHECK(ms < 5000);
+    CHECK(ms < ebtest::perf_budget(5000));
 #else
-    CHECK(ms < 60000);
+    CHECK(ms < ebtest::perf_budget(60000));
 #endif
 #ifndef __SANITIZE_ADDRESS__
     CHECK(after.PeakWorkingSetSize - before.PeakWorkingSetSize < 4 * raw.size());

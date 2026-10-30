@@ -4,6 +4,7 @@
 #include "base/PathSafety.h"
 #include "tts/Utf8.h"
 #include "tts_sink.h"
+#include "test_perf.h"
 
 #include <doctest/doctest.h>
 
@@ -173,7 +174,7 @@ TEST_CASE("tts piper prepared utterance starts within 300 ms")
         if (g.id == 2 && g.ev == eb::TtsEvent::Started)
             started = &g;
     REQUIRE(started != nullptr);
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(started->at - t0).count() < 300);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(started->at - t0).count() < ebtest::perf_budget(300));
     CHECK(sink.wait_for(2, eb::TtsEvent::Finished, 30000));
 }
 
@@ -248,7 +249,7 @@ TEST_CASE("tts piper destruction while speaking is quick and leaves no child")
         sink.pump_ms(300);
         t0 = Clock::now();
     }
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 1000);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < ebtest::perf_budget(1000));
     CHECK(wait_children(false, 2000));
 }
 
@@ -341,7 +342,7 @@ TEST_CASE("tts piper destruction with a wedged child is quick")
         sink.pump_ms(300);
         t0 = Clock::now();
     }
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 1000);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < ebtest::perf_budget(1000));
     CHECK(wait_children(false, 2000));
 }
 

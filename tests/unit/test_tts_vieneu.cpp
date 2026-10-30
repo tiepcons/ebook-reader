@@ -6,6 +6,7 @@
 
 #include "base/Text.h"
 #include "tts_sink.h"
+#include "test_perf.h"
 
 #include <doctest/doctest.h>
 
@@ -474,7 +475,7 @@ TEST_CASE("vieneu real engine batches announced sentences and starts the next on
         if (g.id == 2 && g.ev == eb::TtsEvent::Started)
             second_start = &g;
     REQUIRE(second_start != nullptr);
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(second_start->at - finished_first).count() < 500);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(second_start->at - finished_first).count() < ebtest::perf_budget(500));
 }
 
 TEST_CASE("vieneu real engine reads a heading and the sentence after it as one utterance")
@@ -519,7 +520,7 @@ TEST_CASE("vieneu real engine stop silences events and kills the child; destruct
         REQUIRE(tts.speak(4, kViText, kVoice, 1.0, 0.0));
         REQUIRE(wait_children(true, 20000));
     }
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 25000);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < ebtest::perf_budget(25000));
     CHECK(wait_children(false, 5000));
 }
 

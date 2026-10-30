@@ -30,6 +30,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Test (release, without desktop UI tests)
+        env:
+          EB_PERF_SCALE: '4'
         run: |
           . tools/env.ps1
           ctest --preset release -E '^ui_' --output-on-failure

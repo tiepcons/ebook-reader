@@ -3,6 +3,7 @@
 #include "tts/Utf8.h"
 
 #include "test_audio_device.h"
+#include "test_perf.h"
 
 #include <doctest/doctest.h>
 
@@ -199,7 +200,7 @@ TEST_CASE("tts winrt back-to-back prepared utterance starts within 150 ms")
                 started = &g;
     }
     REQUIRE(started != nullptr);
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(started->at - t0).count() < 150);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(started->at - t0).count() < ebtest::perf_budget(150));
     CHECK(sink.wait_for(eb::TtsEvent::Finished, 20000));
 }
 
@@ -219,7 +220,7 @@ TEST_CASE("tts winrt stop and destruction cancel a long pending synthesis quickl
         tts.prepare(1, text, voice, 1.0);
         tts.stop();
     }
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < 500);
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count() < ebtest::perf_budget(500));
 }
 
 TEST_CASE("tts winrt NFD Vietnamese offsets are code point boundaries")

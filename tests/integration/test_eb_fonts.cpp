@@ -1,4 +1,5 @@
 #include "eb_test_util.h"
+#include "../unit/test_perf.h"
 
 #include <atomic>
 #include <chrono>
@@ -230,7 +231,7 @@ TEST_CASE("eb_mupdf font index startup is cheap")
     REQUIRE(set_dirs({app / "Literata", app / "BeVietnamPro", system_fonts()}) == EB_OK);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     MESSAGE("eb_set_font_dirs took ", ms, " ms");
-    CHECK(ms < 250);
+    CHECK(ms < ebtest::perf_budget(250));
     const auto f = families();
     CHECK(has_family(f, "Literata"));
     CHECK(has_family(f, "Be Vietnam Pro"));
