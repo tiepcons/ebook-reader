@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <list>
 #include <memory>
@@ -153,8 +154,10 @@ public:
     explicit RenderQueue(AbortFn abort) : abort_(std::move(abort)) {}
 
     uint64_t post(RenderWant w);
-    // Latest-wins among text requests; it never cancels a render in flight.
+    // Text requests are served in order (duplicates merged, oldest dropped past kMaxTextRequests); they never cancel a
+    // render in flight.
     void post_text(int32_t page);
+    static constexpr size_t kMaxTextRequests = 4;
     bool pop(Job& out, std::stop_token st);
     // Makes every request so far stale and drops the pending one (used when closing).
     void supersede() noexcept;
@@ -165,7 +168,7 @@ private:
     mutable std::mutex mu_;
     std::condition_variable_any cv_;
     std::optional<RenderWant> pending_;
-    std::optional<int32_t> text_page_;
+    std::deque<int32_t> text_pages_;
     uint64_t gen_ = 0;
     bool in_flight_ = false;
     AbortFn abort_;

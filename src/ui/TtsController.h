@@ -6,6 +6,7 @@
 #include "tts/winrt/WinRtPlayer.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -89,6 +90,9 @@ private:
     };
 
     void enter_page(Page p, int64_t offset);
+    [[nodiscard]] std::size_t first_sentence(int64_t offset);
+    [[nodiscard]] std::string current_snippet() const;
+    void begin_timing() noexcept;
     void go_next_page();
     bool take_next_page(Page& out);
     bool speak_sentence();
@@ -117,7 +121,9 @@ private:
     int64_t start_offset_ = -1;
     uint32_t counter_ = 0, current_ = 0;
     int empty_run_ = 0;
-    bool fell_back_ = false, pending_advance_ = false, restart_ = false;
+    bool fell_back_ = false, pending_advance_ = false, restart_ = false, timing_ = false;
+    std::string snippet_, resume_snippet_; // start of the sentence being read when the layout changed
+    std::chrono::steady_clock::time_point t0_;
     std::optional<TtsKind> previewing_;
     AudioKeepAlive keep_alive_;
 };

@@ -4,7 +4,10 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace eb {
 
@@ -22,6 +25,10 @@ struct TtsPrefs {
 
 [[nodiscard]] constexpr std::size_t kind_index(TtsKind k) noexcept { return static_cast<std::size_t>(k); }
 [[nodiscard]] double clamp_tts_rate(double rate) noexcept;
+[[nodiscard]] std::string_view tts_kind_name(TtsKind k) noexcept;
+// Position of `wanted` among the engines offered right now. Nullopt when it is not offered (VieNeu is hidden until its
+// files are verified): the dialog must then keep the saved choice instead of replacing it with the first engine.
+[[nodiscard]] std::optional<std::size_t> engine_index(const std::vector<TtsKind>& offered, TtsKind wanted) noexcept;
 
 [[nodiscard]] TtsPrefs load_tts_prefs(Db& db);
 bool save_tts_prefs(Db& db, const TtsPrefs& p);

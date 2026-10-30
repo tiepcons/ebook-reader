@@ -10,6 +10,7 @@
 #include <aclapi.h>
 #include <tlhelp32.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -408,4 +409,43 @@ TEST_CASE("tts piper temp dir that already has a Low label is kept as is")
     REQUIRE(eb::piper::prepare_temp_dir(dir));
     CHECK(has_low_label(dir));
     CHECK(fs::exists(dir / L"marker.txt", ec));
+}
+
+TEST_CASE("piper proc: the late answer of an abandoned request is swallowed and its file deleted")
+{
+    const fs::path dir = fs::temp_directory_path() / L"eb-piper-owed-test";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path stale = dir / L"eb-stale.wav";
+    { std::ofstream(stale) << "x"; }
+    eb::piper::Proc p;
+    REQUIRE(p.abandon(stale));
+    CHECK(p.owed() == 1);
+    std::string forward = stale.string();
+    std::ranges::replace(forward, '\\', '/');
+    p.push_line(std::move(forward));
+    p.push_line("C:\\elsewhere\\eb-current.wav");
+    std::string line;
+    const eb::piper::Cancel never = [] { return false; };
+    CHECK(p.await(never, std::chrono::seconds(2), &line) == eb::piper::Wait::Done);
+    CHECK(line == "C:\\elsewhere\\eb-current.wav");
+    CHECK(p.owed() == 0);
+    CHECK_FALSE(fs::exists(stale, ec));
+    fs::remove_all(dir, ec);
+}
+
+TEST_CASE("piper proc: an unknown line answers the current request and owed paths can be taken back")
+{
+    eb::piper::Proc p;
+    REQUIRE(p.abandon(fs::path(L"C:\\t\\eb-1.wav")));
+    p.push_line("C:\\t\\eb-2.wav");
+    std::string line;
+    const eb::piper::Cancel never = [] { return false; };
+    CHECK(p.await(never, std::chrono::seconds(2), &line) == eb::piper::Wait::Done);
+    CHECK(line == "C:\\t\\eb-2.wav");
+    CHECK(p.owed() == 1);
+    const auto owed = p.take_owed();
+    REQUIRE(owed.size() == 1);
+    CHECK(owed[0] == fs::path(L"C:\\t\\eb-1.wav"));
+    CHECK(p.owed() == 0);
 }

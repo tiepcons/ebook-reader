@@ -501,3 +501,93 @@ TEST_CASE("tts controller: keep-alive runs only while reading")
     r.ctl.stop();
     CHECK_FALSE(r.ctl.keep_alive_wanted());
 }
+
+TEST_CASE("tts prefs: a saved engine that is not offered yet is not replaced by the first one")
+{
+    const std::vector<TtsKind> offered{TtsKind::WinRt, TtsKind::Piper};
+    CHECK(eb::engine_index(offered, TtsKind::Piper) == 1);
+    CHECK_FALSE(eb::engine_index(offered, TtsKind::VieNeu).has_value());
+    CHECK_FALSE(eb::engine_index({}, TtsKind::WinRt).has_value());
+    CHECK(eb::tts_kind_name(TtsKind::VieNeu) == "vieneu");
+}
+
+TEST_CASE("tts controller: a relayout keeps reading from the sentence that was being read")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One one one. Two two two. Three three three.");
+    r.ctl.on_event(1, finished());
+    REQUIRE(r.winrt.spoken.back().text == "Two two two.");
+    r.ctl.relayout();
+    CHECK(r.ctl.state() == TtsState::Idle);
+    r.host.pages = 7;
+    r.ctl.relaid();
+    CHECK(r.ctl.state() == TtsState::Playing);
+    r.ctl.on_text(0, "Zero zero.\nOne one one. Two two\ntwo. Three three three.");
+    REQUIRE(r.winrt.spoken.size() == 3);
+    CHECK(r.winrt.spoken.back().text == "Two two two.");
+}
+
+TEST_CASE("tts controller: repeated relayouts while the text is still awaited neither stall nor lose the place")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "Aaa aaa. Bbb bbb. Ccc ccc.");
+    r.ctl.on_event(1, finished());
+    r.ctl.relayout();
+    r.ctl.relaid();
+    CHECK(r.ctl.state() == TtsState::Playing);
+    r.ctl.relayout();
+    r.ctl.relayout();
+    CHECK(r.ctl.state() == TtsState::Idle);
+    r.ctl.relaid();
+    r.ctl.on_text(0, "Aaa aaa. Bbb bbb. Ccc ccc.");
+    CHECK(r.winrt.spoken.back().text == "Bbb bbb.");
+}
+
+TEST_CASE("tts controller: reading can always be started again after a relayout, even without a relaid")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One. Two.");
+    r.ctl.relayout();
+    REQUIRE(r.ctl.state() == TtsState::Idle);
+    r.ctl.toggle();
+    CHECK(r.ctl.state() == TtsState::Playing);
+    r.ctl.on_text(0, "Fresh one. Fresh two.");
+    CHECK(r.winrt.spoken.back().text == "Fresh one.");
+    r.ctl.relayout();
+    r.ctl.relaid();
+    r.ctl.relaid();
+    r.ctl.on_text(0, "Fresh one. Fresh two.");
+    CHECK(r.ctl.state() == TtsState::Playing);
+    CHECK(r.winrt.spoken.back().text == "Fresh one.");
+}
+
+TEST_CASE("tts controller: a started event after start and resume is accepted without side effects")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "One. Two.");
+    r.ctl.on_event(1, eb::pack_tts(TtsEvent::Started, 0));
+    r.ctl.toggle();
+    r.ctl.toggle();
+    r.ctl.on_event(1, eb::pack_tts(TtsEvent::Started, 0));
+    CHECK(r.ctl.state() == TtsState::Playing);
+    CHECK(r.winrt.spoken.size() == 1);
+}
+
+TEST_CASE("tts controller: among sentences with the same start the one nearest the remembered offset is resumed")
+{
+    const std::string a = "The very same long opening of this sentence is here for alpha.";
+    const std::string b = "The very same long opening of this sentence is here for beta.";
+    const std::string text = a + " Middle one. " + b;
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, text);
+    r.ctl.relayout();
+    r.host.resume = static_cast<int64_t>(a.size() + 13);
+    r.ctl.relaid();
+    r.ctl.on_text(0, text);
+    CHECK(r.winrt.spoken.back().text == b);
+}

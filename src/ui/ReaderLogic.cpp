@@ -286,7 +286,11 @@ void RenderQueue::post_text(int32_t page)
 {
     {
         const std::lock_guard lock(mu_);
-        text_page_ = page;
+        if (std::ranges::find(text_pages_, page) == text_pages_.end()) {
+            if (text_pages_.size() >= kMaxTextRequests)
+                text_pages_.pop_front();
+            text_pages_.push_back(page);
+        }
     }
     cv_.notify_one();
 }
@@ -294,10 +298,14 @@ void RenderQueue::post_text(int32_t page)
 bool RenderQueue::pop(Job& out, std::stop_token st)
 {
     std::unique_lock lock(mu_);
-    if (!cv_.wait(lock, std::move(st), [this] { return pending_.has_value() || text_page_.has_value(); }))
+    if (!cv_.wait(lock, std::move(st), [this] { return pending_.has_value() || !text_pages_.empty(); }))
         return false;
     out.render = std::exchange(pending_, std::nullopt);
-    out.text_page = std::exchange(text_page_, std::nullopt);
+    out.text_page.reset();
+    if (!text_pages_.empty()) {
+        out.text_page = text_pages_.front();
+        text_pages_.pop_front();
+    }
     in_flight_ = out.render.has_value();
     return true;
 }

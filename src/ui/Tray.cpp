@@ -60,8 +60,8 @@ std::wstring tray_tooltip(std::wstring_view book_title)
 TrayAction tray_action(LPARAM lp) noexcept
 {
     switch (LOWORD(lp)) {
-    case NIN_SELECT:
-    case NIN_KEYSELECT:
+    case NIN_KEYSELECT: // NIN_SELECT (single click) is ignored: the PO wants a double click to restore
+
     case WM_LBUTTONDBLCLK:
         return TrayAction::Restore;
     case WM_CONTEXTMENU:

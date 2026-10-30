@@ -1,6 +1,10 @@
 #include "TtsController.h"
 
+#include "base/Log.h"
+
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <cwctype>
 #include <utility>
 
@@ -8,6 +12,7 @@ namespace eb {
 namespace {
 
 constexpr std::size_t kMaxLookahead = 16;
+constexpr std::size_t kSnippetBytes = 48;
 
 std::size_t lookahead_of(const TtsEngine* e) noexcept
 {
@@ -96,9 +101,16 @@ void TtsController::start(int32_t page, int64_t char_offset)
     empty_run_ = 0;
     fell_back_ = false;
     wait_page_ = next_requested_ = page;
+    begin_timing();
     keep_alive_.start();
     set_state(TtsState::Playing);
     host_.request_text(page);
+}
+
+void TtsController::begin_timing() noexcept
+{
+    t0_ = std::chrono::steady_clock::now();
+    timing_ = true;
 }
 
 void TtsController::toggle()
@@ -106,6 +118,7 @@ void TtsController::toggle()
     if (state_ == TtsState::Idle) {
         start(host_.shown_page(), host_.resume_offset());
     } else if (state_ == TtsState::Paused) {
+        begin_timing();
         keep_alive_.start();
         engine()->resume();
         set_state(TtsState::Playing);
@@ -122,8 +135,9 @@ void TtsController::toggle()
 
 void TtsController::stop()
 {
-    restart_ = pending_advance_ = false;
-    keep_alive_.stop();
+    restart_ = pending_advance_ = timing_ = false;
+    resume_snippet_.clear();
+    keep_alive_.pause();
     if (state_ == TtsState::Idle)
         return;
     if (engine() != nullptr)
@@ -190,12 +204,46 @@ void TtsController::enter_page(Page p, int64_t offset)
             return;
     }
     empty_run_ = 0;
-    idx_ = 0;
+    idx_ = first_sentence(offset);
+    speak_current();
+}
+
+std::size_t TtsController::first_sentence(int64_t offset)
+{
+    const std::string snippet = std::exchange(resume_snippet_, std::string{});
+    std::optional<std::size_t> best;
+    int64_t best_gap = 0;
+    for (std::size_t i = 0; !snippet.empty() && i < page_.sentences.size(); ++i) {
+        if (!one_line(sentence_text(page_.text, page_.sentences[i])).starts_with(snippet))
+            continue;
+        const int64_t gap = offset > 0 ? std::abs(static_cast<int64_t>(page_.sentences[i].begin) - offset) : 0;
+        if (!best || gap < best_gap) {
+            best = i;
+            best_gap = gap;
+        }
+    }
+    if (best)
+        return *best;
     if (offset > 0) {
         const auto it = std::ranges::find_if(page_.sentences, [&](const Sentence& s) { return s.end > offset; });
-        idx_ = it != page_.sentences.end() ? static_cast<std::size_t>(it - page_.sentences.begin()) : 0;
+        if (it != page_.sentences.end())
+            return static_cast<std::size_t>(it - page_.sentences.begin());
     }
-    speak_current();
+    return 0;
+}
+
+std::string TtsController::current_snippet() const
+{
+    if (wait_page_ >= 0 || idx_ >= page_.sentences.size())
+        return {};
+    std::string s = one_line(sentence_text(page_.text, page_.sentences[idx_]));
+    if (s.size() > kSnippetBytes) {
+        std::size_t n = kSnippetBytes;
+        while (n > 0 && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80)
+            --n;
+        s.resize(n);
+    }
+    return s;
 }
 
 void TtsController::go_next_page()
@@ -282,6 +330,10 @@ void TtsController::on_event(uint32_t utterance, LPARAM lp)
     if (state_ == TtsState::Idle || utterance == 0 || utterance != current_)
         return;
     const TtsEvent ev = tts_event(lp);
+    if (ev == TtsEvent::Started && std::exchange(timing_, false)) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0_).count();
+        log::info("tts: first-audio-ms {} engine={}", ms, tts_kind_name(active_));
+    }
     if (ev == TtsEvent::Error) {
         on_error(tts_value(lp));
     } else if (ev == TtsEvent::Finished) {
@@ -309,14 +361,21 @@ void TtsController::relayout()
 {
     if (state_ == TtsState::Idle)
         return;
+    std::string here = current_snippet();
+    if (here.empty())
+        here = std::move(resume_snippet_);
     stop();
+    snippet_ = std::move(here);
     restart_ = true;
 }
 
 void TtsController::relaid()
 {
-    if (std::exchange(restart_, false))
-        start(host_.shown_page(), host_.resume_offset());
+    if (!std::exchange(restart_, false))
+        return;
+    start(host_.shown_page(), host_.resume_offset());
+    if (state_ != TtsState::Idle)
+        resume_snippet_ = std::move(snippet_);
 }
 
 void TtsController::page_shown()

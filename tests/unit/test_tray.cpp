@@ -38,7 +38,7 @@ TEST_CASE("tray tooltip carries the title and respects the shell limit")
 
 TEST_CASE("tray callback decoding follows NOTIFYICON_VERSION_4")
 {
-    CHECK(eb::tray_action(MAKELPARAM(NIN_SELECT, 1)) == eb::TrayAction::Restore);
+    CHECK(eb::tray_action(MAKELPARAM(NIN_SELECT, 1)) == eb::TrayAction::None);
     CHECK(eb::tray_action(MAKELPARAM(NIN_KEYSELECT, 1)) == eb::TrayAction::Restore);
     CHECK(eb::tray_action(MAKELPARAM(WM_LBUTTONDBLCLK, 1)) == eb::TrayAction::Restore);
     CHECK(eb::tray_action(MAKELPARAM(WM_CONTEXTMENU, 1)) == eb::TrayAction::Menu);

@@ -198,21 +198,29 @@ TEST_CASE("reader: pop returns on stop and wakes on a late post")
     CHECK(job.render->page == 7);
 }
 
-TEST_CASE("reader: a text request wakes the worker without a render and survives a newer one only as the latest")
+TEST_CASE("reader: text requests wake the worker without a render and are all served in order")
 {
     eb::RenderQueue q([] {});
     q.post_text(3);
     q.post_text(4);
+    q.post_text(3); // merged with the queued one
     eb::RenderQueue::Job job;
     const std::stop_source src;
     REQUIRE(q.pop(job, src.get_token()));
     CHECK_FALSE(job.render);
-    CHECK(job.text_page == 4);
+    CHECK(job.text_page == 3);
     q.post(want(1));
     q.post_text(5);
     REQUIRE(q.pop(job, src.get_token()));
     CHECK(job.render);
+    CHECK(job.text_page == 4);
+    REQUIRE(q.pop(job, src.get_token()));
+    CHECK_FALSE(job.render);
     CHECK(job.text_page == 5);
+    for (int32_t p = 10; p < 10 + static_cast<int32_t>(eb::RenderQueue::kMaxTextRequests) + 2; ++p)
+        q.post_text(p);
+    REQUIRE(q.pop(job, src.get_token()));
+    CHECK(job.text_page == 12); // the oldest two were dropped
 }
 
 TEST_CASE("reader: sentence lines merge the characters of a line and skip blanks")

@@ -84,9 +84,9 @@ TEST_CASE("tts segmenter numbers")
 
 TEST_CASE("tts segmenter ellipsis")
 {
-    CHECK(split("Well... maybe not. Fine.") == V{"Well... maybe not.", "Fine."});
-    CHECK(split("He paused... Then he left.") == V{"He paused...", "Then he left."});
-    CHECK(split("Chờ đã… rồi đi. Xong.") == V{"Chờ đã… rồi đi.", "Xong."});
+    CHECK(split("Well... maybe not. Fine.") == V{"Well, maybe not.", "Fine."});
+    CHECK(split("He paused... Then he left.") == V{"He paused.", "Then he left."});
+    CHECK(split("Chờ đã… rồi đi. Xong.") == V{"Chờ đã, rồi đi.", "Xong."});
 }
 
 TEST_CASE("tts segmenter urls and emails")
@@ -237,4 +237,60 @@ TEST_CASE("tts furniture view points into input")
     const std::string t = "3\nHello.";
     const auto v = eb::strip_page_furniture(t);
     CHECK(v.data() == t.data() + 2);
+}
+
+TEST_CASE("tts segmenter ellipses are pauses, never spoken as dots")
+{
+    CHECK(split("Wait... what is it?") == V{"Wait, what is it?"});
+    CHECK(split("Wait . . . what is it?") == V{"Wait, what is it?"});
+    CHECK(split("Wait\xE2\x80\xA6 what is it?") == V{"Wait, what is it?"});
+    CHECK(split("He paused. . . . Then he left.") == V{"He paused.", "Then he left."});
+    CHECK(split("He left...") == V{"He left."});
+    CHECK(split("...and then") == V{"and then"});
+    CHECK(split(". . .").empty());
+    CHECK(split("Wait...What?") == V{"Wait, What?"});
+    CHECK(split("A. B. C") == V{"A. B. C"});
+}
+
+TEST_CASE("tts segmenter ellipsis keeps highlight offsets on the source text")
+{
+    const std::string t = "Wait . . . what? Yes.";
+    const auto s = eb::split_sentences(t);
+    REQUIRE(s.size() == 2);
+    CHECK(t.substr(s[0].begin, s[0].end - s[0].begin) == "Wait . . . what?");
+    CHECK(t.substr(s[1].begin, s[1].end - s[1].begin) == "Yes.");
+}
+
+TEST_CASE("tts segmenter splits long comma sentences into short clause chunks")
+{
+    const std::string t = "When the old man finally reached the top of the hill, he sat down on a rock, looked at the "
+                          "valley below, and thought about the long road behind him, which had taken years.";
+    const auto s = eb::split_sentences(t);
+    REQUIRE(s.size() >= 2);
+    size_t prev_end = 0;
+    for (const eb::Sentence& c : s) {
+        CHECK(c.begin >= prev_end);
+        CHECK(c.end - c.begin >= 25);
+        prev_end = c.end;
+    }
+    CHECK(t.substr(s.front().begin, s.front().end - s.front().begin).starts_with("When the old man"));
+    CHECK(t.substr(s.back().begin, s.back().end - s.back().begin).ends_with("years."));
+    CHECK(split(t).front().ends_with(","));
+}
+
+TEST_CASE("tts segmenter leaves short sentences and decimal commas alone")
+{
+    CHECK(split("Short one, with a comma, but short.") == V{"Short one, with a comma, but short."});
+    const std::string t = "The measured value was 1,5 and then 2,75 and then 3,25 in the first trial of the long experiment "
+                          "that nobody wanted to repeat because it took far too many hours to finish.";
+    CHECK(split(t) == V{t});
+}
+
+TEST_CASE("tts segmenter never makes a chunk shorter than the minimum")
+{
+    const std::string t = "Yes, no, ok, fine, sure, right, well, then, so, we went to the market to buy some fresh bread, "
+                          "milk, eggs, butter, jam, honey, and a very long list of other things we needed that day.";
+    const auto s = eb::split_sentences(t);
+    for (const eb::Sentence& c : s)
+        CHECK(c.end - c.begin >= 25);
 }

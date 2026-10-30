@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace eb::piper {
 
@@ -60,9 +61,16 @@ struct Proc {
     bool send(const std::string& line, const Cancel& cancel) noexcept;
     // Waits for the next stdout line that ends in ".wav" (other lines are dropped); `line` receives it when not null.
     Wait await(const Cancel& cancel, std::chrono::seconds limit, std::string* line = nullptr) noexcept;
+    // The child keeps working on a request nobody waits for any more: a later await() swallows the answer line that
+    // names `wav` (our own path) and deletes that file, so the model stays loaded. Other lines answer the current request.
+    [[nodiscard]] bool abandon(const fs::path& wav) noexcept;
+    [[nodiscard]] size_t owed() const noexcept { return owed_.size(); }
+    // The files of the answers still owed, for the caller to delete once the child is gone.
+    [[nodiscard]] std::vector<fs::path> take_owed() noexcept;
+    // Queues one stdout line of the child (the reader thread's entry point; tests feed it directly).
+    void push_line(std::string&& l);
 
 private:
-    void push_line(std::string&& l);
     void read_loop() noexcept;
 
     UniqueHandle process_;
@@ -72,6 +80,11 @@ private:
     std::mutex m_;
     std::condition_variable cv_;
     std::deque<std::string> lines_;
+    struct Owed {
+        std::string key;
+        fs::path wav;
+    };
+    std::deque<Owed> owed_;
     bool eof_ = false;
 };
 

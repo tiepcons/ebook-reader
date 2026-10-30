@@ -129,10 +129,14 @@ void RenderWorker::post(RenderResult r)
 {
     {
         const std::lock_guard lock(out_mu_);
-        if (out_.size() >= kMaxQueuedResults) {
-            const auto stale = std::ranges::find_if(out_, [&](const RenderResult& o) { return o.generation < r.generation; });
-            const auto spare = std::ranges::find_if(out_, [](const RenderResult& o) { return !o.primary; });
-            out_.erase(stale != out_.end() ? stale : (spare != out_.end() ? spare : out_.begin()));
+        // Only page bitmaps are dropped: the read-aloud controller waits for every text result it asked for. The others stay
+        // bounded: text requests are a FIFO capped at 4 and links come once per render.
+        const auto bitmap = [](const RenderResult& o) { return o.kind == RenderResult::Kind::Page; };
+        if (r.kind == RenderResult::Kind::Page && std::ranges::count_if(out_, bitmap) >= kMaxQueuedResults) {
+            const auto stale = std::ranges::find_if(
+                out_, [&](const RenderResult& o) { return bitmap(o) && o.generation < r.generation; });
+            const auto spare = std::ranges::find_if(out_, [&](const RenderResult& o) { return bitmap(o) && !o.primary; });
+            out_.erase(stale != out_.end() ? stale : (spare != out_.end() ? spare : std::ranges::find_if(out_, bitmap)));
         }
         out_.push_back(std::move(r));
     }

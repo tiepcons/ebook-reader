@@ -2,6 +2,7 @@
 
 #include "base/FileIo.h"
 #include "base/PathSafety.h"
+#include "base/Text.h"
 #include "tts/piper/PiperTts.h"
 #include "tts/proc/ProcShared.h"
 
@@ -422,6 +423,47 @@ bool Proc::send(const std::string& line, const Cancel& cancel) noexcept
     }
 }
 
+namespace {
+
+// Piper may print the path with other slashes or letter case than the one we sent.
+std::string path_key(std::string s)
+{
+    for (char& c : s) {
+        if (c == '/')
+            c = '\\';
+        else if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    }
+    return s;
+}
+
+}
+
+bool Proc::abandon(const fs::path& wav) noexcept
+{
+    try {
+        const auto utf8 = wide_to_utf8(wav.wstring());
+        if (!utf8)
+            return false;
+        owed_.push_back({path_key(*utf8), wav});
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+std::vector<fs::path> Proc::take_owed() noexcept
+{
+    std::vector<fs::path> out;
+    try {
+        for (Owed& o : owed_)
+            out.push_back(std::move(o.wav));
+        owed_.clear();
+    } catch (...) { // NOLINT(bugprone-empty-catch): leftover files are removed at the next start
+    }
+    return out;
+}
+
 Wait Proc::await(const Cancel& cancel, std::chrono::seconds limit, std::string* line) noexcept
 {
     try {
@@ -431,6 +473,13 @@ Wait Proc::await(const Cancel& cancel, std::chrono::seconds limit, std::string* 
             if (!lines_.empty()) {
                 std::string l = std::move(lines_.front());
                 lines_.pop_front();
+                const std::string key = owed_.empty() ? std::string{} : path_key(l);
+                if (const auto it = std::ranges::find(owed_, key, &Owed::key); it != owed_.end()) {
+                    std::error_code ec;
+                    fs::remove(it->wav, ec);
+                    owed_.erase(it);
+                    continue;
+                }
                 if (line != nullptr)
                     *line = std::move(l);
                 return Wait::Done;

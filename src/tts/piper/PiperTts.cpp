@@ -27,6 +27,7 @@ namespace {
 constexpr size_t kMaxVoices = 256;
 constexpr size_t kMaxVoiceEntries = 4096;
 constexpr size_t kMaxProcs = 2;
+constexpr size_t kMaxOwed = 1;
 constexpr SIZE_T kJobMemory = size_t{1536} * 1024 * 1024;
 constexpr auto kBaseLimit = std::chrono::seconds(30);
 constexpr auto kMaxLimit = std::chrono::seconds(300);
@@ -103,13 +104,13 @@ struct Engine {
                     std::rotate(it, it + 1, procs.end());
                     return procs.back().get();
                 }
-                procs.erase(it);
+                erase(it);
             }
             const fs::path model = piper::voice_model(cfg, voice);
             if (model.empty() || !piper::safe_exe(cfg))
                 return nullptr;
             if (procs.size() >= kMaxProcs)
-                procs.erase(procs.begin());
+                erase(procs.begin());
             auto p = std::make_unique<Proc>();
             p->voice = voice;
             p->rate = rk;
@@ -122,10 +123,21 @@ struct Engine {
         }
     }
 
+    // Kills the child, then removes the files of the answers it still owed.
+    void erase(const std::vector<std::unique_ptr<Proc>>::iterator& it)
+    {
+        const std::vector<fs::path> owed = (*it)->take_owed();
+        procs.erase(it);
+        for (const fs::path& w : owed)
+            trash.discard(w);
+    }
+
     void drop(Proc* p) noexcept
     {
         try {
-            std::erase_if(procs, [&](const auto& q) { return q.get() == p; });
+            const auto it = std::ranges::find_if(procs, [&](const auto& q) { return q.get() == p; });
+            if (it != procs.end())
+                erase(it);
         } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
         }
     }
@@ -144,7 +156,8 @@ void close_cur(Engine& e) noexcept
     close_prepared(e, e.cur);
 }
 
-enum class Synth : uint8_t { Ok, Cancelled, TimedOut, Failed, BadVoice };
+// Cancelled keeps the child (its late answer is swallowed); Dropped is a cancellation that left the child unusable.
+enum class Synth : uint8_t { Ok, Cancelled, Dropped, TimedOut, Failed, BadVoice };
 
 bool has_content(std::string_view s)
 {
@@ -163,13 +176,13 @@ Synth run_request(Engine& e, Proc& p, const Req& r, const Cancel& cancel, fs::pa
     wav = e.cfg.temp / (L"eb-" + std::to_wstring(++e.serial) + L".wav");
     const auto utf8 = wide_to_utf8(wav.wstring());
     if (!utf8 || !p.send(piper::request_line(r.text, *utf8), cancel))
-        return cancel() ? Synth::Cancelled : Synth::Failed;
+        return cancel() ? Synth::Dropped : Synth::Failed;
     switch (p.await(cancel, synth_limit(r.text.size()))) {
     case Wait::Done: {
         std::error_code ec;
         return fs::is_regular_file(wav, ec) ? Synth::Ok : Synth::Failed;
     }
-    case Wait::Cancelled: return Synth::Cancelled;
+    case Wait::Cancelled: return p.owed() < kMaxOwed && p.abandon(wav) ? Synth::Cancelled : Synth::Dropped;
     case Wait::Timeout: return Synth::TimedOut;
     case Wait::Dead: break;
     }
@@ -187,7 +200,7 @@ Synth synth(Engine& e, const Req& r, const Cancel& cancel, fs::path& wav)
         return Synth::BadVoice;
     Proc* p = e.acquire(r.voice, r.rate);
     const Synth res = p != nullptr ? run_request(e, *p, r, cancel, wav) : Synth::Failed;
-    if (res != Synth::Ok) {
+    if (res != Synth::Ok && res != Synth::Cancelled) {
         if (p != nullptr)
             e.drop(p);
         e.trash.discard(wav);
@@ -215,7 +228,7 @@ bool fetch_wav(Engine& e, const ReqPtr& req, Prepared& p)
     fs::path wav;
     const Cancel cancel = [&] { return e.sh->quit || !e.sh->current(req->gen); };
     const Synth res = synth(e, *req, cancel, wav);
-    if (res == Synth::Cancelled)
+    if (res == Synth::Cancelled || res == Synth::Dropped)
         return false;
     if (res != Synth::Ok) {
         e.sh->post(req->gen, req->id, TtsEvent::Error, res == Synth::BadVoice ? kTtsBadVoice : kTtsSynthFailed);

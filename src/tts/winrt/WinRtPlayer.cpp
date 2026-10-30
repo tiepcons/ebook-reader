@@ -188,7 +188,9 @@ struct WinRtPlayer::Impl {
 
 
 struct KeepState {
-    enum Mode : uint8_t { Play, Pause, Done };
+    // Linger keeps playing for kLinger after a pause or stop, so a quick resume finds the endpoint awake, then pauses.
+    enum Mode : uint8_t { Play, Pause, Linger, Done };
+    static constexpr std::chrono::seconds kLinger{60};
 
     void set(Mode next)
     {
@@ -208,7 +210,11 @@ struct KeepState {
     Mode wait_change(Mode applied)
     {
         std::unique_lock lk(m);
-        cv.wait(lk, [&] { return mode != applied || mode == Done; });
+        const auto changed = [&] { return mode != applied || mode == Done; };
+        if (applied != Linger)
+            cv.wait(lk, changed);
+        else if (!cv.wait_for(lk, kLinger, changed))
+            mode = Pause;
         return mode;
     }
 
@@ -304,7 +310,7 @@ void AudioKeepAlive::run(const std::shared_ptr<KeepState>& s) noexcept
             applied = m;
             if (m == KeepState::Play)
                 mp.Play();
-            else
+            else if (m == KeepState::Pause)
                 mp.Pause();
         }
         mp.Pause();
@@ -337,9 +343,9 @@ void AudioKeepAlive::start() noexcept
 
 void AudioKeepAlive::pause() noexcept
 {
-    wanted_ = false;
-    if (st_)
-        st_->set(KeepState::Pause);
+    const bool was = std::exchange(wanted_, false);
+    if (st_ && was)
+        st_->set(KeepState::Linger);
 }
 
 void AudioKeepAlive::stop() noexcept

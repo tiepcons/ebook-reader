@@ -57,6 +57,10 @@ void fill_voice_combo(HWND dlg, DlgState& st, std::size_t lang, const std::vecto
         }
     }
     const std::wstring& want = st.prefs.voice[kind_index(selected_kind(dlg, st))][lang];
+    if (all.empty() && !want.empty()) {
+        ids.push_back(want); // the engine has not listed its voices yet: keep the saved choice instead of resetting it
+        add_item(box, want);
+    }
     const auto at = std::ranges::find(ids, want);
     SendMessageW(box, CB_SETCURSEL, at == ids.end() ? 0 : static_cast<WPARAM>(at - ids.begin()), 0);
     EnableWindow(GetDlgItem(dlg, kPreviewButtons[lang]), ids.size() > 1 ? TRUE : FALSE);
@@ -104,9 +108,8 @@ void init_dialog(HWND dlg, DlgState& st)
     HWND engines = GetDlgItem(dlg, IDC_TTS_ENGINE);
     for (const TtsKind k : st.kinds)
         add_item(engines, kEngineNames[kind_index(k)]);
-    const auto at = std::ranges::find(st.kinds, st.prefs.engine);
-    SendMessageW(engines, CB_SETCURSEL, at == st.kinds.end() ? 0 : static_cast<WPARAM>(at - st.kinds.begin()), 0);
-    st.prefs.engine = selected_kind(dlg, st);
+    const auto at = engine_index(st.kinds, st.prefs.engine);
+    SendMessageW(engines, CB_SETCURSEL, at ? *at : static_cast<WPARAM>(-1), 0);
     for (const wchar_t* label : kTtsSpeedLabels)
         add_item(GetDlgItem(dlg, IDC_TTS_RATE), label);
     SendDlgItemMessageW(dlg, IDC_TTS_RATE, CB_SETCURSEL, static_cast<WPARAM>(nearest_speed_index(st.prefs.rate)), 0);

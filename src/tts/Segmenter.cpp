@@ -15,6 +15,9 @@ using u8::decode;
 using u8::is_space;
 
 constexpr size_t kNpos = std::string_view::npos;
+constexpr size_t kClauseSplitMin = 120;
+constexpr size_t kMinChunk = 25;
+constexpr size_t kSoftChunk = 60;
 
 bool is_wide_terminator(char32_t c) noexcept
 {
@@ -107,6 +110,83 @@ bool is_abbreviation(std::string_view t, size_t start, size_t dot)
     return last.size() <= 4 && std::ranges::find(kWords, lower_ascii(last)) != kWords.end();
 }
 
+// End of an ellipsis that starts at i (".", ". . .", "..." or "…", at least three dots' worth), else i.
+size_t ellipsis_end(std::string_view t, size_t i) noexcept
+{
+    size_t j = i;
+    int dots = 0;
+    while (j < t.size()) {
+        const size_t at = (t[j] == ' ' && dots > 0) ? j + 1 : j;
+        if (at >= t.size())
+            break;
+        const Cp c = decode(t, at);
+        if (c.cp != '.' && c.cp != 0x2026)
+            break;
+        dots += c.cp == '.' ? 1 : 3;
+        j = at + c.len;
+    }
+    return dots >= 3 ? j : i;
+}
+
+bool only_dots(std::string_view t, size_t b, size_t e) noexcept
+{
+    for (size_t i = b; i < e;) {
+        const Cp c = decode(t, i);
+        if (c.cp != '.' && c.cp != 0x2026 && !is_space(c.cp))
+            return false;
+        i += c.len;
+    }
+    return true;
+}
+
+size_t count_cps(std::string_view t, size_t b, size_t e) noexcept
+{
+    size_t n = 0;
+    for (size_t i = b; i < e; i += decode(t, i).len)
+        ++n;
+    return n;
+}
+
+bool is_clause_break(std::string_view t, size_t i, const Cp& c, size_t e) noexcept
+{
+    const size_t n = i + c.len;
+    if (n >= e)
+        return false;
+    if (c.cp == ',' || c.cp == ';')
+        return is_ascii_space(t[n]);
+    return c.cp == 0xFF0C || c.cp == 0x3001 || c.cp == 0xFF1B;
+}
+
+// Splits a long sentence after commas into chunks of one or two clauses, none shorter than kMinChunk.
+std::vector<Sentence> clause_chunks(std::string_view t, size_t b, size_t e)
+{
+    std::vector<Sentence> out;
+    size_t from = b;
+    int clauses = 0;
+    for (size_t i = b; i < e;) {
+        const Cp c = decode(t, i);
+        i += c.len;
+        if (!is_clause_break(t, i - c.len, c, e))
+            continue;
+        ++clauses;
+        const size_t last = trim_end(t, from, i);
+        const size_t len = count_cps(t, from, last);
+        if (len >= kMinChunk && (clauses >= 2 || len >= kSoftChunk)) {
+            out.push_back({static_cast<uint32_t>(from), static_cast<uint32_t>(last)});
+            from = skip_space(t, i);
+            clauses = 0;
+        }
+    }
+    if (from < e) {
+        const size_t last = trim_end(t, from, e);
+        if (!out.empty() && count_cps(t, from, last) < kMinChunk)
+            out.back().end = static_cast<uint32_t>(last);
+        else
+            out.push_back({static_cast<uint32_t>(from), static_cast<uint32_t>(last)});
+    }
+    return out;
+}
+
 void push_chunks(std::vector<Sentence>& out, std::string_view t, size_t b, size_t e)
 {
     while (b < e) {
@@ -147,8 +227,14 @@ struct Splitter {
     void emit(size_t end)
     {
         const size_t e = trim_end(t, start, end);
-        if (e > start)
+        if (e <= start || only_dots(t, start, e))
+            return;
+        if (count_cps(t, start, e) <= kClauseSplitMin) {
             push_chunks(out, t, start, e);
+            return;
+        }
+        for (const Sentence& c : clause_chunks(t, start, e))
+            push_chunks(out, t, c.begin, c.end);
     }
 
     bool paragraph_break(size_t i) const noexcept
@@ -161,7 +247,7 @@ struct Splitter {
 
     size_t run_end(size_t i, bool& wide) const noexcept
     {
-        size_t j = i;
+        size_t j = ellipsis_end(t, i);
         while (j < t.size()) {
             const Cp c = decode(t, j);
             if (!is_terminator(c.cp))
@@ -195,7 +281,7 @@ struct Splitter {
         }
         if (!wide && (k == j || u8::is_lower(decode(t, k).cp)))
             return j;
-        const bool single_dot = t[i] == '.' && !is_terminator(decode(t, i + 1).cp);
+        const bool single_dot = t[i] == '.' && !is_terminator(decode(t, i + 1).cp) && ellipsis_end(t, i) == i;
         if (!wide && single_dot && is_abbreviation(t, start, i))
             return j;
         emit(j);
@@ -331,6 +417,20 @@ bool joins_hyphen(const std::string& out, std::string_view next) noexcept
     return n >= 2;
 }
 
+// An ellipsis is a pause, never spoken as dots: a comma inside the text, a full stop at its end, nothing at its start.
+void append_pause(std::string& out, bool at_end)
+{
+    while (!out.empty() && out.back() == ' ')
+        out.pop_back();
+    if (out.empty())
+        return;
+    const char last = out.back();
+    if (last != ',' && last != '.' && last != '!' && last != '?')
+        out.push_back(at_end ? '.' : ',');
+    if (!at_end)
+        out.push_back(' ');
+}
+
 }
 
 std::string sentence_text(std::string_view utf8, Sentence s) noexcept
@@ -344,7 +444,10 @@ std::string sentence_text(std::string_view utf8, Sentence s) noexcept
         size_t i = 0;
         while (i < t.size()) {
             const Cp c = decode(t, i);
-            if (c.cp == 0xAD) {
+            if (const size_t dots = ellipsis_end(t, i); dots > i) {
+                append_pause(out, skip_space(t, dots) >= t.size());
+                i = dots;
+            } else if (c.cp == 0xAD) {
                 i += c.len;
             } else if (!is_space(c.cp)) {
                 out.append(t.substr(i, c.len));
@@ -355,7 +458,7 @@ std::string sentence_text(std::string_view utf8, Sentence s) noexcept
                 if (newline && !out.empty() && out.back() == '-') {
                     if (joins_hyphen(out, t.substr(j)))
                         out.pop_back();
-                } else if (!out.empty() && j < t.size()) {
+                } else if (!out.empty() && out.back() != ' ' && j < t.size()) {
                     out.push_back(' ');
                 }
                 i = j;

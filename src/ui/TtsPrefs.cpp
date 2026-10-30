@@ -28,6 +28,17 @@ double clamp_tts_rate(double rate) noexcept
     return std::isfinite(rate) ? std::clamp(rate, kMinTtsRate, kMaxTtsRate) : 1.0;
 }
 
+std::string_view tts_kind_name(TtsKind k) noexcept
+{
+    return kKindNames[kind_index(k)];
+}
+
+std::optional<std::size_t> engine_index(const std::vector<TtsKind>& offered, TtsKind wanted) noexcept
+{
+    const auto it = std::ranges::find(offered, wanted);
+    return it == offered.end() ? std::nullopt : std::optional<std::size_t>(static_cast<std::size_t>(it - offered.begin()));
+}
+
 TtsPrefs load_tts_prefs(Db& db)
 {
     TtsPrefs p;
