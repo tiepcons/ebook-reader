@@ -23,9 +23,10 @@ void ReaderView::relayout()
         return;
     texts_.clear();
     links_.clear();
-    links_page_ = -1;
+    links_page_ = links_right_page_ = -1;
+    links_right_.clear();
     highlight_.clear();
-    highlight_page_ = tts_page_ = -1;
+    highlight_page_ = tts_page_ = focus_page_ = -1;
     tts_char_ = -1;
     relaid_ = true;
     notify(ReaderEvent::Relayout);
@@ -67,11 +68,15 @@ std::size_t ReaderView::set_highlight(int32_t page, uint32_t begin, uint32_t end
 std::vector<D2D1_RECT_F> ReaderView::highlight_rects(int origin_x, int origin_y) const
 {
     std::vector<D2D1_RECT_F> out;
-    if (highlight_page_ != page_ || scale_ <= 0)
+    const SpreadLayout lay = layout_now();
+    const bool right = spread() && highlight_page_ == page_ + 1;
+    const float scale = right ? scale_right_ : scale_;
+    if ((highlight_page_ != page_ && !right) || scale <= 0)
         return out;
-    const auto ox = static_cast<float>(origin_x), oy = static_cast<float>(origin_y);
+    const auto ox = static_cast<float>(origin_x + (right ? lay.right_x : lay.left_x));
+    const auto oy = static_cast<float>(origin_y + (right ? lay.right_y : lay.left_y));
     for (const TextBox& b : highlight_)
-        out.push_back(D2D1::RectF(ox + b.x0 * scale_, oy + b.y0 * scale_, ox + b.x1 * scale_, oy + b.y1 * scale_));
+        out.push_back(D2D1::RectF(ox + b.x0 * scale, oy + b.y0 * scale, ox + b.x1 * scale, oy + b.y1 * scale));
     return out;
 }
 
@@ -87,15 +92,21 @@ void ReaderView::save_tts_position(int32_t page, uint32_t offset)
 {
     tts_page_ = page;
     tts_char_ = offset;
-    if (saver_ && page == page_ && mark_ != kNoAnchor)
-        saver_->update(Progress{mark_, reading_fraction(page_, count_), tts_char_, unix_now()});
+    if (!saver_)
+        return;
+    const bool right = spread() && page == page_ + 1;
+    const uint64_t mark = right ? end_mark_ : mark_;
+    if ((page == page_ || right) && mark != kNoAnchor)
+        saver_->update(Progress{mark, reading_fraction(page, count_), tts_char_, unix_now()});
 }
 
 int64_t ReaderView::resume_tts_char() const noexcept
 {
-    if (tts_page_ == page_ && tts_char_ >= 0)
+    const int32_t reading = reading_page();
+    if (tts_page_ == reading && tts_char_ >= 0)
         return tts_char_;
-    return mark_ != kNoAnchor && mark_ == saved_mark_ ? saved_tts_char_ : -1;
+    const uint64_t mark = reading == page_ ? mark_ : end_mark_;
+    return mark != kNoAnchor && mark == saved_mark_ ? saved_tts_char_ : -1;
 }
 
 }

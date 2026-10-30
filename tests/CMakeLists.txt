@@ -29,6 +29,7 @@ target_link_libraries(eb_tests PRIVATE eb_tts)
 target_sources(eb_tests PRIVATE unit/test_lib_model.cpp)
 
 target_sources(eb_tests PRIVATE unit/test_reader_logic.cpp ${CMAKE_SOURCE_DIR}/src/ui/ReaderLogic.cpp)
+target_sources(eb_tests PRIVATE unit/test_reader_spread.cpp ${CMAKE_SOURCE_DIR}/src/ui/ReaderSpread.cpp)
 
 add_executable(eb_dbcount ui/dbcount.cpp)
 target_link_libraries(eb_dbcount PRIVATE eb_hardening eb_warnings eb_lib)

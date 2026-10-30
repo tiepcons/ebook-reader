@@ -23,6 +23,8 @@ public:
     virtual void request_text(int32_t page) = 0; // the answer comes back through TtsController::on_text
     [[nodiscard]] virtual int32_t shown_page() const noexcept = 0;
     [[nodiscard]] virtual int32_t page_count() const noexcept = 0;
+    // Whether the shown page has a neighbour on its right (two pages are shown side by side).
+    [[nodiscard]] virtual bool shown_has_right_page() const noexcept { return false; }
     // Saved sentence offset of the shown page, -1 when there is none.
     [[nodiscard]] virtual int64_t resume_offset() const noexcept = 0;
     virtual void turn_to(int32_t page) = 0;
@@ -93,6 +95,8 @@ private:
 
     void enter_page(Page p, int64_t offset);
     [[nodiscard]] std::size_t first_sentence(int64_t offset);
+    [[nodiscard]] std::optional<std::size_t> find_snippet(const Page& p, int64_t offset) const;
+    [[nodiscard]] bool snippet_may_be_right(const Page& p) const;
     [[nodiscard]] std::string current_snippet() const;
     void begin_timing() noexcept;
     void go_next_page();
@@ -117,7 +121,7 @@ private:
     TtsState state_ = TtsState::Idle;
     TtsKind active_ = TtsKind::WinRt;
     std::array<std::vector<Voice>, kTtsKinds> voices_;
-    Page page_, next_;
+    Page page_, next_, held_; // held_: the left page of a spread while the right one is checked for the snippet
     std::size_t idx_ = 0;
     int32_t wait_page_ = -1, next_requested_ = -1, synced_ = -1;
     int64_t start_offset_ = -1;

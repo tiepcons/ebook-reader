@@ -55,10 +55,12 @@ struct FakeHost final : eb::TtsHost {
     std::vector<TtsState> states;
     std::vector<std::wstring> notices;
     int cleared = 0;
+    bool right = false;
 
     void request_text(int32_t page) override { requests.push_back(page); }
     int32_t shown_page() const noexcept override { return shown; }
     int32_t page_count() const noexcept override { return pages; }
+    bool shown_has_right_page() const noexcept override { return right; }
     int64_t resume_offset() const noexcept override { return resume; }
     void turn_to(int32_t page) override
     {
@@ -614,4 +616,42 @@ TEST_CASE("tts controller: among sentences with the same start the one nearest t
     r.ctl.relaid();
     r.ctl.on_text(0, text);
     CHECK(r.winrt.spoken.back().text == b);
+}
+
+TEST_CASE("tts controller: a relayout while the right page of a spread is read resumes on that page")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "Aaa one. Aaa two.");
+    r.ctl.on_event(1, finished());
+    r.ctl.on_event(2, finished());
+    r.ctl.on_text(1, "Bbb one. Bbb two.");
+    r.ctl.on_event(3, finished());
+    REQUIRE(r.winrt.spoken.back().text == "Bbb two.");
+    r.ctl.relayout();
+    r.host.shown = 0;
+    r.host.right = true;
+    r.ctl.relaid();
+    r.ctl.on_text(0, "Aaa one. Aaa two.");
+    const std::size_t before = r.winrt.spoken.size();
+    CHECK(r.host.requests.back() == 1);
+    r.ctl.on_text(1, "Bbb one. Bbb two.");
+    REQUIRE(r.winrt.spoken.size() == before + 1);
+    CHECK(r.winrt.spoken.back().text == "Bbb two.");
+    CHECK(r.host.turns.back() == 1);
+}
+
+TEST_CASE("tts controller: a snippet found on neither page of the spread restarts at the left page")
+{
+    Rig r;
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "Aaa one. Aaa two.");
+    r.ctl.on_event(1, finished());
+    r.ctl.relayout();
+    r.host.right = true;
+    r.ctl.relaid();
+    r.ctl.on_text(0, "Zzz one. Zzz two.");
+    r.ctl.on_text(1, "Yyy one. Yyy two.");
+    CHECK(r.winrt.spoken.back().text == "Zzz one.");
+    CHECK(r.host.turns.back() == 0);
 }

@@ -130,6 +130,7 @@ inline constexpr std::size_t kMaxPageLinks = 4096;
 struct ViewParams {
     int32_t client_w = 0, client_h = 0;
     uint32_t dpi = 96;
+    int32_t pages = 1; // pages shown side by side: 1 or 2
     ZoomState zoom;
     friend bool operator==(const ViewParams&, const ViewParams&) = default;
 };
@@ -143,7 +144,9 @@ struct RenderWant {
     uint32_t max_side_px = kDefaultMaxSidePx;
     int32_t page = 0;
     bool prefetch = true;
-    bool have_cur = false, have_next = false, have_prev = false; // bitmaps the UI already holds
+    // Bitmaps the UI already holds: the (left) page of the current / next / previous spread and, in a spread, its right page.
+    bool have_cur = false, have_next = false, have_prev = false;
+    bool have_cur2 = false, have_next2 = false, have_prev2 = false;
     std::shared_ptr<const ReaderStyle> style; // null = white theme, book fonts
 };
 

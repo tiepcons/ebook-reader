@@ -57,12 +57,23 @@ bool ReaderView::on_mouse(UINT msg, WPARAM wp, LPARAM lp)
 
 const PageLink* ReaderView::link_at_point(POINT pt) const
 {
-    if (!shown_ || links_page_ != page_ || scale_ <= 0)
+    if (!shown_)
         return nullptr;
     const SIZE c = content_size(), v = client_size();
-    const auto x = static_cast<float>(pt.x - axis_origin(v.cx, c.cx, pan_x_)) / scale_;
-    const auto y = static_cast<float>(pt.y - axis_origin(v.cy, c.cy, pan_y_)) / scale_;
-    return link_at(links_, x, y);
+    const SpreadLayout lay = layout_now();
+    const int ox = axis_origin(v.cx, c.cx, pan_x_), oy = axis_origin(v.cy, c.cy, pan_y_);
+    if (links_page_ == page_ && scale_ > 0) {
+        const auto x = static_cast<float>(pt.x - ox - lay.left_x) / scale_;
+        const auto y = static_cast<float>(pt.y - oy - lay.left_y) / scale_;
+        if (const PageLink* l = link_at(links_, x, y))
+            return l;
+    }
+    if (spread() && shown_right_ && links_right_page_ == page_ + 1 && scale_right_ > 0) {
+        const auto x = static_cast<float>(pt.x - ox - lay.right_x) / scale_right_;
+        const auto y = static_cast<float>(pt.y - oy - lay.right_y) / scale_right_;
+        return link_at(links_right_, x, y);
+    }
+    return nullptr;
 }
 
 bool ReaderView::on_set_cursor(LPARAM lp) const
@@ -100,11 +111,11 @@ void ReaderView::wheel_step(int direction)
     const SIZE c = content_size(), v = client_size();
     const int max_pan = static_cast<int>(std::max(0L, c.cy - v.cy));
     if (max_pan == 0 || (direction > 0 && pan_y_ >= max_pan)) {
-        go_to(page_ + direction);
+        go_to(spread_move(page_, count_, view_.pages, direction));
         return;
     }
     if (direction < 0 && pan_y_ <= 0) {
-        go_to(page_ - 1, true);
+        go_to(spread_move(page_, count_, view_.pages, -1), true);
         return;
     }
     pan_by(0, direction * std::max(1, static_cast<int>(v.cy / 4)));

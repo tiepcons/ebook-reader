@@ -190,7 +190,12 @@ void MainWnd::request_text(int32_t page)
 
 int32_t MainWnd::shown_page() const noexcept
 {
-    return reader_.page();
+    return reader_.reading_page();
+}
+
+bool MainWnd::shown_has_right_page() const noexcept
+{
+    return reader_.shown_has_right_page();
 }
 
 int32_t MainWnd::page_count() const noexcept

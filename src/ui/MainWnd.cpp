@@ -2,6 +2,7 @@
 
 #include "Kv.h"
 #include "LibrarySettings.h"
+#include "ReaderSpread.h"
 #include "base/Log.h"
 #include "resource.h"
 
@@ -83,6 +84,18 @@ bool placement_valid(const WINDOWPLACEMENT& wp) noexcept
     return probe.ok;
 }
 
+void place_default(HWND hwnd) noexcept
+{
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mi))
+        return;
+    const RECT& wa = mi.rcWork;
+    const int ww = wa.right - wa.left, wh = wa.bottom - wa.top;
+    const WindowSize s = default_window_size(ww, wh);
+    SetWindowPos(hwnd, nullptr, wa.left + (ww - s.w) / 2, wa.top + (wh - s.h) / 2, s.w, s.h, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 HWND make_child(HWND parent, DWORD ex, const wchar_t* cls, const wchar_t* text, DWORD style, int id) noexcept
 {
     return CreateWindowExW(ex, cls, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 0, 0, parent,
@@ -149,6 +162,7 @@ void MainWnd::restore_placement(int show)
         if (placement_valid(wp) && SetWindowPlacement(hwnd_, &wp))
             return;
     }
+    place_default(hwnd_);
     ShowWindow(hwnd_, show);
 }
 

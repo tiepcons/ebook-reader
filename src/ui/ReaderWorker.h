@@ -35,6 +35,7 @@ struct RenderResult {
     uint64_t mark = 0;      // eb_bookmark_of_page(page); only set when primary
     uint64_t end_mark = UINT64_MAX; // bookmark of the next page, UINT64_MAX on the last one; only set when primary
     bool primary = false;   // the page the UI asked for, as opposed to a prefetch
+    bool companion = false; // the right page of the spread whose left page is the primary one
     bool reflowable = false;
     eb_status status = EB_OK;
     BitmapPtr bmp;          // null when the UI already holds it or on failure (status != EB_OK)
@@ -79,12 +80,16 @@ private:
     eb_status ensure_layout(const RenderWant& w, int32_t& page);
     eb_status apply_layout(const LayoutParams& lp, const std::string& css);
     void save_cache() noexcept;
-    eb_status deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary);
+    eb_status deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary, bool companion = false);
+    eb_status deliver_companion(const RenderWant& w, int32_t page);
+    eb_status prefetch_spread(const RenderWant& w, int32_t first, bool have_first, bool have_second);
     void log_opts(const eb_render_opts& o);
+    eb_status page_scale(const RenderWant& w, int32_t page, float& scale);
     eb_status render_bitmap(const RenderWant& w, int32_t page, RenderResult& r);
     bool load_toc();
     eb_status load_links(int32_t page, RenderResult& r);
     eb_status serve_links(const RenderWant& w, int32_t page);
+    eb_status post_links(const RenderWant& w, int32_t page, bool companion);
     [[nodiscard]] std::string chapter_of(uint64_t mark) const;
     void post(RenderResult r);
     void fail_open(eb_status st, std::string detail) noexcept;
@@ -106,7 +111,7 @@ private:
     std::stop_token stop_;
     bool reflowable_ = false, laid_out_ = false, toc_loaded_ = false, first_logged_ = false, dead_ = false, cache_failed_ = false;
     int32_t count_ = 0;
-    uint64_t primary_gen_ = 0, resolved_gen_ = 0, links_gen_ = 0;
+    uint64_t primary_gen_ = 0, resolved_gen_ = 0, links_gen_ = 0, companion_gen_ = 0;
     int32_t resolved_page_ = 0, last_page_ = -1;
     LayoutParams applied_;
     std::string applied_css_;

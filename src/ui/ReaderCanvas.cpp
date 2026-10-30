@@ -77,17 +77,19 @@ uint32_t ReaderCanvas::max_side() noexcept
     return ensure_target() ? rt_->GetMaximumBitmapSize() : kDefaultMaxSidePx;
 }
 
-void ReaderCanvas::paint(ID2D1Bitmap* bmp, int x, int y, uint32_t paper_rgb, std::span<const D2D1_RECT_F> marks,
+void ReaderCanvas::paint(std::span<const PageDraw> pages, uint32_t paper_rgb, std::span<const D2D1_RECT_F> marks,
     uint32_t mark_rgb) noexcept
 {
     if (!ensure_target())
         return;
     rt_->BeginDraw();
     rt_->Clear(color_of(paper_rgb));
-    if (bmp != nullptr) {
-        const D2D1_SIZE_U sz = bmp->GetPixelSize();
-        const auto fx = static_cast<float>(x), fy = static_cast<float>(y);
-        rt_->DrawBitmap(bmp, D2D1::RectF(fx, fy, fx + static_cast<float>(sz.width), fy + static_cast<float>(sz.height)),
+    for (const PageDraw& p : pages) {
+        if (p.bmp == nullptr)
+            continue;
+        const D2D1_SIZE_U sz = p.bmp->GetPixelSize();
+        const auto fx = static_cast<float>(p.x), fy = static_cast<float>(p.y);
+        rt_->DrawBitmap(p.bmp, D2D1::RectF(fx, fy, fx + static_cast<float>(sz.width), fy + static_cast<float>(sz.height)),
             1.0F, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;

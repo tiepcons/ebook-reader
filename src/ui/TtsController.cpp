@@ -143,7 +143,7 @@ void TtsController::stop()
         return;
     if (engine() != nullptr)
         engine()->stop();
-    page_ = next_ = Page{};
+    page_ = next_ = held_ = Page{};
     wait_page_ = next_requested_ = -1;
     current_ = 0;
     idx_ = 0;
@@ -174,7 +174,18 @@ void TtsController::on_text(int32_t page, std::string utf8)
     p.text = std::move(utf8);
     if (page == wait_page_) {
         wait_page_ = -1;
-        enter_page(std::move(p), std::exchange(start_offset_, -1));
+        if (held_.number >= 0) {
+            Page left = std::exchange(held_, Page{});
+            const int64_t offset = std::exchange(start_offset_, -1);
+            const bool here = find_snippet(p, -1).has_value();
+            enter_page(here ? std::move(p) : std::move(left), here ? -1 : offset);
+        } else if (snippet_may_be_right(p)) {
+            wait_page_ = next_requested_ = p.number + 1;
+            held_ = std::move(p);
+            host_.request_text(wait_page_);
+        } else {
+            enter_page(std::move(p), std::exchange(start_offset_, -1));
+        }
     } else if (page_.number >= 0 && page == page_.number + 1) {
         next_ = std::move(p);
         if (idx_ + lookahead_of(engine()) >= page_.sentences.size() && !next_.sentences.empty())
@@ -209,20 +220,32 @@ void TtsController::enter_page(Page p, int64_t offset)
     speak_current();
 }
 
-std::size_t TtsController::first_sentence(int64_t offset)
+std::optional<std::size_t> TtsController::find_snippet(const Page& p, int64_t offset) const
 {
-    const std::string snippet = std::exchange(resume_snippet_, std::string{});
     std::optional<std::size_t> best;
     int64_t best_gap = 0;
-    for (std::size_t i = 0; !snippet.empty() && i < page_.sentences.size(); ++i) {
-        if (!one_line(sentence_text(page_.text, page_.sentences[i])).starts_with(snippet))
+    for (std::size_t i = 0; !resume_snippet_.empty() && i < p.sentences.size(); ++i) {
+        if (!one_line(sentence_text(p.text, p.sentences[i])).starts_with(resume_snippet_))
             continue;
-        const int64_t gap = offset > 0 ? std::abs(static_cast<int64_t>(page_.sentences[i].begin) - offset) : 0;
+        const int64_t gap = offset > 0 ? std::abs(static_cast<int64_t>(p.sentences[i].begin) - offset) : 0;
         if (!best || gap < best_gap) {
             best = i;
             best_gap = gap;
         }
     }
+    return best;
+}
+
+bool TtsController::snippet_may_be_right(const Page& p) const
+{
+    return !resume_snippet_.empty() && host_.shown_has_right_page() && p.number + 1 < host_.page_count()
+        && !find_snippet(p, start_offset_);
+}
+
+std::size_t TtsController::first_sentence(int64_t offset)
+{
+    const auto best = find_snippet(page_, offset);
+    resume_snippet_.clear();
     if (best)
         return *best;
     if (offset > 0) {

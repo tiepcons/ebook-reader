@@ -163,6 +163,7 @@ private:
     [[nodiscard]] std::string book_lang_tag() const;
     void request_text(int32_t page) override;
     [[nodiscard]] int32_t shown_page() const noexcept override;
+    [[nodiscard]] bool shown_has_right_page() const noexcept override;
     [[nodiscard]] int32_t page_count() const noexcept override;
     [[nodiscard]] int64_t resume_offset() const noexcept override;
     void turn_to(int32_t page) override;

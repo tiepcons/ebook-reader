@@ -1,5 +1,6 @@
 #include "ReaderWorker.h"
 
+#include "ReaderSpread.h"
 #include "base/FileIo.h"
 #include "base/Log.h"
 #include "doc/TxtToFb2.h"
@@ -15,7 +16,7 @@ namespace {
 constexpr int kMaxAttempts = 2;
 constexpr int32_t kMaxTocItems = 20000;
 constexpr std::size_t kMaxChapterBytes = 200;
-constexpr std::size_t kMaxQueuedResults = 4;
+constexpr std::size_t kMaxQueuedResults = 6;
 
 std::string trim_utf8(const char* s)
 {
@@ -133,10 +134,14 @@ void RenderWorker::post(RenderResult r)
         // bounded: text requests are a FIFO capped at 4 and links come once per render.
         const auto bitmap = [](const RenderResult& o) { return o.kind == RenderResult::Kind::Page; };
         if (r.kind == RenderResult::Kind::Page && std::ranges::count_if(out_, bitmap) >= kMaxQueuedResults) {
-            const auto stale = std::ranges::find_if(
-                out_, [&](const RenderResult& o) { return bitmap(o) && o.generation < r.generation; });
-            const auto spare = std::ranges::find_if(out_, [&](const RenderResult& o) { return bitmap(o) && !o.primary; });
-            out_.erase(stale != out_.end() ? stale : (spare != out_.end() ? spare : std::ranges::find_if(out_, bitmap)));
+            // Drop order: older generations, prefetched pages, the right page of the spread, the shown page.
+            const auto drop = [&](auto pred) { return std::ranges::find_if(out_, pred); };
+            auto victim = drop([&](const RenderResult& o) { return bitmap(o) && o.generation < r.generation; });
+            if (victim == out_.end())
+                victim = drop([&](const RenderResult& o) { return bitmap(o) && !o.primary && !o.companion; });
+            if (victim == out_.end())
+                victim = drop([&](const RenderResult& o) { return bitmap(o) && !o.primary; });
+            out_.erase(victim != out_.end() ? victim : drop(bitmap));
         }
         out_.push_back(std::move(r));
     }
@@ -352,7 +357,7 @@ eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
     uint64_t mark = w.anchor;
     if (reflowable_) {
         const ReaderStyle& style = style_of(w);
-        LayoutParams lp = reflow_layout(w.view.client_w, w.view.client_h, w.view.dpi);
+        LayoutParams lp = reflow_layout(slot_width_px(w.view.client_w, w.view.dpi, w.view.pages), w.view.client_h, w.view.dpi);
         lp.em_pt = style.em_pt;
         if (!laid_out_ || !(lp == applied_) || style.css != applied_css_) {
             if (mark == kNoAnchor)
@@ -366,7 +371,7 @@ eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
         if (const eb_status st = eb_page_of_bookmark(doc_, mark, &page); st != EB_OK)
             return st;
     }
-    page = std::clamp(page, 0, count_ - 1);
+    page = spread_start(page, count_, w.view.pages);
     resolved_gen_ = w.generation;
     resolved_page_ = page;
     return EB_OK;
@@ -390,6 +395,11 @@ eb_status RenderWorker::serve_once(const RenderWant& w)
                 deliver(w, page, false, true);
         }
     }
+    if (st == EB_OK && companion_gen_ != w.generation) {
+        st = deliver_companion(w, page);
+        if (st == EB_OK)
+            companion_gen_ = w.generation;
+    }
     if (st != EB_OK) {
         if (st != EB_E_ABORTED)
             post_error(w, st, page);
@@ -407,13 +417,30 @@ eb_status RenderWorker::prefetch(const RenderWant& w, int32_t page)
 {
     if (!w.prefetch)
         return EB_OK;
-    if (!w.have_next && page + 1 < count_) {
-        if (deliver(w, page + 1, true, false) == EB_E_ABORTED)
+    const int32_t span = w.view.pages >= 2 ? 2 : 1;
+    if (page + span < count_) {
+        if (prefetch_spread(w, page + span, w.have_next, w.have_next2) == EB_E_ABORTED)
             return EB_E_ABORTED;
     }
-    if (!w.have_prev && page > 0)
-        return deliver(w, page - 1, true, false) == EB_E_ABORTED ? EB_E_ABORTED : EB_OK;
+    if (page > 0)
+        return prefetch_spread(w, std::max(page - span, 0), w.have_prev, w.have_prev2) == EB_E_ABORTED ? EB_E_ABORTED : EB_OK;
     return EB_OK;
+}
+
+eb_status RenderWorker::prefetch_spread(const RenderWant& w, int32_t first, bool have_first, bool have_second)
+{
+    if (!have_first && deliver(w, first, true, false) == EB_E_ABORTED)
+        return EB_E_ABORTED;
+    if (has_right_page(first, count_, w.view.pages) && !have_second)
+        return deliver(w, first + 1, true, false) == EB_E_ABORTED ? EB_E_ABORTED : EB_OK;
+    return EB_OK;
+}
+
+eb_status RenderWorker::deliver_companion(const RenderWant& w, int32_t page)
+{
+    if (!has_right_page(page, count_, w.view.pages))
+        return EB_OK;
+    return deliver(w, page + 1, !w.have_cur2, false, true);
 }
 
 void RenderWorker::log_opts(const eb_render_opts& o)
@@ -425,16 +452,25 @@ void RenderWorker::log_opts(const eb_render_opts& o)
     log::info("reader: render-opts tint={} fg={} bg={}", o.tint, format_hex_rgb(o.fg_rgb), format_hex_rgb(o.bg_rgb));
 }
 
-eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderResult& r)
+eb_status RenderWorker::page_scale(const RenderWant& w, int32_t page, float& scale)
 {
-    float scale = render_scale(w.view.dpi);
+    scale = render_scale(w.view.dpi);
     float pw = applied_.width_pt, ph = applied_.height_pt;
     if (!reflowable_) {
         if (const eb_status st = eb_page_size(doc_, page, &pw, &ph); st != EB_OK)
             return st;
-        scale = fixed_scale(w.view.zoom, pw, ph, w.view.client_w, w.view.client_h, w.view.dpi, w.max_side_px);
+        scale = fixed_scale(w.view.zoom, pw, ph, slot_width_px(w.view.client_w, w.view.dpi, w.view.pages), w.view.client_h,
+            w.view.dpi, w.max_side_px);
     }
     scale = limit_scale(scale, pw, ph, w.max_side_px);
+    return EB_OK;
+}
+
+eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderResult& r)
+{
+    float scale = 0;
+    if (const eb_status st = page_scale(w, page, scale); st != EB_OK)
+        return st;
     const ReaderStyle& style = style_of(w);
     const eb_render_opts opts{scale, style.colors.fg, style.colors.bg, style.tint ? 1 : 0};
     log_opts(opts);
@@ -445,7 +481,7 @@ eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderR
     return st;
 }
 
-eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary)
+eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary, bool companion)
 {
     if (stop_.stop_requested())
         return EB_E_ABORTED;
@@ -455,6 +491,7 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
     r.page = page;
     r.page_count = count_;
     r.primary = primary;
+    r.companion = companion;
     r.reflowable = reflowable_;
     if (primary) {
         if (const eb_status st = eb_bookmark_of_page(doc_, page, &r.mark); st != EB_OK)
@@ -467,6 +504,9 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
     if (with_bitmap) {
         if (const eb_status st = render_bitmap(w, page, r); st != EB_OK)
             return primary ? st : (st == EB_E_ABORTED ? st : EB_OK);
+    } else if (primary || companion) {
+        if (float scale = 0; page_scale(w, page, scale) == EB_OK)
+            r.scale = scale;
     }
     if (!queue_.current(w.generation))
         return EB_E_ABORTED;
@@ -484,17 +524,29 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
 
 eb_status RenderWorker::serve_links(const RenderWant& w, int32_t page)
 {
+    if (const eb_status st = post_links(w, page, false); st != EB_OK)
+        return st;
+    if (has_right_page(page, count_, w.view.pages)) {
+        if (const eb_status st = post_links(w, page + 1, true); st != EB_OK)
+            return st;
+    }
+    links_gen_ = w.generation;
+    return EB_OK;
+}
+
+eb_status RenderWorker::post_links(const RenderWant& w, int32_t page, bool companion)
+{
     RenderResult r;
     r.kind = RenderResult::Kind::Links;
     r.generation = w.generation;
     r.view_id = w.view_id;
     r.page = page;
+    r.companion = companion;
     if (const eb_status st = load_links(page, r); st == EB_E_ABORTED)
         return st;
     if (!queue_.current(w.generation))
         return EB_E_ABORTED;
     post(std::move(r));
-    links_gen_ = w.generation;
     return EB_OK;
 }
 

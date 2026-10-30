@@ -171,28 +171,6 @@ SIZE ReaderView::client_size() const noexcept
     return {rc.right, rc.bottom};
 }
 
-SIZE ReaderView::content_size() const noexcept
-{
-    if (!shown_)
-        return {0, 0};
-    const D2D1_SIZE_U sz = shown_->GetPixelSize();
-    return {static_cast<LONG>(sz.width), static_cast<LONG>(sz.height)};
-}
-
-void ReaderView::on_paint()
-{
-    PAINTSTRUCT ps;
-    BeginPaint(hwnd_, &ps);
-    const SIZE c = content_size(), v = client_size();
-    const int ox = axis_origin(v.cx, c.cx, pan_x_), oy = axis_origin(v.cy, c.cy, pan_y_);
-    canvas_.paint(shown_.Get(), ox, oy, colors().bg, highlight_rects(ox, oy), highlight_color());
-    EndPaint(hwnd_, &ps);
-    if (canvas_.epoch() != epoch_) {
-        check_epoch();
-        InvalidateRect(hwnd_, nullptr, FALSE);
-    }
-}
-
 void ReaderView::check_epoch()
 {
     if (canvas_.epoch() == epoch_)
@@ -204,13 +182,6 @@ void ReaderView::check_epoch()
     send_want();
 }
 
-void ReaderView::set_shown(BitmapRef b)
-{
-    shown_ = std::move(b);
-    const SIZE c = content_size();
-    cache_.set_cap(kBitmapCacheBytes - std::min(kBitmapCacheBytes, bitmap_bytes(c.cx, c.cy)));
-}
-
 ViewParams ReaderView::current_view() const
 {
     const SIZE v = client_size();
@@ -218,6 +189,7 @@ ViewParams ReaderView::current_view() const
     p.client_w = v.cx;
     p.client_h = v.cy;
     p.dpi = std::max(GetDpiForWindow(hwnd_), 96U);
+    p.pages = wants_spread(v.cx, v.cy, p.dpi) ? 2 : 1;
     p.zoom = reflowable_ ? ZoomState{} : zoom_;
     return p;
 }
@@ -237,9 +209,13 @@ void ReaderView::send_want()
     w.prefetch = bitmap_bytes(c.cx, c.cy) <= kPrefetchMaxBytes;
     w.page = page_;
     const bool known = anchor_ == kNoAnchor; // a jump to a bookmark lands on a page the cache cannot be keyed by yet
-    w.have_cur = known && cache_.contains(page_);
-    w.have_next = known && cache_.contains(page_ + 1);
-    w.have_prev = known && cache_.contains(page_ - 1);
+    const int32_t next = page_ + span(), prev = std::max(page_ - span(), 0);
+    w.have_cur = known && cached_page(page_);
+    w.have_cur2 = known && cached_second(page_);
+    w.have_next = known && cached_page(next);
+    w.have_next2 = known && cached_second(next);
+    w.have_prev = known && page_ > 0 && cached_page(prev);
+    w.have_prev2 = known && page_ > 0 && cached_second(prev);
     want_gen_ = worker_->request(w);
 }
 
@@ -253,6 +229,8 @@ void ReaderView::apply_view()
     view_ = v;
     relayout();
     cache_.clear();
+    if (!spread() && shown_right_)
+        set_shown(shown_);
     send_want();
 }
 
@@ -302,7 +280,7 @@ void ReaderView::close() noexcept
     zoom_ = ZoomState{};
     anchor_ = mark_ = kNoAnchor;
     page_ = count_ = 0;
-    scale_ = 0;
+    scale_ = scale_right_ = 0;
     reflowable_ = awaiting_first_ = false;
     resume_percent_ = -1;
     pan_x_ = pan_y_ = 0;
@@ -316,9 +294,10 @@ void ReaderView::close() noexcept
     end_mark_ = UINT64_MAX;
     texts_.clear();
     links_.clear();
-    links_page_ = -1;
+    links_page_ = links_right_page_ = -1;
+    links_right_.clear();
     highlight_.clear();
-    highlight_page_ = tts_page_ = -1;
+    highlight_page_ = tts_page_ = focus_page_ = -1;
     tts_char_ = saved_tts_char_ = -1;
     relaid_ = false;
     saved_mark_ = kNoAnchor;
@@ -350,12 +329,8 @@ void ReaderView::on_results()
         check_epoch();
         if (r.kind == RenderResult::Kind::Text)
             store_text(r);
-        else if (r.kind == RenderResult::Kind::Links) {
-            if (r.view_id == view_id_) {
-                links_ = std::move(r.links);
-                links_page_ = r.page;
-            }
-        }
+        else if (r.kind == RenderResult::Kind::Links)
+            store_links(r);
         else if (r.kind == RenderResult::Kind::OpenFailed)
             fail_open(r);
         else if (r.view_id == view_id_)
@@ -382,12 +357,29 @@ void ReaderView::store_result(RenderResult& r)
             cache_.put(r.page, std::move(ref), bytes);
         else if (r.primary && r.status == EB_OK)
             r.status = EB_E_INTERNAL;
-        if (r.primary && r.scale > 0)
-            scale_ = r.scale;
         r.bmp.reset();
     }
+    if (r.primary && r.scale > 0)
+        scale_ = r.scale;
+    else if (r.companion && r.scale > 0 && r.generation == want_gen_)
+        scale_right_ = r.scale;
     if (r.primary && r.generation == want_gen_)
         show_primary(r);
+    else if (r.companion && r.generation == want_gen_ && spread())
+        show_cached();
+}
+
+void ReaderView::store_links(RenderResult& r)
+{
+    if (r.view_id != view_id_)
+        return;
+    if (r.companion) {
+        links_right_ = std::move(r.links);
+        links_right_page_ = r.page;
+    } else {
+        links_ = std::move(r.links);
+        links_page_ = r.page;
+    }
 }
 
 void ReaderView::show_primary(const RenderResult& r)
@@ -398,8 +390,10 @@ void ReaderView::show_primary(const RenderResult& r)
         return;
     }
     note_.clear();
-    if (r.page != page_)
+    if (r.page != page_) {
         pan_x_ = pan_y_ = 0;
+        focus_page_ = -1;
+    }
     page_ = r.page;
     mark_ = r.mark;
     end_mark_ = r.end_mark;
@@ -409,8 +403,9 @@ void ReaderView::show_primary(const RenderResult& r)
         if (!toc_.empty())
             ++content_version_;
     }
-    if (BitmapRef* b = cache_.get(page_))
-        set_shown(*b);
+    show_cached();
+    if (awaiting_first_ && anchor_ != kNoAnchor && anchor_ == r.end_mark && has_right_page(page_, count_, view_.pages))
+        focus_page_ = page_ + 1;
     if (awaiting_first_ && anchor_ != kNoAnchor && page_ > 0)
         resume_percent_ = static_cast<int>(std::lround(saved_percent_ * 100));
     awaiting_first_ = false;
@@ -438,16 +433,16 @@ void ReaderView::go_to(int32_t page, bool from_end)
 {
     if (count_ <= 0)
         return;
-    page = std::clamp(page, 0, count_ - 1);
+    page = spread_start(page, count_, view_.pages);
     if (page == page_)
         return;
     page_ = page;
+    focus_page_ = -1;
     anchor_ = kNoAnchor; // an explicit page turn overrides a TOC/bookmark jump still in flight
     pan_x_ = 0;
     pan_y_ = from_end ? kPanEnd : 0;
     mark_ = kNoAnchor;
-    if (BitmapRef* b = cache_.get(page_))
-        set_shown(*b);
+    show_cached();
     send_want();
     InvalidateRect(hwnd_, nullptr, FALSE);
     notify(ReaderEvent::PageShown);
@@ -510,10 +505,10 @@ void ReaderView::on_action(NavAction a)
 {
     switch (a) {
     case NavAction::Prev:
-        go_to(page_ - 1);
+        go_to(spread_move(page_, count_, view_.pages, -1));
         break;
     case NavAction::Next:
-        go_to(page_ + 1);
+        go_to(spread_move(page_, count_, view_.pages, 1));
         break;
     case NavAction::First:
         go_to(0);
