@@ -33,6 +33,14 @@ typedef struct eb_accel {
     size_t size;
 } eb_accel;
 
+/* Per-chapter page counts of a lazily laid out book (eb_lazy.c): the exact count, or the shared estimate while exact[i] is 0. */
+typedef struct eb_chapters {
+    int32_t n, exact_n, estimate;
+    int32_t* count;
+    uint8_t* exact;
+    int64_t exact_sum;
+} eb_chapters;
+
 struct eb_doc {
     fz_context* ctx;
     eb_stamp stamp; /* valid only for documents opened from a file */
@@ -40,6 +48,9 @@ struct eb_doc {
     FILE* file;
     int reflowable;
     int laid_out;
+    int lazy;            /* ch is valid: page numbers come from the chapter table, not from fz_count_pages */
+    uint32_t generation; /* changes whenever page numbers may have changed (eb_layout_generation) */
+    eb_chapters ch;
     fz_cookie cookie;
     eb_mobi_info mobi; /* libmobi books fill it at open; EPUB/FB2 lazily via eb_embed_probe */
     fz_buffer* src;    /* kept bytes of memory-opened documents, for eb_embed.c */
@@ -58,6 +69,18 @@ eb_status eb_fail_msg(eb_status s, const char* msg);
 
 /* Bookmark encoding (see eb_mupdf.h); call inside fz_try. */
 uint64_t eb_encode_bookmark(eb_doc* doc, fz_location loc);
+
+/* eb_core.c: validates the arguments, applies style and layout size, resets the numbering; no page is counted. */
+eb_status eb_layout_begin(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css);
+
+/* eb_lazy.c (all but eb_lazy_free throw: call inside fz_try). In lazy mode a call that needs a chapter lays it out first. */
+void eb_lazy_free(eb_doc* doc);
+int64_t eb_lazy_total(const eb_doc* doc);
+int eb_chapter_pages(eb_doc* doc, int chapter);
+fz_location eb_location_of_page(eb_doc* doc, int32_t page);
+int eb_page_of_location(eb_doc* doc, fz_location loc);
+fz_page* eb_load_page(eb_doc* doc, int32_t page);
+fz_location eb_resolve_uri(eb_doc* doc, const char* uri);
 
 /* Page access helpers: reflowable documents must have been laid out first (EB_E_ARG otherwise). */
 eb_status require_layout(eb_doc* doc);
@@ -103,6 +126,9 @@ void eb_fonts_release(fz_context* ctx);
  * returns the validated MuPDF accelerator blob (malloc'd, free()) or NULL when the cache is absent, stale or damaged. */
 void eb_stamp_of(FILE* f, eb_stamp* st);
 uint8_t* eb_cache_load(const wchar_t* cache_path, const eb_stamp* stamp, size_t* size);
+
+/* eb_cache.c: fills out[0..cap) with the page count MuPDF already knows for each chapter, -1 for the others. Throws. */
+void eb_known_counts(eb_doc* doc, int32_t* out, int32_t cap);
 
 /* eb_font.c: hash of the registered font files (path, size, mtime); 0 when none. Set once per eb_set_font_dirs. */
 uint64_t eb_font_digest(void);

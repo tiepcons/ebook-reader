@@ -19,7 +19,7 @@ namespace {
 
 constexpr wchar_t kClass[] = L"EbookReaderView";
 constexpr UINT_PTR kResizeTimer = 1;
-constexpr UINT kResizeDebounceMs = 150;
+constexpr UINT kResizeSettleMs = 30;
 constexpr int kPanEnd = 1 << 28;
 constexpr int64_t kFlushEveryMs = 30000;
 
@@ -138,13 +138,16 @@ LRESULT ReaderView::handle(UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SIZE:
         canvas_.resize(LOWORD(lp), HIWORD(lp));
-        SetTimer(hwnd_, kResizeTimer, kResizeDebounceMs, nullptr);
+        if (live_resize_)
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        else
+            SetTimer(hwnd_, kResizeTimer, kResizeSettleMs, nullptr);
         return 0;
     case WM_DPICHANGED_AFTERPARENT:
-        SetTimer(hwnd_, kResizeTimer, kResizeDebounceMs, nullptr);
+        SetTimer(hwnd_, kResizeTimer, kResizeSettleMs, nullptr);
         return 0;
     case WM_TIMER:
-        if (wp != kResizeTimer)
+        if (wp != kResizeTimer || live_resize_)
             return 0;
         KillTimer(hwnd_, kResizeTimer);
         apply_view();
@@ -203,6 +206,7 @@ void ReaderView::send_want()
     w.view = view_;
     w.anchor = anchor_;
     w.mark = mark_;
+    w.numbering = numbering_;
     w.max_side_px = canvas_.max_side();
     w.style = style_;
     const SIZE c = content_size();
@@ -217,6 +221,19 @@ void ReaderView::send_want()
     w.have_prev = known && page_ > 0 && cached_page(prev);
     w.have_prev2 = known && page_ > 0 && cached_second(prev);
     want_gen_ = worker_->request(w);
+}
+
+void ReaderView::set_live_resize(bool on)
+{
+    if (live_resize_ == on)
+        return;
+    live_resize_ = on;
+    if (hwnd_ == nullptr)
+        return;
+    KillTimer(hwnd_, kResizeTimer);
+    if (!on)
+        apply_view();
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void ReaderView::apply_view()
@@ -280,6 +297,10 @@ void ReaderView::close() noexcept
     zoom_ = ZoomState{};
     anchor_ = mark_ = kNoAnchor;
     page_ = count_ = 0;
+    shown_page_ = -1;
+    numbering_ = 0;
+    layout_complete_ = true;
+    pending_texts_.clear();
     scale_ = scale_right_ = 0;
     reflowable_ = awaiting_first_ = false;
     resume_percent_ = -1;
@@ -333,6 +354,8 @@ void ReaderView::on_results()
             store_links(r);
         else if (r.kind == RenderResult::Kind::OpenFailed)
             fail_open(r);
+        else if (r.kind == RenderResult::Kind::Layout)
+            on_layout(r);
         else if (r.view_id == view_id_)
             store_result(r);
     }
@@ -351,6 +374,7 @@ void ReaderView::store_result(RenderResult& r)
 {
     count_ = r.page_count;
     reflowable_ = r.reflowable;
+    layout_complete_ = r.complete;
     if (r.bmp) {
         const std::size_t bytes = bitmap_bytes(r.bmp->width, r.bmp->height);
         if (BitmapRef ref = canvas_.upload(*r.bmp))

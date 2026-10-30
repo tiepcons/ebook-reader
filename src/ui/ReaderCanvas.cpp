@@ -89,8 +89,9 @@ void ReaderCanvas::paint(std::span<const PageDraw> pages, uint32_t paper_rgb, st
             continue;
         const D2D1_SIZE_U sz = p.bmp->GetPixelSize();
         const auto fx = static_cast<float>(p.x), fy = static_cast<float>(p.y);
-        rt_->DrawBitmap(p.bmp, D2D1::RectF(fx, fy, fx + static_cast<float>(sz.width), fy + static_cast<float>(sz.height)),
-            1.0F, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        rt_->DrawBitmap(p.bmp,
+            D2D1::RectF(fx, fy, fx + static_cast<float>(sz.width) * p.scale, fy + static_cast<float>(sz.height) * p.scale), 1.0F,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     if (!marks.empty() && SUCCEEDED(rt_->CreateSolidColorBrush(color_of(mark_rgb), brush.GetAddressOf()))) {

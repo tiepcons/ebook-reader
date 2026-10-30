@@ -80,6 +80,8 @@ public:
     // The view changed layout: the page numbers and texts are stale, so stop now and restart once the new page is shown.
     void relayout();
     void relaid();
+    // The book was laid out further in the background and the numbers of the pages from the one being read on moved by `delta`.
+    void shift_pages(int32_t delta);
     // The reader reports a page turn; one the controller did not make restarts reading at the shown page.
     void page_shown();
 

@@ -1,5 +1,7 @@
 #include "eb_test_util.h"
 
+#include "eb_test_epub.h"
+
 #include "../unit/test_base_tmp.h"
 
 #include <chrono>
@@ -20,79 +22,9 @@ constexpr size_t kChapters = 24;
 constexpr size_t kHeader = 48;
 constexpr size_t kAccelFixed = 36;
 
-void le(std::string& s, uint32_t v, int bytes)
+std::string book_epub()
 {
-    for (int i = 0; i < bytes; ++i) s.push_back(static_cast<char>((v >> (8 * i)) & 0xFFu));
-}
-
-uint32_t crc32_of(const std::string& s)
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    for (const unsigned char c : s) {
-        crc ^= c;
-        for (int i = 0; i < 8; ++i) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-    }
-    return ~crc;
-}
-
-std::string stored_zip(const std::vector<std::pair<std::string, std::string>>& files)
-{
-    std::string out;
-    std::string central;
-    for (const auto& [name, data] : files) {
-        const auto offset = static_cast<uint32_t>(out.size());
-        const uint32_t crc = crc32_of(data);
-        const auto size = static_cast<uint32_t>(data.size());
-        const auto name_len = static_cast<uint32_t>(name.size());
-        out += "PK\x03\x04";
-        for (const auto& [v, n] : {std::pair<uint32_t, int>{20, 2}, {0, 2}, {0, 2}, {0, 4}, {crc, 4}, {size, 4}, {size, 4}, {name_len, 2}, {0, 2}}) le(out, v, n);
-        out += name + data;
-        central += "PK\x01\x02";
-        for (const auto& [v, n] : {std::pair<uint32_t, int>{20, 2}, {20, 2}, {0, 2}, {0, 2}, {0, 4}, {crc, 4}, {size, 4}, {size, 4}, {name_len, 2},
-                                   {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 4}, {offset, 4}})
-            le(central, v, n);
-        central += name;
-    }
-    const auto cd_offset = static_cast<uint32_t>(out.size());
-    out += central;
-    out += "PK\x05\x06";
-    const auto count = static_cast<uint32_t>(files.size());
-    for (const auto& [v, n] : {std::pair<uint32_t, int>{0, 2}, {0, 2}, {count, 2}, {count, 2}, {static_cast<uint32_t>(central.size()), 4}, {cd_offset, 4}, {0, 2}})
-        le(out, v, n);
-    return out;
-}
-
-std::string chapter_body(size_t index)
-{
-    std::string body = R"(<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body>)";
-    const size_t paragraphs = 6 + (index * 7) % 23;
-    for (size_t p = 0; p < paragraphs; ++p) {
-        body += "<p>Chapter " + std::to_string(index) + " paragraph " + std::to_string(p) +
-                ". The quick brown fox jumps over the lazy dog again and again until the line wraps around the page.</p>";
-    }
-    return body + "</body></html>";
-}
-
-std::string multi_chapter_epub()
-{
-    std::string manifest;
-    std::string spine;
-    std::vector<std::pair<std::string, std::string>> files;
-    files.emplace_back("mimetype", "application/epub+zip");
-    files.emplace_back("META-INF/container.xml",
-                       R"(<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>)"
-                       R"(<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>)");
-    for (size_t i = 0; i < kChapters; ++i) {
-        const std::string id = "c" + std::to_string(i);
-        manifest.append(R"(<item id=")").append(id).append(R"(" href=")").append(id).append(R"(.xhtml" media-type="application/xhtml+xml"/>)");
-        spine.append(R"(<itemref idref=")").append(id).append(R"("/>)");
-    }
-    files.emplace_back("OEBPS/content.opf",
-                       R"(<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">)"
-                       R"(<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">x</dc:identifier><dc:title>Cache</dc:title>)"
-                       R"(<dc:language>en</dc:language></metadata><manifest>)" + manifest + "</manifest><spine>" + spine + "</spine></package>");
-    for (size_t i = 0; i < kChapters; ++i) files.emplace_back("OEBPS/c" + std::to_string(i) + ".xhtml", chapter_body(i));
-    return stored_zip(files);
+    return ebt::multi_chapter_epub({kChapters});
 }
 
 void write_bytes(const fs::path& p, const std::string& data)
@@ -112,7 +44,7 @@ struct Fixture {
     ebtest::TempDir dir;
     fs::path book = dir.path() / L"book.epub";
     fs::path cache = dir.path() / L"book.lc";
-    Fixture() { write_bytes(book, multi_chapter_epub()); }
+    Fixture() { write_bytes(book, book_epub()); }
 };
 
 int32_t pages_of(eb_doc* d)
@@ -310,7 +242,7 @@ TEST_CASE("eb_cache is ignored when the book file changed")
     CHECK(pages_of(open_with(f).get()) == truth);
     fs::last_write_time(f.book, fs::last_write_time(f.book) - std::chrono::seconds(7));
     CHECK(pages_of(open_with(f).get()) == truth + 3);
-    write_bytes(f.book, multi_chapter_epub() + std::string(16, '\0'));
+    write_bytes(f.book, book_epub() + std::string(16, '\0'));
     fs::last_write_time(f.book, fs::last_write_time(f.cache));
     CHECK(pages_of(open_with(f).get()) == truth);
 }
@@ -330,7 +262,7 @@ TEST_CASE("eb_save_cache returns EB_E_FORMAT where no chapter cache exists")
     const DocPtr d(raw);
     CHECK(eb_save_cache(raw, cache.c_str()) == EB_E_FORMAT);
     CHECK_FALSE(fs::exists(cache));
-    const std::string epub = multi_chapter_epub();
+    const std::string epub = book_epub();
     eb_doc* mem = nullptr;
     REQUIRE(eb_open_memory(epub.data(), epub.size(), ".epub", &mem) == EB_OK);
     const DocPtr m(mem);

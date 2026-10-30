@@ -402,6 +402,22 @@ void TtsController::relaid()
         resume_snippet_ = std::move(snippet_);
 }
 
+void TtsController::shift_pages(int32_t delta)
+{
+    if (state_ == TtsState::Idle || delta == 0)
+        return;
+    for (Page* p : {&page_, &next_, &held_}) {
+        if (p->number >= 0)
+            p->number = std::max(p->number + delta, 0);
+    }
+    for (int32_t* n : {&wait_page_, &next_requested_}) {
+        if (*n >= 0)
+            *n = std::max(*n + delta, 0);
+    }
+    if (synced_ >= 0)
+        synced_ = host_.shown_page(); // the view re-pairs the pages of a spread, so the shown page need not move by `delta`
+}
+
 void TtsController::page_shown()
 {
     if (state_ != TtsState::Idle && host_.shown_page() != synced_)

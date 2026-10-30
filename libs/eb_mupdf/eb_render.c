@@ -105,7 +105,7 @@ static eb_status render_impl(eb_doc* d, int32_t page, const render_req* rq, eb_b
     {
         int w = 0, h = 0;
         float s = 1.0f;
-        pg = fz_load_page(ctx, d->doc, page);
+        pg = eb_load_page(d, page);
         fz_rect b = fz_bound_page(ctx, pg);
         dims_of(b, rq->scale, rq->max_side, &w, &h, &s);
         bmp = eb_new_bitmap(ctx, w, h);

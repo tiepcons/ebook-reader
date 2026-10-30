@@ -15,8 +15,9 @@ std::wstring ReaderView::status_text() const
     if (count_ <= 0)
         return note_.empty() ? std::wstring(L"Đang mở…") : note_;
     const bool pair = has_right_page(page_, count_, view_.pages);
-    std::wstring t = pair ? std::format(L"Trang {}–{} / {} · {} %", page_ + 1, page_ + 2, count_, percent())
-                          : std::format(L"Trang {} / {} · {} %", page_ + 1, count_, percent());
+    const wchar_t* more = layout_complete_ ? L"" : L"…";
+    std::wstring t = pair ? std::format(L"Trang {}–{} / {}{} · {} %", page_ + 1, page_ + 2, count_, more, percent())
+                          : std::format(L"Trang {} / {}{} · {} %", page_ + 1, count_, more, percent());
     if (!chapter_.empty())
         t += L" · " + chapter_;
     if (!note_.empty())

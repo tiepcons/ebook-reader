@@ -17,6 +17,7 @@ constexpr int kMaxAttempts = 2;
 constexpr int32_t kMaxTocItems = 20000;
 constexpr std::size_t kMaxChapterBytes = 200;
 constexpr std::size_t kMaxQueuedResults = 6;
+constexpr long long kIdleAfterRequestMs = 400;
 
 std::string trim_utf8(const char* s)
 {
@@ -64,17 +65,6 @@ std::shared_ptr<const PageText> copy_text(const eb_text& t, int32_t page)
     return pt;
 }
 
-const ReaderStyle& style_of(const RenderWant& w) noexcept
-{
-    static const ReaderStyle kDefault;
-    return w.style ? *w.style : kDefault;
-}
-
-long long ms_since(std::chrono::steady_clock::time_point t) noexcept
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t).count();
-}
-
 }
 
 RenderWorker::RenderWorker(HWND notify, UINT msg, OpenJob job)
@@ -108,9 +98,9 @@ uint64_t RenderWorker::request(const RenderWant& w)
     return queue_.post(w);
 }
 
-void RenderWorker::request_text(int32_t page)
+void RenderWorker::request_text(int32_t page, uint32_t numbering)
 {
-    queue_.post_text(page);
+    queue_.post_text(page, numbering);
 }
 
 std::vector<RenderResult> RenderWorker::take()
@@ -191,9 +181,12 @@ void RenderWorker::run(const std::stop_token& st, const OpenJob& job) noexcept
         const eb_status open_st = open_doc(job);
         if (!is_open_failure(open_st)) {
             RenderQueue::Job next;
-            while (queue_.pop(next, st)) {
+            while (!st.stop_requested() && queue_.pop(next, st, idle_delay(open_st == EB_OK))) {
+                after_idle_ = next.idle;
+                if (next.idle)
+                    run_idle();
                 if (next.text_page && open_st == EB_OK)
-                    serve_text(*next.text_page);
+                    serve_text(*next.text_page, next.text_numbering);
                 if (next.render && open_st == EB_OK)
                     serve(*next.render);
                 else if (next.render)
@@ -240,6 +233,14 @@ eb_status RenderWorker::open_doc(const OpenJob& job)
     return st;
 }
 
+// Background layout steps wait a moment after the last request, and never run while one is queued.
+std::chrono::milliseconds RenderWorker::idle_delay(bool open) const noexcept
+{
+    if (!open || complete_)
+        return std::chrono::milliseconds(-1);
+    return std::chrono::milliseconds(after_idle_ ? 0 : kIdleAfterRequestMs);
+}
+
 void RenderWorker::post_error(const RenderWant& w, eb_status st, int32_t page) noexcept
 {
     try {
@@ -249,6 +250,7 @@ void RenderWorker::post_error(const RenderWant& w, eb_status st, int32_t page) n
         r.view_id = w.view_id;
         r.page = page;
         r.page_count = count_;
+        r.complete = complete_;
         r.primary = true;
         r.status = st;
         post(std::move(r));
@@ -260,6 +262,7 @@ void RenderWorker::post_error(const RenderWant& w, eb_status st, int32_t page) n
 void RenderWorker::serve(const RenderWant& w)
 {
     try {
+        flush_numbering();
         for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
             if (dead_ || stop_.stop_requested())
                 return;
@@ -274,7 +277,7 @@ void RenderWorker::serve(const RenderWant& w)
     }
 }
 
-void RenderWorker::serve_text(int32_t page) noexcept
+void RenderWorker::serve_text(int32_t page, uint32_t numbering) noexcept
 {
     RenderResult r;
     r.kind = RenderResult::Kind::Text;
@@ -282,7 +285,21 @@ void RenderWorker::serve_text(int32_t page) noexcept
     r.status = EB_E_NOMEM;
     try {
         eb_text* raw = nullptr;
+        flush_numbering();
+        if (numbering != numbering_)
+            return;
         r.status = laid_out_ && page >= 0 && page < count_ ? EB_E_ABORTED : EB_E_RANGE;
+        for (int again = 0; again < 3 && r.status == EB_E_ABORTED; ++again) {
+            if (uint64_t mark = 0; eb_bookmark_of_page(doc_, page, &mark) != EB_OK)
+                break;
+            const Moved moved = numbering_moved();
+            if (moved == Moved::Bumped)
+                return;
+            if (moved == Moved::None)
+                break;
+            if (page >= count_)
+                r.status = EB_E_RANGE;
+        }
         for (int attempt = 0; attempt < kMaxAttempts && r.status == EB_E_ABORTED; ++attempt)
             r.status = eb_page_text(doc_, page, &raw);
         const std::unique_ptr<eb_text, TextFree> t(raw);
@@ -300,86 +317,11 @@ void RenderWorker::serve_text(int32_t page) noexcept
     }
 }
 
-eb_status RenderWorker::apply_layout(const LayoutParams& lp, const std::string& css)
-{
-    if (const eb_status st = eb_layout(doc_, lp.width_pt, lp.height_pt, lp.em_pt, css.empty() ? nullptr : css.c_str());
-        st != EB_OK)
-        return st;
-    if (const eb_status st = eb_page_count(doc_, &count_); st != EB_OK)
-        return st;
-    if (count_ <= 0)
-        return EB_E_FORMAT;
-    applied_ = lp;
-    applied_css_ = css;
-    laid_out_ = true;
-    save_cache();
-    return EB_OK;
-}
-
-void RenderWorker::save_cache() noexcept
-{
-    if (cache_.empty() || (saved_ && saved_->first == applied_ && saved_->second == applied_css_))
-        return;
-    const eb_status st = eb_save_cache(doc_, cache_.c_str());
-    if (st == EB_OK) {
-        try {
-            saved_.emplace(applied_, applied_css_);
-        } catch (...) {
-            saved_.reset();
-        }
-        return;
-    }
-    if (st == EB_E_FORMAT || cache_failed_)
-        return;
-    cache_failed_ = true;
-    log::error("reader: layout cache not saved: {}", eb_status_text(st));
-}
-
-// The bookmark of the page the UI shows, taken before a relayout; the UI's own mark wins, then the last delivered one.
-uint64_t RenderWorker::shown_mark(const RenderWant& w) const
-{
-    if (w.mark != kNoAnchor)
-        return w.mark;
-    if (last_mark_ && last_page_ == w.page)
-        return *last_mark_;
-    uint64_t m = 0;
-    if (laid_out_ && w.page >= 0 && w.page < count_ && eb_bookmark_of_page(doc_, w.page, &m) == EB_OK)
-        return m;
-    return kNoAnchor;
-}
-
-eb_status RenderWorker::ensure_layout(const RenderWant& w, int32_t& page)
-{
-    if (resolved_gen_ == w.generation) {
-        page = resolved_page_;
-        return EB_OK;
-    }
-    uint64_t mark = w.anchor;
-    if (reflowable_) {
-        const ReaderStyle& style = style_of(w);
-        LayoutParams lp = reflow_layout(slot_width_px(w.view.client_w, w.view.dpi, w.view.pages), w.view.client_h, w.view.dpi);
-        lp.em_pt = style.em_pt;
-        if (!laid_out_ || !(lp == applied_) || style.css != applied_css_) {
-            if (mark == kNoAnchor)
-                mark = shown_mark(w);
-            if (const eb_status st = apply_layout(lp, style.css); st != EB_OK)
-                return st;
-        }
-    }
-    page = w.page;
-    if (mark != kNoAnchor) {
-        if (const eb_status st = eb_page_of_bookmark(doc_, mark, &page); st != EB_OK)
-            return st;
-    }
-    page = spread_start(page, count_, w.view.pages);
-    resolved_gen_ = w.generation;
-    resolved_page_ = page;
-    return EB_OK;
-}
-
 eb_status RenderWorker::serve_once(const RenderWant& w)
 {
     int32_t page = 0;
+    if (w.numbering != numbering_)
+        return EB_OK;
     eb_status st = ensure_layout(w, page);
     if (st != EB_OK && !laid_out_) {
         fail_open(st, eb_last_error());
@@ -481,6 +423,33 @@ eb_status RenderWorker::render_bitmap(const RenderWant& w, int32_t page, RenderR
     return st;
 }
 
+// Lays out the chapter of the page (and of the next page for the shown one) before anything is rendered. If that moves page
+// numbers the view is told and asks again: EB_E_ABORTED.
+eb_status RenderWorker::resolve_page(int32_t page, RenderResult& r)
+{
+    for (int again = 0; again < 3; ++again) {
+        uint64_t mark = 0;
+        if (const eb_status st = eb_bookmark_of_page(doc_, page, &mark); st != EB_OK)
+            return st;
+        if (r.primary) {
+            r.mark = mark;
+            r.chapter = chapter_of(mark);
+            bail_mark_ = mark;
+            if (page + 1 < count_ && eb_bookmark_of_page(doc_, page + 1, &r.end_mark) != EB_OK)
+                r.end_mark = mark + 1;
+        }
+        const Moved moved = numbering_moved();
+        if (moved == Moved::Bumped)
+            return EB_E_ABORTED;
+        if (moved == Moved::None)
+            break;
+    }
+    bail_mark_.reset();
+    r.page_count = count_;
+    r.complete = complete_;
+    return EB_OK;
+}
+
 eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bitmap, bool primary, bool companion)
 {
     if (stop_.stop_requested())
@@ -489,17 +458,11 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
     r.generation = w.generation;
     r.view_id = w.view_id;
     r.page = page;
-    r.page_count = count_;
     r.primary = primary;
     r.companion = companion;
     r.reflowable = reflowable_;
-    if (primary) {
-        if (const eb_status st = eb_bookmark_of_page(doc_, page, &r.mark); st != EB_OK)
-            return st;
-        r.chapter = chapter_of(r.mark);
-        if (page + 1 < count_ && eb_bookmark_of_page(doc_, page + 1, &r.end_mark) != EB_OK)
-            r.end_mark = r.mark + 1;
-    }
+    if (const eb_status st = resolve_page(page, r); st != EB_OK)
+        return primary || st == EB_E_ABORTED ? st : EB_OK;
     const auto t = std::chrono::steady_clock::now();
     if (with_bitmap) {
         if (const eb_status st = render_bitmap(w, page, r); st != EB_OK)
@@ -513,6 +476,8 @@ eb_status RenderWorker::deliver(const RenderWant& w, int32_t page, bool with_bit
     if (primary) {
         last_mark_ = r.mark;
         last_page_ = page;
+        ref_valid_ = true;
+        relayout_mark_.reset();
         if (with_bitmap && !first_logged_) {
             first_logged_ = true;
             log::info("reader: open-ms {} page-ms {}", ms_since(t0_), ms_since(t));

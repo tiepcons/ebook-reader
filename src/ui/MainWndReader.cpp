@@ -203,6 +203,9 @@ void MainWnd::on_reader_event(ReaderEvent e, int page)
     case ReaderEvent::GoTo:
         on_shortcut_event(e);
         break;
+    case ReaderEvent::Renumbered:
+        SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(reader_.status_text().c_str()));
+        [[fallthrough]];
     case ReaderEvent::Text:
     case ReaderEvent::Relayout:
     case ReaderEvent::Relaid:
@@ -239,6 +242,8 @@ void MainWnd::on_tts_reader_event(ReaderEvent e, int page)
         tts_->relayout();
     else if (e == ReaderEvent::Relaid)
         tts_->relaid();
+    else if (e == ReaderEvent::Renumbered)
+        tts_->shift_pages(page);
     else
         tts_->page_shown();
 }
@@ -288,6 +293,10 @@ bool MainWnd::on_reader_msg(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
     case WM_SIZE:
         if (wp == SIZE_MINIMIZED)
             reader_.flush();
+        return false;
+    case WM_ENTERSIZEMOVE:
+    case WM_EXITSIZEMOVE:
+        reader_.set_live_resize(msg == WM_ENTERSIZEMOVE);
         return false;
     case WM_SETFOCUS:
         if (!in_reader_)

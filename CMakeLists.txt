@@ -90,7 +90,7 @@ target_compile_options(eb_libmobi PRIVATE /W0 "/FI${CMAKE_SOURCE_DIR}/libs/eb_mu
 target_link_libraries(eb_libmobi PRIVATE eb_hardening)
 
 set(EB_MUPDF_SRC libs/eb_mupdf/eb_core.c libs/eb_mupdf/eb_render.c libs/eb_mupdf/eb_text.c libs/eb_mupdf/eb_alloc.c libs/eb_mupdf/eb_open.c
-  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c libs/eb_mupdf/eb_font.c libs/eb_mupdf/eb_sfnt.c libs/eb_mupdf/eb_cache.c)
+  libs/eb_mupdf/eb_mobi.c libs/eb_mupdf/eb_mobi_check.c libs/eb_mupdf/eb_cover.c libs/eb_mupdf/eb_embed.c libs/eb_mupdf/eb_font.c libs/eb_mupdf/eb_sfnt.c libs/eb_mupdf/eb_cache.c libs/eb_mupdf/eb_lazy.c)
 add_library(eb_mupdf SHARED ${EB_MUPDF_SRC} libs/eb_mupdf/eb_mupdf.rc)
 set_target_properties(eb_mupdf PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/libs")
@@ -129,7 +129,7 @@ add_library(eb_book STATIC src/lib/Metadata.cpp src/lib/CoverCache.cpp)
 target_link_libraries(eb_book PUBLIC eb_lib eb_doc eb_tts eb_mupdf PRIVATE windowscodecs ole32 oleaut32 uuid)
 target_link_libraries(EbookReader PRIVATE eb_book)
 
-target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cpp src/ui/ReaderCanvas.cpp src/ui/ReaderView.cpp
+target_sources(EbookReader PRIVATE src/ui/ReaderLogic.cpp src/ui/ReaderWorker.cpp src/ui/ReaderWorkerLayout.cpp src/ui/ReaderCanvas.cpp src/ui/ReaderView.cpp
   src/ui/MainWndReader.cpp src/ui/MainWndReaderBar.cpp src/ui/MainWndSmoke.cpp src/ui/ReaderViewMarks.cpp src/ui/ReaderViewInput.cpp src/ui/ReaderViewTts.cpp src/ui/ReaderViewPaint.cpp src/ui/ReaderSpread.cpp src/ui/TocPane.cpp src/ui/GotoPercent.cpp)
 target_link_libraries(EbookReader PRIVATE eb_doc d2d1)
 target_link_options(EbookReader PRIVATE /DELAYLOAD:d2d1.dll)

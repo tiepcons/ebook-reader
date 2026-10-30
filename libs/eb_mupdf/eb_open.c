@@ -89,6 +89,7 @@ static void extension_magic(const wchar_t* path, char out[EB_MAX_MAGIC_CHARS + 1
 void eb_close(eb_doc* doc)
 {
     if (!doc) return;
+    eb_lazy_free(doc);
     fz_drop_document(doc->ctx, doc->doc);
     eb_mobi_info_free(&doc->mobi);
     fz_drop_buffer(doc->ctx, doc->src);

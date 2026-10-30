@@ -13,10 +13,11 @@ namespace eb {
 
 using BitmapRef = Microsoft::WRL::ComPtr<ID2D1Bitmap>;
 
-// A page bitmap and where its top-left corner goes, in client pixels; a null bitmap is skipped.
+// A page bitmap and where its top-left corner goes, in client pixels, drawn `scale` times its size; a null bitmap is skipped.
 struct PageDraw {
     ID2D1Bitmap* bmp = nullptr;
     int x = 0, y = 0;
+    float scale = 1.0F;
 };
 
 // Direct2D surface of the reader window. Device resources are created lazily and rebuilt after D2DERR_RECREATE_TARGET;

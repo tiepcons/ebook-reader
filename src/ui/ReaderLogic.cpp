@@ -1,5 +1,7 @@
 #include "ReaderLogic.h"
 
+#include "ReaderSpread.h"
+
 #include <windows.h>
 
 #include <algorithm>
@@ -143,6 +145,30 @@ NavAction nav_for_key(unsigned vk, bool shift, bool ctrl) noexcept
 double reading_fraction(int32_t page, int32_t count) noexcept
 {
     return count <= 1 ? 1.0 : static_cast<double>(page) / (count - 1);
+}
+
+int32_t renumbered_page(int32_t left, int32_t shift, int32_t old_count, int32_t new_count, int pages) noexcept
+{
+    if (new_count <= 0)
+        return 0;
+    const bool on_last = old_count > 0 && left >= spread_start(old_count - 1, old_count, pages);
+    const int32_t moved = on_last ? new_count - 1 : std::clamp(left + shift, 0, new_count - 1);
+    return spread_start(moved, new_count, pages);
+}
+
+int32_t renumbered_focus(int32_t reading, int32_t shift, int32_t left, int32_t count, int pages) noexcept
+{
+    const int32_t now = std::clamp(reading + shift, 0, std::max(count - 1, 0));
+    return now > left && now < left + std::max(pages, 1) ? now : -1;
+}
+
+void note_pending_text(std::vector<int32_t>& pending, int32_t page)
+{
+    if (std::ranges::find(pending, page) != pending.end())
+        return;
+    if (pending.size() >= RenderQueue::kMaxTextRequests)
+        pending.erase(pending.begin());
+    pending.push_back(page);
 }
 
 int32_t page_for_percent(int percent, int32_t count) noexcept
@@ -302,31 +328,46 @@ void RenderQueue::supersede() noexcept
     pending_.reset();
 }
 
-void RenderQueue::post_text(int32_t page)
+void RenderQueue::post_text(int32_t page, uint32_t numbering)
 {
+    bool abort_step = false;
     {
         const std::lock_guard lock(mu_);
-        if (std::ranges::find(text_pages_, page) == text_pages_.end()) {
+        const auto same = std::ranges::find(text_pages_, page, &std::pair<int32_t, uint32_t>::first);
+        if (same != text_pages_.end()) {
+            same->second = numbering;
+        } else {
             if (text_pages_.size() >= kMaxTextRequests)
                 text_pages_.pop_front();
-            text_pages_.push_back(page);
+            text_pages_.emplace_back(page, numbering);
         }
+        abort_step = idle_running_;
     }
     cv_.notify_one();
+    if (abort_step && abort_)
+        abort_();
 }
 
-bool RenderQueue::pop(Job& out, std::stop_token st)
+bool RenderQueue::pop(Job& out, const std::stop_token& st, std::chrono::milliseconds idle_after)
 {
     std::unique_lock lock(mu_);
-    if (!cv_.wait(lock, std::move(st), [this] { return pending_.has_value() || !text_pages_.empty(); }))
+    const auto ready = [this] { return pending_.has_value() || !text_pages_.empty(); };
+    if (idle_after.count() < 0) {
+        if (!cv_.wait(lock, st, ready))
+            return false;
+    } else if (!cv_.wait_for(lock, st, idle_after, ready) && st.stop_requested()) {
         return false;
+    }
     out.render = std::exchange(pending_, std::nullopt);
     out.text_page.reset();
     if (!text_pages_.empty()) {
-        out.text_page = text_pages_.front();
+        out.text_page = text_pages_.front().first;
+        out.text_numbering = text_pages_.front().second;
         text_pages_.pop_front();
     }
-    in_flight_ = out.render.has_value();
+    out.idle = !out.render && !out.text_page;
+    idle_running_ = out.idle;
+    in_flight_ = out.render.has_value() || out.idle;
     return true;
 }
 
@@ -334,6 +375,7 @@ void RenderQueue::done() noexcept
 {
     const std::lock_guard lock(mu_);
     in_flight_ = false;
+    idle_running_ = false;
 }
 
 bool RenderQueue::current(uint64_t generation) const

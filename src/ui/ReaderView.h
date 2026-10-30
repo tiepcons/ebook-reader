@@ -86,6 +86,12 @@ public:
     // Applies theme and font settings at once: the cache is dropped and the current page is requested first.
     void set_prefs(const ReaderPrefs& p, bool persist);
 
+    // While the window is being dragged to a new size the pages are shown scaled instead of laid out again; the layout for the
+    // final size is requested when the drag ends.
+    void set_live_resize(bool on);
+    // False while the page count is still an estimate because the book is being laid out in the background.
+    [[nodiscard]] bool layout_complete() const noexcept { return layout_complete_; }
+
 private:
     static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept;
     LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
@@ -102,6 +108,11 @@ private:
     [[nodiscard]] const PageLink* link_at_point(POINT pt) const;
     bool on_set_cursor(LPARAM lp) const;
     void relayout();
+    void on_layout(const RenderResult& r);
+    void renumber(int32_t shift, int32_t old_count);
+    void follow_count(int32_t old_count);
+    void rekey_cache(int32_t shift);
+    [[nodiscard]] float preview_scale(SIZE content, SIZE client) const noexcept;
     void check_epoch();
     void set_shown(BitmapRef b, BitmapRef right = {});
     void show_cached();
@@ -144,6 +155,7 @@ private:
     std::vector<std::shared_ptr<const PageText>> texts_;
     std::vector<PageLink> links_, links_right_;
     std::vector<TextBox> highlight_;
+    std::vector<int32_t> pending_texts_; // pages whose text was asked for and has not arrived
     uint64_t end_mark_ = UINT64_MAX;
     uint64_t want_gen_ = 0;
     uint64_t anchor_ = kNoAnchor;
@@ -158,7 +170,8 @@ private:
     uint32_t content_version_ = 0;
     uint32_t view_id_ = 0;
     uint32_t epoch_ = 0;
-    int32_t page_ = 0, count_ = 0;
+    uint32_t numbering_ = 0;
+    int32_t page_ = 0, count_ = 0, shown_page_ = -1;
     int32_t links_page_ = -1, links_right_page_ = -1;
     int32_t highlight_page_ = -1, tts_page_ = -1, focus_page_ = -1;
     float scale_ = 0, scale_right_ = 0;
@@ -169,6 +182,7 @@ private:
     bool prefs_loaded_ = false;
     bool reflowable_ = false, awaiting_first_ = false, relaid_ = false;
     bool dragging_ = false, moved_ = false;
+    bool layout_complete_ = true, live_resize_ = false;
 };
 
 }

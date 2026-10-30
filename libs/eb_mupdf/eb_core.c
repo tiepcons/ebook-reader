@@ -155,6 +155,12 @@ eb_status eb_count_pages(eb_doc* doc, int32_t* out)
     int n = 0;
     eb_status st = require_layout(doc);
     if (st != EB_OK) return st;
+    if (doc->lazy) {
+        const int64_t total = eb_lazy_total(doc);
+        if (total < 0 || total > (int64_t)eb_g_limits.max_pages) return eb_fail_msg(EB_E_LIMIT, "too many pages");
+        *out = (int32_t)total;
+        return EB_OK;
+    }
     fz_try(doc->ctx) n = fz_count_pages(doc->ctx, doc->doc);
     fz_catch(doc->ctx) return eb_fail(doc->ctx);
     if (n < 0 || (uint32_t)n > eb_g_limits.max_pages) return eb_fail_msg(EB_E_LIMIT, "too many pages");
@@ -179,14 +185,16 @@ static int layout_args_ok(float w, float h, float em)
            w <= EB_MAX_LAYOUT_PT && h <= EB_MAX_LAYOUT_PT && em <= 1000.0f;
 }
 
-eb_status eb_layout(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css)
+eb_status eb_layout_begin(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css)
 {
     eb_status st = EB_OK;
-    int32_t n = 0;
     if (!doc) return eb_fail_msg(EB_E_ARG, "null doc");
     if (!layout_args_ok(width_pt, height_pt, em_pt)) return eb_fail_msg(EB_E_ARG, "bad layout size");
     if (user_css && strnlen(user_css, EB_MAX_CSS_BYTES + 1) > EB_MAX_CSS_BYTES) return eb_fail_msg(EB_E_LIMIT, "css too large");
     if (!doc->reflowable) return EB_OK;
+    eb_lazy_free(doc);
+    doc->laid_out = 0;
+    doc->generation++;
     fz_try(doc->ctx)
     {
         fz_style_document(doc->ctx, doc->doc, 1, user_css);
@@ -195,6 +203,14 @@ eb_status eb_layout(eb_doc* doc, float width_pt, float height_pt, float em_pt, c
     fz_catch(doc->ctx) st = eb_fail(doc->ctx);
     if (st != EB_OK) return st;
     doc->laid_out = 1;
+    return EB_OK;
+}
+
+eb_status eb_layout(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css)
+{
+    int32_t n = 0;
+    const eb_status st = eb_layout_begin(doc, width_pt, height_pt, em_pt, user_css);
+    if (st != EB_OK || !doc->reflowable) return st;
     return eb_count_pages(doc, &n);
 }
 
@@ -214,7 +230,7 @@ eb_status eb_page_size(eb_doc* doc, int32_t page, float* width_pt, float* height
     fz_var(pg);
     fz_try(doc->ctx)
     {
-        pg = fz_load_page(doc->ctx, doc->doc, page);
+        pg = eb_load_page(doc, page);
         fz_rect r = fz_bound_page(doc->ctx, pg);
         *width_pt = r.x1 - r.x0;
         *height_pt = r.y1 - r.y0;
@@ -232,8 +248,7 @@ eb_status eb_bookmark_of_page(eb_doc* doc, int32_t page, eb_bookmark* out)
     if (st != EB_OK) return st;
     fz_try(doc->ctx)
     {
-        fz_location loc = fz_location_from_page_number(doc->ctx, doc->doc, page);
-        *out = eb_encode_bookmark(doc, loc);
+        *out = eb_encode_bookmark(doc, eb_location_of_page(doc, page));
     }
     fz_catch(doc->ctx) st = eb_fail(doc->ctx);
     return st;
@@ -251,7 +266,7 @@ uint64_t eb_encode_bookmark(eb_doc* doc, fz_location loc)
     int count = 0;
     if (!doc->reflowable) return (uint64_t)(uint32_t)fz_page_number_from_location(ctx, doc->doc, loc);
     if (loc.chapter < 0 || loc.page < 0) fz_throw(ctx, FZ_ERROR_ARGUMENT, "unresolved location");
-    count = fz_count_chapter_pages(ctx, doc->doc, loc.chapter);
+    count = loc.page > 0 ? eb_chapter_pages(doc, loc.chapter) : 0;
     if (count > 0) frac = floor((double)loc.page / (double)count * EB_BM_FRAC_SCALE + 0.5);
     if (frac > EB_BM_FRAC_SCALE - 1.0) frac = EB_BM_FRAC_SCALE - 1.0;
     return ((uint64_t)((uint32_t)loc.chapter & EB_BM_CHAPTER_MASK) << 32) | (uint64_t)frac;
@@ -265,11 +280,11 @@ static int decode_bookmark(eb_doc* doc, eb_bookmark mark)
     chapter = (int)((uint32_t)(mark >> 32) & EB_BM_CHAPTER_MASK);
     if (chapter >= fz_count_chapters(ctx, doc->doc)) chapter = fz_count_chapters(ctx, doc->doc) - 1;
     if (chapter < 0) return -1;
-    count = fz_count_chapter_pages(ctx, doc->doc, chapter);
+    count = eb_chapter_pages(doc, chapter);
     if (count <= 0) return -1;
     in_chapter = (int)floor((double)(uint32_t)(mark & 0xFFFFFFFFu) / EB_BM_FRAC_SCALE * (double)count + 0.5);
     if (in_chapter > count - 1) in_chapter = count - 1;
-    return fz_page_number_from_location(ctx, doc->doc, (fz_location){chapter, in_chapter});
+    return eb_page_of_location(doc, (fz_location){chapter, in_chapter});
 }
 
 eb_status eb_page_of_bookmark(eb_doc* doc, eb_bookmark mark, int32_t* page)
@@ -278,10 +293,12 @@ eb_status eb_page_of_bookmark(eb_doc* doc, eb_bookmark mark, int32_t* page)
     int n = -1;
     eb_status st = EB_OK;
     if (!doc || !page) return eb_fail_msg(EB_E_ARG, "null argument");
-    st = eb_count_pages(doc, &count);
+    st = require_layout(doc);
     if (st != EB_OK) return st;
     fz_try(doc->ctx) n = decode_bookmark(doc, mark);
     fz_catch(doc->ctx) return eb_fail(doc->ctx);
+    st = eb_count_pages(doc, &count);
+    if (st != EB_OK) return st;
     if (n < 0 || n >= count) return eb_fail_msg(EB_E_RANGE, "bookmark does not resolve to a page");
     *page = n;
     return EB_OK;

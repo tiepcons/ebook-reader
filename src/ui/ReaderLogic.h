@@ -1,7 +1,9 @@
 #pragma once
 #include "Theme.h"
 
+#include <chrono>
 #include <condition_variable>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -91,6 +93,14 @@ struct TocItem {
 [[nodiscard]] double reading_fraction(int32_t page, int32_t count) noexcept;
 // Page for a reading percentage (0..100) in a book of `count` pages; the inverse of page / (count - 1).
 [[nodiscard]] int32_t page_for_percent(int percent, int32_t count) noexcept;
+// The left page of the spread a view shows after the book was renumbered while its layout was still being completed: moved by
+// `shift`, kept on the last spread when it was on it, always inside the book. `pages` is 1 or 2 (pages side by side).
+[[nodiscard]] int32_t renumbered_page(int32_t left, int32_t shift, int32_t old_count, int32_t new_count, int pages) noexcept;
+// The page inside the spread starting at `left` that read-aloud keeps following after the book was renumbered, -1 when it is the
+// left page itself or no longer inside the spread. `reading` is the page followed before, in the old numbering.
+[[nodiscard]] int32_t renumbered_focus(int32_t reading, int32_t shift, int32_t left, int32_t count, int pages) noexcept;
+// Remembers a text request, forgetting the oldest ones past RenderQueue::kMaxTextRequests exactly as the queue does.
+void note_pending_text(std::vector<int32_t>& pending, int32_t page);
 // Whole number 0..100 with an optional trailing '%' and surrounding spaces.
 [[nodiscard]] std::optional<int> parse_percent(std::wstring_view text) noexcept;
 // Parent index of every outline entry (-1 for top level); jumps of more than one level attach to the nearest shallower entry.
@@ -141,6 +151,7 @@ struct RenderWant {
     ViewParams view;
     uint64_t anchor = kNoAnchor; // bookmark to jump to after layout
     uint64_t mark = kNoAnchor;   // confirmed bookmark of `page`, kNoAnchor while unknown
+    uint32_t numbering = 0;      // the page numbering `page` is in (RenderResult::numbering of the last Layout result seen)
     uint32_t max_side_px = kDefaultMaxSidePx;
     int32_t page = 0;
     bool prefetch = true;
@@ -155,10 +166,13 @@ class RenderQueue {
 public:
     using AbortFn = std::function<void()>;
 
-    // What the worker should do next: render, read the text of a page, or both.
+    // What the worker should do next: render, read the text of a page, or both; `idle` when there is neither, so the worker may
+    // spend the time on the layout of the rest of the book (a request that arrives meanwhile aborts it).
     struct Job {
         std::optional<RenderWant> render;
         std::optional<int32_t> text_page;
+        uint32_t text_numbering = 0;
+        bool idle = false;
     };
 
     explicit RenderQueue(AbortFn abort) : abort_(std::move(abort)) {}
@@ -166,9 +180,10 @@ public:
     uint64_t post(RenderWant w);
     // Text requests are served in order (duplicates merged, oldest dropped past kMaxTextRequests); they never cancel a
     // render in flight.
-    void post_text(int32_t page);
+    void post_text(int32_t page, uint32_t numbering = 0);
     static constexpr size_t kMaxTextRequests = 4;
-    bool pop(Job& out, std::stop_token st);
+    // With idle_after >= 0 the call also returns, as an idle job, once that long has passed without any request.
+    bool pop(Job& out, const std::stop_token& st, std::chrono::milliseconds idle_after = std::chrono::milliseconds(-1));
     // Makes every request so far stale and drops the pending one (used when closing).
     void supersede() noexcept;
     void done() noexcept;
@@ -178,7 +193,8 @@ private:
     mutable std::mutex mu_;
     std::condition_variable_any cv_;
     std::optional<RenderWant> pending_;
-    std::deque<int32_t> text_pages_;
+    std::deque<std::pair<int32_t, uint32_t>> text_pages_; // page, numbering
+    bool idle_running_ = false;
     uint64_t gen_ = 0;
     bool in_flight_ = false;
     AbortFn abort_;
@@ -207,6 +223,18 @@ public:
             return nullptr;
         items_.splice(items_.begin(), items_, it);
         return std::addressof(items_.front().value);
+    }
+    // Drops every entry whose key lies outside [lo, hi].
+    void keep_only(int32_t lo, int32_t hi)
+    {
+        for (auto it = items_.begin(); it != items_.end();) {
+            if (it->key >= lo && it->key <= hi) {
+                ++it;
+                continue;
+            }
+            bytes_ -= it->bytes;
+            it = items_.erase(it);
+        }
     }
     void set_cap(std::size_t cap)
     {

@@ -22,6 +22,7 @@ void ReaderView::relayout()
     if (!reflowable_)
         return;
     texts_.clear();
+    pending_texts_.clear();
     links_.clear();
     links_page_ = links_right_page_ = -1;
     links_right_.clear();
@@ -32,14 +33,81 @@ void ReaderView::relayout()
     notify(ReaderEvent::Relayout);
 }
 
+// The book was laid out further in the background: `shift` is how far the numbers of the pages shown moved.
+void ReaderView::on_layout(const RenderResult& r)
+{
+    const bool bumped = r.numbering != numbering_;
+    const int32_t old_count = count_;
+    numbering_ = r.numbering;
+    layout_complete_ = r.complete;
+    if (r.toc_changed && worker_) {
+        toc_ = worker_->toc();
+        ++content_version_;
+    }
+    count_ = r.page_count;
+    if (bumped)
+        renumber(r.shift, old_count);
+    else
+        follow_count(old_count);
+    if (bumped && r.requested_mark != kNoAnchor && mark_ == kNoAnchor)
+        anchor_ = r.requested_mark;
+    if (saver_ && mark_ != kNoAnchor)
+        saver_->update(Progress{mark_, reading_fraction(page_, count_), tts_page_ == page_ ? tts_char_ : -1, unix_now()});
+    SendMessageW(parent_, WM_APP_READER_EVENT, static_cast<WPARAM>(ReaderEvent::Renumbered), static_cast<LPARAM>(r.shift));
+    if (!bumped || !worker_)
+        return;
+    for (const int32_t page : pending_texts_)
+        worker_->request_text(page, numbering_);
+    send_want();
+}
+
+// Only the page count changed: the pages around the shown one keep their numbers, the ones further away may not.
+void ReaderView::follow_count(int32_t old_count)
+{
+    if (count_ == old_count)
+        return;
+    if (mark_ == kNoAnchor && page_ >= spread_start(old_count - 1, old_count, view_.pages)) {
+        page_ = spread_start(count_ - 1, count_, view_.pages); // a jump to the end, whose chapter was laid out meanwhile
+        send_want();
+    }
+    cache_.keep_only(page_ - span(), page_ + 2 * span() - 1);
+}
+
+void ReaderView::renumber(int32_t shift, int32_t old_count)
+{
+    const auto moved = [&](int32_t& p) {
+        if (p >= 0)
+            p = std::clamp(p + shift, 0, std::max(count_ - 1, 0));
+    };
+    const int32_t reading = reading_page();
+    page_ = renumbered_page(page_, shift, old_count, count_, view_.pages);
+    focus_page_ = renumbered_focus(reading, shift, page_, count_, view_.pages);
+    moved(tts_page_);
+    moved(highlight_page_);
+    for (int32_t& p : pending_texts_)
+        moved(p);
+    for (auto& t : texts_) {
+        auto copy = std::make_shared<PageText>(*t);
+        copy->page = std::max(t->page + shift, 0);
+        t = std::move(copy);
+    }
+    links_.clear();
+    links_right_.clear();
+    links_page_ = links_right_page_ = -1;
+    rekey_cache(shift);
+}
+
 void ReaderView::request_text(int32_t page)
 {
-    if (worker_)
-        worker_->request_text(page);
+    if (!worker_)
+        return;
+    note_pending_text(pending_texts_, page);
+    worker_->request_text(page, numbering_);
 }
 
 void ReaderView::store_text(const RenderResult& r)
 {
+    std::erase(pending_texts_, r.page);
     if (r.text) {
         std::erase_if(texts_, [&](const auto& t) { return t->page == r.page; });
         if (texts_.size() >= kKeptTexts)

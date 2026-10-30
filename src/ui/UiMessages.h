@@ -23,7 +23,10 @@ inline constexpr UINT WM_APP_TTS_EVENT = WM_APP + 35;      // TtsEngine -> MainW
 // Text: lParam is the page whose text was requested (not the shown page).
 // PageShown: the visible page number changed (optimistic); PageSettled: the worker confirmed it and progress was recorded.
 // Relayout: font, theme, size or zoom changed, so page numbers and texts are stale; Relaid: the first page of the new layout is shown.
-enum class ReaderEvent : unsigned char { PageShown, PageSettled, OpenFailed, CloseRequested, Fullscreen, Settings, Toc, Bookmark, GoTo, Text, Relayout, Relaid };
+// Renumbered: the book was laid out further in the background; lParam is how far the numbers of the pages shown moved (often 0).
+enum class ReaderEvent : unsigned char {
+    PageShown, PageSettled, OpenFailed, CloseRequested, Fullscreen, Settings, Toc, Bookmark, GoTo, Text, Relayout, Relaid, Renumbered
+};
 
 inline constexpr int kIdBack = 108;
 inline constexpr int kIdResumeText = 109;

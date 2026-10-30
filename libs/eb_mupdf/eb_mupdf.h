@@ -140,7 +140,8 @@ EB_API eb_status eb_layout(eb_doc* doc, float width_pt, float height_pt, float e
 EB_API eb_status eb_layout_lazy(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css);
 /* Lays out one more chapter: the chapters after `near` in reading order first (nearest first), then the ones before it
  * (nearest first). *complete = 1 once every chapter is laid out and all page numbers are exact; then it is a cheap no-op.
- * Abortable like a render (eb_abort -> EB_E_ABORTED, nothing lost). */
+ * eb_abort is checked between chapters: the layout of one chapter cannot be interrupted, and a step cancelled that way
+ * still keeps the chapter it laid out (EB_E_ABORTED, nothing lost). */
 EB_API eb_status eb_layout_step(eb_doc* doc, eb_bookmark near, int32_t* complete);
 EB_API uint32_t eb_layout_generation(eb_doc* doc);
 EB_API eb_status eb_page_count(eb_doc* doc, int32_t* out);

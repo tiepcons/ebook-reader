@@ -111,7 +111,7 @@ eb_status eb_page_text(eb_doc* doc, int32_t page, eb_text** out)
     {
         fz_stext_options opts;
         fz_init_stext_options(doc->ctx, &opts);
-        pg = fz_load_page(doc->ctx, doc->doc, page);
+        pg = eb_load_page(doc, page);
         st = fz_new_stext_page_from_page_with_cookie(doc->ctx, pg, &opts, &doc->cookie);
         eb_check_abort(doc);
         extract(doc->ctx, st, fz_bound_page(doc->ctx, pg), t);
@@ -145,9 +145,9 @@ static int link_target(eb_doc* d, const fz_link* l, fz_rect bound, int32_t npage
     a = fz_transform_rect(a, fz_translate(-bound.x0, -bound.y0));
     a = fz_intersect_rect(a, (fz_rect){0, 0, bound.x1 - bound.x0, bound.y1 - bound.y0});
     if (fz_is_empty_rect(a)) return 0;
-    loc = fz_resolve_link(d->ctx, d->doc, l->uri, NULL, NULL);
+    loc = eb_resolve_uri(d, l->uri);
     if (loc.chapter < 0 || loc.page < 0) return 0;
-    out->page = fz_page_number_from_location(d->ctx, d->doc, loc);
+    out->page = eb_page_of_location(d, loc);
     if (out->page < 0 || out->page >= npages) return 0;
     out->target = eb_encode_bookmark(d, loc);
     out->area = (eb_rect){a.x0, a.y0, a.x1, a.y1};
@@ -199,10 +199,12 @@ eb_status eb_page_links(eb_doc* doc, int32_t page, eb_link** links, int32_t* cou
     fz_var(head);
     fz_var(arr);
     fz_var(n);
+    fz_var(npages);
     fz_try(doc->ctx)
     {
         int32_t cap;
-        pg = fz_load_page(doc->ctx, doc->doc, page);
+        pg = eb_load_page(doc, page);
+        (void)eb_count_pages(doc, &npages);
         head = fz_load_links(doc->ctx, pg);
         cap = count_links(head);
         arr = cap ? calloc((size_t)cap, sizeof *arr) : NULL;
@@ -234,21 +236,22 @@ static int32_t count_items(const fz_outline* o, int depth)
     return n < EB_MAX_TOC_ITEMS ? n : EB_MAX_TOC_ITEMS;
 }
 
-static void resolve(eb_doc* d, const fz_outline* o, eb_toc_item* it)
+static void resolve(eb_doc* d, const fz_outline* o, eb_toc_item* it, int32_t npages)
 {
     fz_context* ctx = d->ctx;
     fz_try(ctx)
     {
-        fz_location loc = o->uri ? fz_resolve_link(ctx, d->doc, o->uri, NULL, NULL) : o->page;
+        fz_location loc = o->uri ? eb_resolve_uri(d, o->uri) : o->page;
         if (loc.chapter >= 0 && loc.page >= 0) {
             it->target = eb_encode_bookmark(d, loc);
-            it->page = fz_page_number_from_location(ctx, d->doc, loc);
+            it->page = eb_page_of_location(d, loc);
+            if (it->page < 0 || it->page >= npages) it->page = -1;
         }
     }
     fz_catch(ctx) fz_ignore_error(ctx);
 }
 
-static int fill_items(eb_doc* d, const fz_outline* o, int depth, eb_toc_item** cur, const eb_toc_item* end)
+static int fill_items(eb_doc* d, const fz_outline* o, int depth, eb_toc_item** cur, const eb_toc_item* end, int32_t npages)
 {
     for (; o && *cur < end; o = o->next) {
         eb_toc_item* it = (*cur)++;
@@ -258,8 +261,8 @@ static int fill_items(eb_doc* d, const fz_outline* o, int depth, eb_toc_item** c
         it->title = malloc(strlen(title) + 1);
         if (!it->title) return 0;
         memcpy(it->title, title, strlen(title) + 1);
-        resolve(d, o, it);
-        if (o->down && depth + 1 < EB_MAX_TOC_DEPTH && !fill_items(d, o->down, depth + 1, cur, end)) return 0;
+        resolve(d, o, it, npages);
+        if (o->down && depth + 1 < EB_MAX_TOC_DEPTH && !fill_items(d, o->down, depth + 1, cur, end, npages)) return 0;
     }
     return 1;
 }
@@ -277,10 +280,11 @@ eb_status eb_toc(eb_doc* doc, eb_toc_item** items, int32_t* count)
     eb_toc_item* cur = NULL;
     int32_t n = 0;
     eb_status st = EB_OK;
+    int32_t npages = 0;
     if (!doc || !items || !count) return eb_fail_msg(EB_E_ARG, "null argument");
     *items = NULL;
     *count = 0;
-    st = require_layout(doc);
+    st = eb_count_pages(doc, &npages);
     if (st != EB_OK) return st;
     fz_var(ol);
     fz_var(arr);
@@ -292,7 +296,7 @@ eb_status eb_toc(eb_doc* doc, eb_toc_item** items, int32_t* count)
         arr = n ? calloc((size_t)n, sizeof *arr) : NULL;
         if (n && !arr) eb_throw_oom(doc->ctx);
         cur = arr;
-        if (n && !fill_items(doc, ol, 0, &cur, arr + n)) eb_throw_oom(doc->ctx);
+        if (n && !fill_items(doc, ol, 0, &cur, arr + n, npages)) eb_throw_oom(doc->ctx);
     }
     fz_always(doc->ctx) fz_drop_outline(doc->ctx, ol);
     fz_catch(doc->ctx) st = eb_fail(doc->ctx);

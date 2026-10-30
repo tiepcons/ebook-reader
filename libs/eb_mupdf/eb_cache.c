@@ -88,6 +88,30 @@ static int accel_ok(const uint8_t* b, size_t n)
     return sum <= eb_g_limits.max_pages;
 }
 
+void eb_known_counts(eb_doc* doc, int32_t* out, int32_t cap)
+{
+    fz_context* ctx = doc->ctx;
+    fz_buffer* buf = NULL;
+    fz_var(buf);
+    for (int32_t i = 0; i < cap; ++i) out[i] = -1;
+    fz_try(ctx)
+    {
+        unsigned char* b = NULL;
+        size_t n = 0;
+        uint32_t chapters = 0;
+        buf = fz_new_buffer(ctx, 4096);
+        fz_output_accelerator(ctx, doc->doc, fz_new_output_with_buffer(ctx, buf));
+        n = fz_buffer_storage(ctx, buf, &b);
+        if (n >= ACCEL_FIXED_BYTES && rd32(b) == ACCEL_MAGIC && rd32(b + 4) == ACCEL_MAGIC_EPUB && rd32(b + 8) == ACCEL_VERSION) {
+            chapters = rd32(b + 32);
+            for (uint32_t i = 0; i < chapters && i < (uint32_t)cap && n >= ACCEL_FIXED_BYTES + 4u * (size_t)(i + 1); ++i)
+                out[i] = (int32_t)rd32(b + ACCEL_FIXED_BYTES + 4u * i);
+        }
+    }
+    fz_always(ctx) fz_drop_buffer(ctx, buf);
+    fz_catch(ctx) fz_rethrow(ctx);
+}
+
 static uint8_t* read_small(const wchar_t* path, size_t* size)
 {
     LARGE_INTEGER len;

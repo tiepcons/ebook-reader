@@ -3,6 +3,7 @@
 #include "ui/ReaderLogic.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <stop_token>
@@ -352,4 +353,121 @@ TEST_CASE("reader: Ctrl shortcuts for outline, bookmark and go-to")
     CHECK(eb::nav_for_key('G', false, true) == NavAction::GoTo);
     CHECK(eb::nav_for_key(VK_OEM_COMMA, false, true) == NavAction::Settings);
     CHECK(eb::nav_for_key('B', false, false) == NavAction::None);
+}
+
+TEST_CASE("reader: an idle worker is handed an abortable idle job only when nothing else waits")
+{
+    std::atomic<int> aborts{0};
+    eb::RenderQueue q([&] { ++aborts; });
+    eb::RenderQueue::Job job;
+    const std::stop_source src;
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(0)));
+    CHECK(job.idle);
+    CHECK_FALSE(job.render);
+    CHECK_FALSE(job.text_page);
+    q.post(want(2));
+    CHECK(aborts == 1); // the step in progress is cancelled by the newer request
+    q.done();
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(0)));
+    CHECK_FALSE(job.idle);
+    REQUIRE(job.render);
+    CHECK(job.render->page == 2);
+    q.done();
+    q.post_text(9, 4);
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(0)));
+    CHECK_FALSE(job.idle);
+    CHECK(job.text_page == 9);
+    CHECK(job.text_numbering == 4);
+    q.done();
+    q.post(want(3));
+    q.done();
+    CHECK(aborts == 1);
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(0))); // consumes want 3
+    q.done();
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(0)));
+    CHECK(job.idle);
+    q.post_text(4, 0); // a text request cancels the step in progress too
+    CHECK(aborts == 2);
+    q.done();
+}
+
+TEST_CASE("reader: an idle job is only handed out after the quiet time")
+{
+    eb::RenderQueue q([] {});
+    eb::RenderQueue::Job job;
+    const std::stop_source src;
+    const auto t0 = std::chrono::steady_clock::now();
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(60)));
+    CHECK(job.idle);
+    CHECK(std::chrono::steady_clock::now() - t0 >= std::chrono::milliseconds(50));
+    q.done();
+    q.post(want(1));
+    REQUIRE(q.pop(job, src.get_token(), std::chrono::milliseconds(60)));
+    CHECK_FALSE(job.idle);
+}
+
+TEST_CASE("reader: a repeated text request takes the newest numbering")
+{
+    eb::RenderQueue q([] {});
+    q.post_text(5, 1);
+    q.post_text(5, 2);
+    eb::RenderQueue::Job job;
+    const std::stop_source src;
+    REQUIRE(q.pop(job, src.get_token()));
+    CHECK(job.text_page == 5);
+    CHECK(job.text_numbering == 2);
+    CHECK_FALSE(job.idle);
+}
+
+TEST_CASE("reader: the view follows a renumbering of the book")
+{
+    CHECK(eb::renumbered_page(10, 3, 40, 60, 1) == 13);
+    CHECK(eb::renumbered_page(10, -4, 40, 60, 1) == 6);
+    CHECK(eb::renumbered_page(2, -4, 40, 60, 1) == 0);
+    CHECK(eb::renumbered_page(39, 3, 40, 60, 1) == 59); // on the last page: still on the last page
+    CHECK(eb::renumbered_page(38, 30, 40, 60, 1) == 59);
+    CHECK(eb::renumbered_page(5, 0, 40, 3, 1) == 2);
+    CHECK(eb::renumbered_page(5, 2, 0, 9, 1) == 7);
+    CHECK(eb::renumbered_page(5, 2, 9, 0, 1) == 0);
+}
+
+TEST_CASE("reader: in a two-page spread an odd shift re-pairs the pages and read-aloud keeps its page")
+{
+    CHECK(eb::renumbered_page(4, 3, 40, 60, 2) == 6); // 7 is a right page: the spread starts at 6
+    CHECK(eb::renumbered_page(4, 2, 40, 60, 2) == 6);
+    CHECK(eb::renumbered_page(38, 5, 40, 60, 2) == 58); // on the last spread: the last spread of the new book
+    CHECK(eb::renumbered_page(4, 3, 40, 61, 2) == 6);
+    CHECK(eb::renumbered_focus(4, 3, 6, 60, 2) == 7);  // the left page read so far is the right page now
+    CHECK(eb::renumbered_focus(5, 3, 6, 60, 2) == -1); // the right page moved out of the spread
+    CHECK(eb::renumbered_focus(5, 2, 6, 60, 2) == 7);
+    CHECK(eb::renumbered_focus(4, 2, 6, 60, 2) == -1); // it is the left page: no focus needed
+    CHECK(eb::renumbered_focus(4, 3, 7, 60, 1) == -1);
+}
+
+TEST_CASE("reader: pending text requests are capped like the queue, dropping the oldest")
+{
+    std::vector<int32_t> pending;
+    for (int32_t p = 1; p <= static_cast<int32_t>(eb::RenderQueue::kMaxTextRequests) + 2; ++p)
+        eb::note_pending_text(pending, p);
+    eb::note_pending_text(pending, 6);
+    REQUIRE(pending.size() == eb::RenderQueue::kMaxTextRequests);
+    CHECK(pending.front() == 3);
+    CHECK(pending.back() == 6);
+}
+
+TEST_CASE("reader: the bitmap cache can keep only the pages around the shown one")
+{
+    eb::ByteLru<int> lru(1000);
+    for (int32_t k = 0; k < 10; ++k)
+        lru.put(k, k, 10);
+    lru.keep_only(3, 6);
+    CHECK(lru.size() == 4);
+    CHECK(lru.bytes() == 40);
+    CHECK_FALSE(lru.contains(2));
+    CHECK(lru.contains(3));
+    CHECK(lru.contains(6));
+    CHECK_FALSE(lru.contains(7));
+    lru.keep_only(20, 30);
+    CHECK(lru.size() == 0);
+    CHECK(lru.bytes() == 0);
 }

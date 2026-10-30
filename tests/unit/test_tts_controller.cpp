@@ -655,3 +655,58 @@ TEST_CASE("tts controller: a snippet found on neither page of the spread restart
     CHECK(r.winrt.spoken.back().text == "Zzz one.");
     CHECK(r.host.turns.back() == 0);
 }
+
+TEST_CASE("tts controller: page numbers that shift while the book is laid out in the background keep the reading going")
+{
+    Rig r;
+    r.host.pages = 20;
+    r.host.shown = 4;
+    r.ctl.start(4, -1);
+    r.ctl.on_text(4, "One one one. Two two two. Three three three.");
+    r.ctl.on_event(1, finished());
+    r.ctl.on_event(r.winrt.spoken.back().id, finished());
+    REQUIRE(r.winrt.spoken.back().text == "Three three three.");
+    REQUIRE(r.host.requests.back() == 5);
+    r.host.pages = 26;
+    r.host.shown = 7;
+    r.ctl.shift_pages(3);
+    CHECK(r.ctl.state() == TtsState::Playing);
+    r.ctl.on_text(8, "Four four four. Five five five.");
+    r.ctl.on_event(r.winrt.spoken.back().id, finished());
+    CHECK(r.winrt.spoken.back().text == "Four four four.");
+    CHECK(r.host.turns.back() == 8);
+    CHECK(r.host.saved.back().first == 8);
+}
+
+TEST_CASE("tts controller: a shift does nothing while idle and shifting by zero changes nothing")
+{
+    Rig r;
+    r.ctl.shift_pages(5);
+    CHECK(r.ctl.state() == TtsState::Idle);
+    r.ctl.start(0, -1);
+    r.ctl.shift_pages(0);
+    r.ctl.on_text(0, "Only one.");
+    CHECK(r.winrt.spoken.back().text == "Only one.");
+}
+
+TEST_CASE("tts controller: an odd shift that re-pairs a spread keeps reading the same page")
+{
+    Rig r;
+    r.host.pages = 20;
+    r.host.right = true;
+    r.host.shown = 4;
+    r.ctl.start(4, -1);
+    r.ctl.on_text(4, "One one one. Two two two.");
+    r.ctl.on_event(1, finished());
+    REQUIRE(r.winrt.spoken.back().text == "Two two two.");
+    const size_t spoken = r.winrt.spoken.size();
+    r.host.pages = 26;
+    r.host.shown = 6; // pages 6-7 now: the page being read is the right one
+    r.ctl.shift_pages(3);
+    CHECK(r.ctl.state() == TtsState::Playing);
+    r.ctl.on_text(8, "Three three three.");
+    r.ctl.on_event(r.winrt.spoken.back().id, finished());
+    REQUIRE(r.winrt.spoken.size() == spoken + 1);
+    CHECK(r.winrt.spoken.back().text == "Three three three.");
+    CHECK(r.host.turns.back() == 8);
+}

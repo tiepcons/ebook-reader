@@ -8,13 +8,13 @@
 
 TEST_CASE("load_checked accepts matching abi version")
 {
-    auto m = eb::load_checked(EB_MUPDF_DLL, "eb_abi_version", 4);
+    auto m = eb::load_checked(EB_MUPDF_DLL, "eb_abi_version", 5);
     CHECK(m.has_value());
 }
 
 TEST_CASE("load_checked rejects mismatch, missing export and relative path")
 {
-    auto bad = eb::load_checked(EB_MUPDF_DLL, "eb_abi_version", 5);
+    auto bad = eb::load_checked(EB_MUPDF_DLL, "eb_abi_version", 6);
     REQUIRE_FALSE(bad.has_value());
     CHECK(bad.error().code == eb::ErrorCode::Abi);
     auto none = eb::load_checked(EB_MUPDF_DLL, "no_such_export", 1);
