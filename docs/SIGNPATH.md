@@ -127,7 +127,7 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 5. ✅ GitHub rulesets (PO duyệt 2026-10-30): `main-protect` (chặn force-push và xoá `main`, không ai bypass);
    `release-tags` (tạo/sửa/xoá tag `v*` chỉ admin repo = tiepcons).
 6. ⬜ Khi bắt đầu tiến trình SignPath: **gửi email mục 4a trước**, chờ trả lời.
-7. ⬜ **Phát hành công khai một bản alpha** (điều kiện "already released"): push tag `v0.9.0-alpha.N`. Workflow build trên
+7. 🔶 (2026-10-31: release nháp `v0.9.0-alpha.13` đã tạo bởi workflow, chờ PO bấm Publish) **Phát hành công khai một bản alpha** (điều kiện "already released"): push tag `v0.9.0-alpha.N`. Workflow build trên
    GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
    Anh/chị xem lại rồi bấm **Publish**. Không cần beta.
 8. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và **cả 3 câu hỏi ở mục 4**.
