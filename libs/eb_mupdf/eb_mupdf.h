@@ -26,7 +26,8 @@
 extern "C" {
 #endif
 
-#define EB_ABI_VERSION 4 /* v2: font directories, render_opts bg for reflow; v3: eb_page_links; v4: layout cache */
+#define EB_ABI_VERSION 5 /* v2: font directories, render_opts bg for reflow; v3: eb_page_links; v4: layout cache;
+                            v5: progressive layout */
 
 typedef enum eb_status {
     EB_OK = 0,
