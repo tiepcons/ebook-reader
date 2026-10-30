@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  build-test:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Build (MuPDF and release preset)
+        run: |
+          tools/build.ps1 -Preset release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Test (release, without desktop UI tests)
+        run: |
+          . tools/env.ps1
+          ctest --preset release -E '^ui_' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit 1 }

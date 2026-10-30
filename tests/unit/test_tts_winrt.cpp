@@ -2,6 +2,8 @@
 
 #include "tts/Utf8.h"
 
+#include "test_audio_device.h"
+
 #include <doctest/doctest.h>
 
 #include <chrono>
@@ -90,6 +92,8 @@ struct Sink {
 
 std::wstring find_voice(eb::WinRtTts& tts, std::wstring_view lang_prefix)
 {
+    if (!ebtest::has_audio_output())
+        return {};
     for (const auto& v : tts.voices())
         if (v.lang.starts_with(lang_prefix))
             return v.id;
