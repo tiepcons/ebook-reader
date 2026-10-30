@@ -18,16 +18,19 @@ SignPath có thể đổi nội dung form. Nếu khác tài liệu này thì là
 
 | Điều khoản (signpath.org/terms) | Repo đã làm | PO cần làm |
 |---|---|---|
-| Giấy phép OSI cho mọi thành phần, không có code đóng | ✅ AGPL-3.0, MuPDF AGPL, libmobi LGPL, font OFL, miniz Unlicense | Hỏi SignPath 2 điểm ở mục 4 |
+| "OSI-approved license **without commercial dual-licensing for all components**" | ⚠️ **Xung đột tiềm ẩn lớn nhất:** MuPDF (cả jbig2dec, extract) là AGPL **và** Artifex bán giấy phép thương mại. Ta chỉ dùng theo AGPL, nhưng câu chữ điều khoản áp cho "all components". SQLite (public domain) và libjpeg (giấy phép IJG) không nằm trong danh sách OSI | **Hỏi SignPath trước** (mục 4). Nếu bị từ chối vì MuPDF → phương án dự phòng ở mục 1 |
+| "No proprietary component … you may include System Libraries" | ✅ Gói chính: CRT tĩnh `/MT` (System Library). Gói Piper/VieNeu (không ký, tải riêng) kèm VC++ runtime DLL của Microsoft | Hỏi kèm trong mục 4 |
 | Không malware, không phần mềm không mong muốn | ✅ | — |
-| **Đã phát hành công khai** đúng dạng sẽ ký | ⬜ | Đăng beta (chưa ký) lên GitHub Releases **trước khi nộp đơn** (xem mục 6) |
+| **Đã phát hành công khai** đúng dạng sẽ ký ("must already be released in the form that should be signed") | ⬜ Chưa có GitHub Release nào | Đăng **một bản alpha prerelease** (chưa ký, ví dụ `v0.9.0-alpha.11`) lên GitHub Releases **trước khi nộp đơn**; không cần beta (mục 6) |
 | Đang được bảo trì | ✅ | — |
 | Trang tải mô tả chức năng | ✅ README.md | Release notes mô tả ngắn chức năng |
 | Chỉ ký binary build từ mã nguồn của mình | ✅ Chỉ ký `EbookReader.exe` và `libs\eb_mupdf.dll`. Piper, onnxruntime, espeak-ng **không ký** | — |
 | Riêng tư: chuyển dữ liệu ra ngoài phải có chính sách và cách tắt | ✅ Chỉ khi người dùng tự bật Azure. Azure mặc định tắt, tắt lúc nào cũng được. Có link chính sách riêng tư của Microsoft | — |
 | Báo trước thay đổi hệ thống | ✅ App không ghi registry, không tự khởi động, không đăng ký loại file | — |
 | Có hướng dẫn gỡ cài đặt | ✅ README.md, README.txt trong zip, CODE_SIGNING_POLICY.md | — |
-| **MFA** cho mọi thành viên trên GitHub và SignPath | ⬜ | Bật MFA trên GitHub: Settings → Password and authentication. Bật MFA trên SignPath khi có tài khoản |
+| **MFA** cho mọi thành viên trên GitHub và SignPath | ✅ GitHub (PO bật 2026-10-30) | Bật MFA trên SignPath khi có tài khoản |
+| Riêng tư: "display this policy during installation" | ✅ App portable, không có bộ cài: thông báo riêng tư hiện **trong app trước khi lưu khóa Azure** (phải bấm Đồng ý), và có trong `CODE_SIGNING_POLICY.md`, README | — |
+| Danh tiếng / quyền kiểm soát dự án được xét lúc duyệt | ⚠️ Repo mới, 0 sao, chưa có release | Có release alpha công khai, README rõ ràng; có thể phải chờ hoặc bị từ chối |
 | Phân vai Authors / Reviewers / Approvers | ✅ Cả ba vai là tiepcons (ghi trong `CODE_SIGNING_POLICY.md`) | — |
 | Trang **Code signing policy** ở trang chủ, link từ trang tải | ✅ `CODE_SIGNING_POLICY.md` có link trong README | Thêm link vào **mỗi** release notes |
 | Metadata: ProductName và ProductVersion giống nhau ở mọi file | ✅ VERSIONINFO: `Ebook Reader` và `0.9.0-…` ở cả exe lẫn dll | — |
@@ -57,11 +60,16 @@ SignPath có thể đổi nội dung form. Nếu khác tài liệu này thì là
 > on GitHub Releases. We want to sign our own binaries (EbookReader.exe and eb_mupdf.dll, built from this repository on
 > GitHub-hosted runners) so users stop getting SmartScreen "unknown publisher" warnings.
 
-## 4. Hai điểm nên hỏi SignPath (dán vào ô ghi chú, nếu form có)
+## 4. Ba điểm nên hỏi SignPath (dán vào ô ghi chú, hoặc email support@signpath.io trước khi nộp)
 
-> 1. `eb_mupdf.dll` is our own build of MuPDF (AGPL-3.0, git submodule, unmodified upstream source plus our C wrapper). MuPDF is also
->    offered commercially by Artifex. Our project uses it only under AGPL. Is signing this DLL acceptable, or should it ship unsigned?
-> 2. We statically link SQLite, which is public domain rather than OSI-licensed. Is that acceptable?
+> 1. Your terms require an OSI license "without commercial dual-licensing for all components". Our document engine is MuPDF
+>    (AGPL-3.0; Artifex also sells commercial licenses). We use MuPDF only under the AGPL, as an unmodified git submodule
+>    built into our own `eb_mupdf.dll` together with our C wrapper, and the whole project is AGPL-3.0-or-later with no
+>    commercial edition of our own. Is a dependency that its upstream dual-licenses acceptable? If not, may we sign only
+>    `EbookReader.exe` and ship `eb_mupdf.dll` unsigned?
+> 2. We statically link SQLite (public domain) and MuPDF bundles libjpeg (IJG license); neither is on the OSI list. Is that acceptable?
+> 3. Our optional, unsigned voice packs (separate downloads) include the Microsoft Visual C++ runtime DLLs needed by
+>    upstream binaries. We treat them as System Libraries. Is that acceptable?
 
 ## 5. Meta đã có trong file (VERSIONINFO)
 
@@ -80,14 +88,15 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 ## 6. Thứ tự làm (khớp với PLAN)
 
 1. ⬜ Anh/chị test alpha theo `docs/ACCEPTANCE.md`, em sửa lỗi phát sinh.
-2. ⬜ Xong soak và fuzz (Phase 8), CI local đạt → push `main`.
-3. ⬜ **T9.5** build Piper từ mã nguồn (việc cuối cùng trước beta công khai).
-4. ⬜ **Bật MFA GitHub.**
-5. ⬜ Push tag `v0.9.0-beta.1`. Workflow build trên GitHub và tạo **release nháp** (chưa ký, vì chưa có SignPath).
-   Anh/chị xem lại rồi bấm **Publish**. Ghi chú release có link Code signing policy và câu
-   "Releases are unsigned until the SignPath Foundation application is approved."
-6. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và 4.
-7. ⬜ Khi được duyệt, làm mục 7.
+2. ✅ Soak, fuzz (Phase 8), CI local đạt, `main` đã push.
+3. ✅ **T9.5** build Piper từ mã nguồn.
+4. ✅ **MFA GitHub** (PO bật 2026-10-30).
+5. ⬜ *(Khuyến nghị, PO duyệt)* GitHub ruleset: chặn force-push và xoá `main`; chỉ tiepcons được tạo/sửa/xoá tag `v*`.
+6. ⬜ **Phát hành công khai một bản alpha** (điều kiện "already released"): push tag `v0.9.0-alpha.N`. Workflow build trên
+   GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
+   Anh/chị xem lại rồi bấm **Publish**. Không cần beta.
+7. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và **cả 3 câu hỏi ở mục 4**.
+8. ⬜ Khi được duyệt, làm mục 7.
 
 ## 7. Sau khi SignPath duyệt (cấu hình một lần)
 

@@ -148,7 +148,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ghArgs = @('release', 'create', $env:TAG, '--repo', $env:REPO, '--draft', '--verify-tag', '--title', $env:TAG,
-            '--notes', 'See CODE_SIGNING_POLICY.md for signing status and privacy.')
+            '--notes', ("Ebook Reader is a free, open-source (AGPL-3.0) portable ebook reader for Windows x64: EPUB, MOBI/AZW3, FB2, PDF, CBZ and TXT, " +
+              "a library with covers, resume of the reading position, and read-aloud in Vietnamese/English (Windows voices, optional Piper and VieNeu packs, " +
+              "optional Azure Speech with your own key). No telemetry, no installer.`n`n" +
+              "Download EbookReader-<version>-win-x64.zip, unzip and run EbookReader.exe. Optional voice packs: *-piper-pack.zip, *-vieneu-pack.zip.`n`n" +
+              "Code signing policy (free code signing provided by SignPath.io, certificate by SignPath Foundation) and privacy policy: " +
+              "https://github.com/$env:REPO/blob/main/CODE_SIGNING_POLICY.md"))
           if ($env:TAG.Contains('-')) { $ghArgs += '--prerelease' }
           $ghArgs += (Get-ChildItem release -File | ForEach-Object FullName)
           & gh @ghArgs

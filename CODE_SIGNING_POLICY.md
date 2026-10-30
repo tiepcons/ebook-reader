@@ -12,8 +12,19 @@ Only the binaries built from this repository:
 - `EbookReader.exe`
 - `libs\eb_mupdf.dll`
 
-Third-party binaries in the optional Piper pack (`piper.exe`, onnxruntime, espeak-ng and their DLLs) are **not** signed by
-this project; they are unmodified downloads pinned by URL and SHA256 in `tools\package.ps1`.
+Third-party binaries are **never** signed by this project. They ship only in the optional packs, which are separate
+unsigned downloads:
+
+- **Piper pack**: `piper.exe`, `piper_phonemize.dll` and `espeak-ng.dll` are built by our release workflow from the
+  upstream sources pinned by commit in `tools\piper_pins.psd1` (build script `tools\build_piper.ps1`); `onnxruntime.dll`
+  is the upstream release pinned by SHA256. The corresponding sources are published as `EbookReader-<version>-piper-sources.zip`.
+- **VieNeu pack**: `audiocpp_cli.exe` (audio.cpp) and `sea_g2p_rs.dll` (sea-g2p) are unmodified upstream release
+  binaries pinned by URL and SHA256 in `tools\vieneu_pins.psd1`.
+- Both packs contain the Microsoft Visual C++ runtime DLLs required by those upstream binaries (system libraries,
+  redistributed unmodified).
+
+The signed main package (`EbookReader-<version>-win-x64.zip`) contains no third-party executable code besides what is
+statically linked into `EbookReader.exe` and `eb_mupdf.dll` (listed in `licenses\THIRD-PARTY-NOTICES.txt`).
 
 Every signed file carries the same `ProductName` ("Ebook Reader") and `ProductVersion` in its version resource.
 Signing requests are restricted to these two files and to that product name.
@@ -49,8 +60,9 @@ the person installing or operating it.
 - **Azure Speech (optional, off by default).** Only if you select the Azure Speech engine and enter your own API key, the
   text being read aloud and your key are sent over HTTPS to Microsoft at `<region>.tts.speech.microsoft.com`, where
   `<region>` is the region you entered. See the
-  [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). You can switch the engine back or
-  delete the key at any time in the voice settings.
+  [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). Ebook Reader is portable and has no
+  installer, so this notice is shown in the app before an Azure key is saved, and the key is only stored after you agree.
+  You can switch the engine back or delete the key at any time in the voice settings.
 - Your books, reading positions, bookmarks and settings stay in the local data folder described below.
 - Crash dumps are written locally and contain thread stacks only, no heap memory.
 

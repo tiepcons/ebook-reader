@@ -156,6 +156,14 @@ bool AzurePage::store_key(HWND dlg)
         SetFocus(GetDlgItem(dlg, IDC_AZ_KEY));
         return false;
     }
+    // Privacy notice required by the SignPath Foundation terms before any data leaves the machine.
+    if (MessageBoxW(dlg,
+            L"Khi dùng Azure Speech, đoạn văn bản đang đọc và khóa API của bạn được gửi qua HTTPS tới máy chủ Microsoft "
+            L"(<vùng>.tts.speech.microsoft.com), theo Chính sách quyền riêng tư của Microsoft "
+            L"(https://privacy.microsoft.com/privacystatement). Ebook Reader không gửi dữ liệu đi đâu khác.\n\n"
+            L"Bạn có thể chuyển về giọng đọc offline hoặc xoá khóa bất cứ lúc nào.\n\nĐồng ý lưu khóa và dùng Azure?",
+            L"Quyền riêng tư - Azure Speech", MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON2) != IDYES)
+        return false;
     if (!secret_set(kAzureSecretTarget, key)) {
         warn(dlg, L"Không lưu được khóa vào Windows Credential Manager.");
         return false;
