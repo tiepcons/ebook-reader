@@ -71,6 +71,39 @@ SignPath có thể đổi nội dung form. Nếu khác tài liệu này thì là
 > 3. Our optional, unsigned voice packs (separate downloads) include the Microsoft Visual C++ runtime DLLs needed by
 >    upstream binaries. We treat them as System Libraries. Is that acceptable?
 
+### 4a. Email hỏi trước — gửi khi bắt đầu tiến trình SignPath (PO 2026-10-30: soạn sẵn, chưa gửi)
+
+Gửi tới: `support@signpath.io` · từ email anh/chị dùng cho đơn đăng ký.
+
+**Subject:** Eligibility question before applying: open-source Windows ebook reader (AGPL-3.0) using MuPDF
+
+> Hello SignPath Foundation team,
+>
+> I maintain Ebook Reader (https://github.com/tiepcons/ebook-reader), a free, open-source (AGPL-3.0-or-later) native ebook
+> reader for Windows x64 written in C++ (Win32, Direct2D). It is distributed as a portable ZIP on GitHub Releases and built
+> only by a GitHub Actions workflow on GitHub-hosted runners. Our code signing policy is at
+> https://github.com/tiepcons/ebook-reader/blob/main/CODE_SIGNING_POLICY.md .
+>
+> Before applying I would like to check three points against your terms:
+>
+> 1. Your terms require an OSI-approved license "without commercial dual-licensing for all components". Our document engine
+>    is MuPDF (AGPL-3.0; Artifex also sells commercial licenses). We use MuPDF only under the AGPL, as an unmodified git
+>    submodule built into our own `eb_mupdf.dll` together with our C wrapper. Our project itself is AGPL-3.0-or-later only
+>    and has no commercial edition. Is a dependency that its upstream dual-licenses acceptable? If not, would it be acceptable
+>    to sign only `EbookReader.exe` and ship `eb_mupdf.dll` unsigned?
+> 2. We statically link SQLite (public domain), and MuPDF bundles libjpeg (IJG license). Neither is on the OSI list. Is that
+>    acceptable?
+> 3. Our optional voice packs are separate, unsigned downloads. They contain upstream binaries (Piper built from pinned upstream
+>    sources, onnxruntime, audio.cpp, sea-g2p) and the Microsoft Visual C++ runtime DLLs those binaries need. We would never sign
+>    them. We treat the VC++ runtime as System Libraries. Is that acceptable?
+>
+> We would sign only `EbookReader.exe` and `libs/eb_mupdf.dll` from `EbookReader-<version>-win-x64.zip`, with manual approval
+> of every signing request. GitHub MFA is enabled, and rulesets protect `main` (no force push or deletion) and the `v*` release
+> tags.
+>
+> Thank you,
+> tiepcons — https://github.com/tiepcons
+
 ## 5. Meta đã có trong file (VERSIONINFO)
 
 | Trường | EbookReader.exe | libs\eb_mupdf.dll |
@@ -91,12 +124,14 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 2. ✅ Soak, fuzz (Phase 8), CI local đạt, `main` đã push.
 3. ✅ **T9.5** build Piper từ mã nguồn.
 4. ✅ **MFA GitHub** (PO bật 2026-10-30).
-5. ⬜ *(Khuyến nghị, PO duyệt)* GitHub ruleset: chặn force-push và xoá `main`; chỉ tiepcons được tạo/sửa/xoá tag `v*`.
-6. ⬜ **Phát hành công khai một bản alpha** (điều kiện "already released"): push tag `v0.9.0-alpha.N`. Workflow build trên
+5. ✅ GitHub rulesets (PO duyệt 2026-10-30): `main-protect` (chặn force-push và xoá `main`, không ai bypass);
+   `release-tags` (tạo/sửa/xoá tag `v*` chỉ admin repo = tiepcons).
+6. ⬜ Khi bắt đầu tiến trình SignPath: **gửi email mục 4a trước**, chờ trả lời.
+7. ⬜ **Phát hành công khai một bản alpha** (điều kiện "already released"): push tag `v0.9.0-alpha.N`. Workflow build trên
    GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
    Anh/chị xem lại rồi bấm **Publish**. Không cần beta.
-7. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và **cả 3 câu hỏi ở mục 4**.
-8. ⬜ Khi được duyệt, làm mục 7.
+8. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và **cả 3 câu hỏi ở mục 4**.
+9. ⬜ Khi được duyệt, làm mục 7.
 
 ## 7. Sau khi SignPath duyệt (cấu hình một lần)
 
