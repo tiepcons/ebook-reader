@@ -125,6 +125,23 @@ EB_API eb_status eb_save_cache(eb_doc* doc, const wchar_t* cache_path);
 EB_API void eb_abort(eb_doc* doc);
 EB_API int32_t eb_is_reflowable(eb_doc* doc);
 EB_API eb_status eb_layout(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css);
+/* Progressive layout (v5) for reflowable books split into chapters (EPUB, MOBI/AZW3/KF8); other docs behave as eb_layout.
+ * eb_layout_lazy applies the layout without laying out the whole book. A chapter is laid out on demand by any call that
+ * needs it (render, text, links, page size, bookmark <-> page) and by eb_layout_step. Until every chapter is laid out, the
+ * page count of a chapter not laid out yet is an estimate (average of the chapters laid out so far), so eb_page_count and
+ * the numbers of pages after such a chapter are provisional; eb_toc pages are provisional too.
+ * Laying out a chapter whose count differed from its estimate renumbers the pages after it and increments
+ * eb_layout_generation(). A page number passed to a call is read in the numbering current at the call; if the call lays
+ * out the chapter holding that page, the page keeps its relative position in the chapter (same fraction, like a bookmark).
+ * After any call, a caller holding page numbers compares eb_layout_generation() and re-resolves them from eb_bookmark values
+ * (eb_page_of_bookmark lays out the bookmark's chapter first, so its result is exact for that chapter).
+ * A matching layout cache (eb_open_cached) makes every count exact at once. eb_layout_lazy itself costs about one chapter. */
+EB_API eb_status eb_layout_lazy(eb_doc* doc, float width_pt, float height_pt, float em_pt, const char* user_css);
+/* Lays out one more chapter: the chapters after `near` in reading order first (nearest first), then the ones before it
+ * (nearest first). *complete = 1 once every chapter is laid out and all page numbers are exact; then it is a cheap no-op.
+ * Abortable like a render (eb_abort -> EB_E_ABORTED, nothing lost). */
+EB_API eb_status eb_layout_step(eb_doc* doc, eb_bookmark near, int32_t* complete);
+EB_API uint32_t eb_layout_generation(eb_doc* doc);
 EB_API eb_status eb_page_count(eb_doc* doc, int32_t* out);
 EB_API eb_status eb_page_size(eb_doc* doc, int32_t page, float* width_pt, float* height_pt);
 
