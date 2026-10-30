@@ -254,6 +254,34 @@ TEST_CASE("reader: outline entry following the reading position")
     CHECK(eb::toc_index_at(same, 12) == 1);
 }
 
+TEST_CASE("reader: chapter buttons go to the previous and next outline entry")
+{
+    using eb::TocItem;
+    const std::vector<TocItem> toc{{0, 10, "a"}, {0, 40, "b"}, {0, 70, "c"}};
+    CHECK(eb::toc_prev_index({}, 50, -1) == -1);
+    CHECK(eb::toc_prev_index(toc, 10, -1) == -1);
+    CHECK(eb::toc_prev_index(toc, 25, -1) == 0);
+    CHECK(eb::toc_prev_index(toc, 40, -1) == 0);
+    CHECK(eb::toc_prev_index(toc, 41, -1) == 1);
+    CHECK(eb::toc_next_index(toc, 5, -1) == 0);
+    CHECK(eb::toc_next_index(toc, 10, -1) == 1);
+    CHECK(eb::toc_next_index(toc, 30, -1) == 1);
+    CHECK(eb::toc_next_index(toc, 40, -1) == 2);
+    CHECK(eb::toc_next_index(toc, 70, -1) == -1);
+    CHECK(eb::toc_next_index(toc, 71, -1) == -1);
+    CHECK(eb::toc_next_index({}, 5, -1) == -1);
+    const std::vector<TocItem> shared{{0, 10, "a"}, {0, 12, "b"}, {0, 14, "c"}, {0, 50, "d"}};
+    const int cur = eb::toc_index_at(shared, 11);
+    CHECK(cur == 0);
+    CHECK(eb::toc_next_index(shared, 11, cur) == 1);
+    CHECK(eb::toc_next_index(shared, 11, 1) == 2);
+    CHECK(eb::toc_next_index(shared, 11, 2) == 3);
+    CHECK(eb::toc_next_index(shared, 11, 3) == -1);
+    CHECK(eb::toc_prev_index(shared, 11, 2) == 1);
+    CHECK(eb::toc_prev_index(shared, 11, 0) == -1);
+    CHECK(eb::toc_next_index(toc, eb::kNoAnchor, -1) == -1);
+}
+
 TEST_CASE("reader: link hit-test picks the smallest containing link")
 {
     const std::vector<eb::PageLink> links{{{0, 0, 100, 20}, 11}, {{10, 5, 30, 15}, 22}};

@@ -1,4 +1,4 @@
-# Nghiệm thu tay (PO) — bản 0.9.0-alpha.8
+# Nghiệm thu tay (PO) — bản 0.9.0-alpha.10
 
 Tick `[x]` khi đạt. Nếu lỗi, ghi ngắn vào cột **Ghi chú** (đã làm gì → thấy gì). Gửi lại file này là đủ để sửa.
 Thời gian dự kiến: khoảng 60–90 phút (Azure thêm khoảng 15 phút).

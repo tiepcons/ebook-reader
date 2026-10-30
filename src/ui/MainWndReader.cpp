@@ -16,15 +16,15 @@
 #include <initializer_list>
 #include <memory>
 #include <span>
+#include <utility>
 
 namespace eb {
 namespace {
 
-constexpr int kBarMargin = 6, kBarH = 26;
 constexpr int kTocW = 260;
-constexpr int kChapterMaxW = 360, kChapterListRows = 14, kMaxIndent = 8;
+constexpr int kMaxIndent = 8;
 constexpr std::size_t kMaxChapterItems = 2000;
-constexpr int kBackW = 120, kResumeTextW = 240, kResumeBtnW = 80, kAaW = 44;
+constexpr int kBackW = 120, kResumeTextW = 150, kResumeBtnW = 80;
 constexpr UINT kResumeBarMs = 6000;
 constexpr UINT kReaderTickMs = 500;
 constexpr int kStatusBad = 2;
@@ -56,7 +56,7 @@ bool MainWnd::create_reader_children()
     aa_ = child(L"BUTTON", L"Aa", BS_PUSHBUTTON | WS_TABSTOP, kIdReaderSettings);
     chapter_combo_ = child(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, kIdChapterCombo);
     return back_ != nullptr && resume_text_ != nullptr && resume_btn_ != nullptr && aa_ != nullptr && chapter_combo_ != nullptr
-        && reader_.create(inst_, hwnd_)
+        && create_bar_buttons() && reader_.create(inst_, hwnd_)
         && toc_pane_.create(inst_, hwnd_, kIdTocPane) && tts_bar_.create(inst_, hwnd_);
 }
 
@@ -65,7 +65,7 @@ void MainWnd::layout_reader()
     RECT rc{};
     GetClientRect(hwnd_, &rc);
     split_rc_ = {};
-    const int m = px(kBarMargin), ch = px(kBarH);
+    const int m = px(kBarMarginDip), ch = px(kBarHeightDip);
     int status_h = 0, top = 0;
     if (!fullscreen_) {
         SendMessageW(status_, WM_SIZE, 0, 0);
@@ -78,12 +78,7 @@ void MainWnd::layout_reader()
     MoveWindow(back_, m, m, px(kBackW), ch, TRUE);
     MoveWindow(resume_text_, tx, m, px(kResumeTextW), ch, TRUE);
     MoveWindow(resume_btn_, tx + px(kResumeTextW) + m, m, px(kResumeBtnW), ch, TRUE);
-    MoveWindow(aa_, std::max(0L, rc.right - m - px(kAaW)), m, px(kAaW), ch, TRUE);
-    const int cx = tx + px(kResumeTextW) + m + px(kResumeBtnW) + m;
-    const int cw = std::min(px(kChapterMaxW), static_cast<int>(rc.right) - m - px(kAaW) - m - cx);
-    const bool chapters = !fullscreen_ && chapter_count_ >= 2 && cw > px(kAaW);
-    MoveWindow(chapter_combo_, cx, m, std::max(cw, 0), ch * kChapterListRows, TRUE);
-    ShowWindow(chapter_combo_, chapters ? SW_SHOW : SW_HIDE);
+    layout_top_bar(rc, tx + px(kResumeTextW) + m + px(kResumeBtnW) + m);
     const int pane_w = toc_shown() ? std::min(px(kTocW), static_cast<int>(rc.right) / 2) : 0;
     const int bar_h = fullscreen_ ? 0 : ch + 2 * m;
     const int body_h = static_cast<int>(std::max(0L, rc.bottom - top - status_h - bar_h));
@@ -159,10 +154,13 @@ void MainWnd::close_book()
     reader_.close();
     SendMessageW(chapter_combo_, CB_RESETCONTENT, 0, 0);
     chapter_count_ = 0;
+    reset_bar_marked();
+    nav_idx_ = -1;
+    nav_pending_ = false;
     set_tts_state(TtsState::Unavailable);
     in_reader_ = false;
     apply_chrome();
-    show_all({back_, aa_, chapter_combo_, reader_.hwnd(), toc_pane_.hwnd()}, SW_HIDE);
+    show_all({back_, aa_, chapter_combo_, chapter_prev_, chapter_next_, toc_btn_, mark_btn_, reader_.hwnd(), toc_pane_.hwnd()}, SW_HIDE);
     tts_bar_.show(SW_HIDE);
     show_all({search_, sort_, rescan_, open_, tree_, list_}, SW_SHOW);
     layout();
@@ -222,7 +220,10 @@ void MainWnd::on_page_event(ReaderEvent e, int page)
         refresh_toc_pane();
     if (e != ReaderEvent::PageSettled)
         return;
+    if (std::exchange(nav_pending_, false))
+        nav_page_ = page;
     sync_chapter_combo();
+    update_bar_buttons();
     if (const int p = reader_.take_resume_percent(); p >= 0)
         show_resume(p, page);
     smoke_step(page);
@@ -309,6 +310,8 @@ bool MainWnd::on_reader_command(WPARAM wp)
     }
     if (HIWORD(wp) != BN_CLICKED) // menu commands carry 0 here as well
         return false;
+    if (on_bar_command(id))
+        return true;
     if (id == kIdBack) {
         close_book();
     } else if (id == kIdReaderSettings) {
@@ -363,6 +366,7 @@ void MainWnd::toggle_bookmark()
     const auto added = reader_.toggle_bookmark();
     const wchar_t* text = !added ? L"Không lưu được dấu trang" : (*added ? L"Đã thêm dấu trang" : L"Đã bỏ dấu trang");
     SendMessageW(status_, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(text));
+    update_bar_buttons();
     if (toc_visible_)
         refresh_toc_pane();
 }
@@ -410,7 +414,8 @@ void MainWnd::sync_chapter_combo()
     if (toc.size() != chapter_count_)
         fill_chapter_combo(toc);
     const uint64_t mark = reader_.mark();
-    const int idx = mark == kNoAnchor ? -1 : toc_index_at(toc, mark);
+    const int remembered = remembered_toc_index();
+    const int idx = remembered >= 0 && static_cast<std::size_t>(remembered) < toc.size() ? remembered : mark == kNoAnchor ? -1 : toc_index_at(toc, mark);
     if (idx >= 0 && idx != static_cast<int>(SendMessageW(chapter_combo_, CB_GETCURSEL, 0, 0)))
         SendMessageW(chapter_combo_, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
 }
@@ -423,7 +428,7 @@ void MainWnd::on_chapter_combo(int code)
     const LRESULT sel = SendMessageW(chapter_combo_, CB_GETCURSEL, 0, 0);
     const std::vector<TocItem>& toc = reader_.toc();
     if (sel >= 0 && static_cast<std::size_t>(sel) < toc.size())
-        jump_to_mark(toc[static_cast<std::size_t>(sel)].target);
+        jump_to_toc(static_cast<int>(sel));
 }
 
 void MainWnd::on_toc_notify(NMHDR& hdr)
@@ -450,6 +455,7 @@ void MainWnd::on_toc_notify(NMHDR& hdr)
     } else if (const auto pick = toc_pane_.selected(); vk == VK_DELETE && pick && pick->bookmark_id != 0) {
         reader_.remove_bookmark(pick->bookmark_id);
         refresh_toc_pane();
+        update_bar_buttons();
     }
 }
 

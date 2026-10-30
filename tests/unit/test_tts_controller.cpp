@@ -26,11 +26,13 @@ struct FakeEngine final : eb::TtsEngine {
     int stops = 0, pauses = 0, resumes = 0;
     bool accept = true;
     size_t look = 1;
+    double last_volume = -1;
 
     size_t lookahead() const noexcept override { return look; }
     std::vector<eb::Voice> voices() noexcept override { return list; }
-    bool speak(uint32_t id, std::string_view utf8, const std::wstring& voice, double, double) noexcept override
+    bool speak(uint32_t id, std::string_view utf8, const std::wstring& voice, double, double volume) noexcept override
     {
+        last_volume = volume;
         spoken.push_back({id, std::string(utf8), voice});
         return accept;
     }
@@ -454,6 +456,7 @@ TEST_CASE("tts prefs: round trip, clamping and unknown values")
     eb::TtsPrefs p;
     p.engine = TtsKind::Azure;
     p.rate = 1.5;
+    p.volume_pct = 35;
     p.voice[2][1] = L"vi-VN-HoaiMyNeural";
     p.voice[0][0] = L"Microsoft David";
     REQUIRE(eb::save_tts_prefs(db, p));
@@ -465,6 +468,27 @@ TEST_CASE("tts prefs: round trip, clamping and unknown values")
     CHECK(eb::clamp_tts_rate(9.0) == eb::kMaxTtsRate);
     CHECK(eb::clamp_tts_rate(0.0) == eb::kMinTtsRate);
     CHECK(eb::clamp_tts_rate(std::nan("")) == 1.0);
+    CHECK(eb::load_tts_prefs(db).volume_pct == 35);
+    CHECK(eb::clamp_tts_volume_pct(250) == 100);
+    CHECK(eb::clamp_tts_volume_pct(-3) == 0);
+}
+
+TEST_CASE("tts controller: the saved volume goes to every sentence and changes with the slider")
+{
+    Rig r;
+    eb::TtsPrefs p;
+    p.volume_pct = 40;
+    r.ctl.set_prefs(p);
+    r.ctl.start(0, -1);
+    r.ctl.on_text(0, "First one. Second one.");
+    CHECK(r.winrt.last_volume == doctest::Approx(0.4));
+    r.ctl.set_volume(80);
+    CHECK(r.ctl.prefs().volume_pct == 80);
+    r.ctl.on_event(1, finished());
+    CHECK(r.winrt.last_volume == doctest::Approx(0.8));
+    r.ctl.set_volume(500);
+    CHECK(r.ctl.prefs().volume_pct == 100);
+    r.ctl.set_volume(0); // the live volume is process-wide: keep the engine tests that follow silent
 }
 
 TEST_CASE("audio keep-alive: start, pause and stop are idempotent")

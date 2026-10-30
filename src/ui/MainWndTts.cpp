@@ -19,6 +19,7 @@ void MainWnd::load_tts_prefs_once()
     tts_prefs_ = load_tts_prefs(db_);
     tts_prefs_loaded_ = true;
     tts_bar_.set_speed(tts_prefs_.rate);
+    tts_bar_.set_volume(tts_prefs_.volume_pct);
 }
 
 bool MainWnd::ensure_tts()
@@ -107,8 +108,25 @@ bool MainWnd::on_tts_command(WPARAM wp)
     return true;
 }
 
+void MainWnd::on_volume_scroll(int code)
+{
+    tts_prefs_.volume_pct = tts_bar_.volume();
+    if (tts_)
+        tts_->set_volume(tts_prefs_.volume_pct);
+    if (code == TB_THUMBTRACK)
+        return;
+    if (!save_tts_prefs(db_, tts_prefs_))
+        log::error("tts: cannot save the volume");
+    if (code == TB_ENDTRACK)
+        SetFocus(reader_.hwnd());
+}
+
 bool MainWnd::on_tts_msg(UINT msg, WPARAM wp, LPARAM lp)
 {
+    if (msg == WM_HSCROLL && tts_bar_.is_volume(reinterpret_cast<HWND>(lp))) { // NOLINT(performance-no-int-to-ptr): Win32 message ABI
+        on_volume_scroll(LOWORD(wp));
+        return true;
+    }
     if (msg == WM_APP_TTS_EVENT) {
         if (tts_) {
             tts_->on_event(static_cast<uint32_t>(wp), lp);
@@ -138,7 +156,7 @@ bool MainWnd::on_tts_msg(UINT msg, WPARAM wp, LPARAM lp)
 
 void MainWnd::open_tts_settings()
 {
-    if (!in_reader_ || in_settings_)
+    if (in_settings_)
         return;
     if (!ensure_tts()) {
         show_notice(L"Không khởi động được bộ máy đọc.");
@@ -152,6 +170,7 @@ void MainWnd::open_tts_settings()
     if (accepted) {
         tts_prefs_ = *accepted;
         tts_bar_.set_speed(tts_prefs_.rate);
+        tts_bar_.set_volume(tts_prefs_.volume_pct);
         if (!save_tts_prefs(db_, tts_prefs_))
             log::error("tts: cannot save the voice settings");
     }
@@ -160,7 +179,8 @@ void MainWnd::open_tts_settings()
     else if (accepted && tts_)
         tts_->set_prefs(tts_prefs_);
     refresh_azure_quota();
-    SetFocus(reader_.hwnd());
+    if (in_reader_)
+        SetFocus(reader_.hwnd());
 }
 
 void MainWnd::request_text(int32_t page)

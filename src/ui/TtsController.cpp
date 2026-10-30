@@ -69,6 +69,7 @@ void TtsController::set_prefs(const TtsPrefs& p)
         stop();
     prefs_ = p;
     prefs_.rate = clamp_tts_rate(p.rate);
+    prefs_.volume_pct = clamp_tts_volume_pct(p.volume_pct);
 }
 
 std::vector<Voice> TtsController::voices(TtsKind k)
@@ -288,7 +289,7 @@ bool TtsController::speak_sentence()
     host_.save_position(page_.number, s.begin);
     current_ = ++counter_;
     set_state(TtsState::Playing);
-    return engine()->speak(current_, text, voice_for(text), prefs_.rate, 1.0);
+    return engine()->speak(current_, text, voice_for(text), prefs_.rate, prefs_.volume_pct / 100.0);
 }
 
 void TtsController::speak_current()
@@ -432,6 +433,12 @@ void TtsController::set_rate(double rate)
     }
 }
 
+void TtsController::set_volume(int pct)
+{
+    prefs_.volume_pct = clamp_tts_volume_pct(pct);
+    WinRtPlayer::set_volume_all(prefs_.volume_pct / 100.0);
+}
+
 void TtsController::preview(TtsKind k, const std::wstring& voice, Lang lang, double rate)
 {
     TtsEngine* e = engines_[kind_index(k)];
@@ -439,7 +446,7 @@ void TtsController::preview(TtsKind k, const std::wstring& voice, Lang lang, dou
         return;
     end_preview();
     previewing_ = k;
-    e->speak(++counter_, lang == Lang::Vi ? kSampleVi : kSampleEn, voice, clamp_tts_rate(rate), 1.0);
+    e->speak(++counter_, lang == Lang::Vi ? kSampleVi : kSampleEn, voice, clamp_tts_rate(rate), prefs_.volume_pct / 100.0);
 }
 
 void TtsController::end_preview()

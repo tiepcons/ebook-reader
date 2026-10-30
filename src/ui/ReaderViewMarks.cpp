@@ -45,16 +45,38 @@ std::vector<Bookmark> ReaderView::bookmarks() const
     return list ? std::move(*list) : std::vector<Bookmark>{};
 }
 
+namespace {
+
+std::vector<std::size_t> bookmarks_on(const std::vector<Bookmark>& all, uint64_t start, uint64_t end)
+{
+    std::vector<uint64_t> marks;
+    marks.reserve(all.size());
+    for (const Bookmark& b : all)
+        marks.push_back(b.mark);
+    return marks_on_page(marks, start, end);
+}
+
+}
+
+bool ReaderView::page_bookmarked() const
+{
+    if (!worker_ || mark_ == kNoAnchor)
+        return false;
+    if (marks_dirty_) {
+        marks_cache_.clear();
+        for (const Bookmark& b : bookmarks())
+            marks_cache_.push_back(b.mark);
+        marks_dirty_ = false;
+    }
+    return !marks_on_page(marks_cache_, mark_, end_mark_).empty();
+}
+
 std::optional<bool> ReaderView::toggle_bookmark()
 {
     if (!worker_ || mark_ == kNoAnchor)
         return std::nullopt;
     const std::vector<Bookmark> all = bookmarks();
-    std::vector<uint64_t> marks;
-    marks.reserve(all.size());
-    for (const Bookmark& b : all)
-        marks.push_back(b.mark);
-    const std::vector<std::size_t> here = marks_on_page(marks, mark_, end_mark_);
+    const std::vector<std::size_t> here = bookmarks_on(all, mark_, end_mark_);
     ++content_version_;
     if (here.empty()) {
         const std::wstring label = std::format(L"{} % · {}", percent(), chapter_.empty() ? std::format(L"Trang {}", page_ + 1) : chapter_);

@@ -38,6 +38,13 @@ inline constexpr int kIdTtsNext = 116;
 inline constexpr int kIdTtsSpeed = 117;
 inline constexpr int kIdTtsSettings = 118;
 inline constexpr int kIdTtsInfo = 119;
+inline constexpr int kIdTtsVolume = 122;
+inline constexpr int kIdChapterPrev = 123;
+inline constexpr int kIdChapterNext = 124;
+inline constexpr int kIdBarToc = 125;
+inline constexpr int kIdBarBookmark = 126;
+
+inline constexpr int kBarMarginDip = 6, kBarHeightDip = 26;
 
 inline constexpr UINT_PTR kSearchTimer = 1;
 inline constexpr UINT_PTR kReaderTickTimer = 20;

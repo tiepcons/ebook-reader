@@ -80,6 +80,13 @@ struct TocItem {
 // Index of the outline entry that contains `mark`: the one with the largest target <= mark (the later one on a tie), -1 if none.
 [[nodiscard]] int toc_index_at(std::span<const TocItem> toc, uint64_t mark) noexcept;
 
+// Outline entry to open for the previous / next chapter button, -1 when there is none. Previous is the entry that starts
+// closest before the shown page start `mark` (so inside a chapter it is that chapter's own start); next is the entry right
+// after the current one. `current` is the entry the last jump chose while its page is still shown (several entries may
+// start on one page), -1 to derive it from `mark`.
+[[nodiscard]] int toc_prev_index(std::span<const TocItem> toc, uint64_t mark, int current) noexcept;
+[[nodiscard]] int toc_next_index(std::span<const TocItem> toc, uint64_t mark, int current) noexcept;
+
 // Position of a page in the book, 0..1; a one-page book counts as finished.
 [[nodiscard]] double reading_fraction(int32_t page, int32_t count) noexcept;
 // Page for a reading percentage (0..100) in a book of `count` pages; the inverse of page / (count - 1).

@@ -376,6 +376,7 @@ bool WinRtPlayer::open_file(const std::filesystem::path& wav) noexcept
     try {
         const StorageFile file = StorageFile::GetFileFromPathAsync(wav.wstring()).get();
         impl_ = std::make_shared<Impl>(MediaSource::CreateFromStorageFile(file));
+        adopt();
         return true;
     } catch (...) {
         return false;
@@ -388,6 +389,7 @@ bool WinRtPlayer::open_stream(IUnknown* stream, const wchar_t* mime) noexcept
         winrt::com_ptr<IUnknown> raw;
         raw.copy_from(stream);
         impl_ = std::make_shared<Impl>(MediaSource::CreateFromStream(raw.as<IRandomAccessStream>(), mime));
+        adopt();
         return true;
     } catch (...) {
         return false;
@@ -405,9 +407,52 @@ bool WinRtPlayer::open_bytes(std::span<const std::byte> audio, const wchar_t* mi
         writer.DetachStream();
         stream.Seek(0);
         impl_ = std::make_shared<Impl>(MediaSource::CreateFromStream(stream, mime));
+        adopt();
         return true;
     } catch (...) {
         return false;
+    }
+}
+
+namespace {
+
+std::mutex g_players_m;
+std::vector<std::weak_ptr<void>> g_players;
+std::atomic<double> g_live_volume{1.0};
+std::atomic<bool> g_live_volume_set{false};
+
+}
+
+void WinRtPlayer::adopt() noexcept
+{
+    try {
+        const std::scoped_lock lk(g_players_m);
+        std::erase_if(g_players, [](const std::weak_ptr<void>& w) { return w.expired(); });
+        g_players.emplace_back(impl_);
+    } catch (...) { // NOLINT(bugprone-empty-catch): the player then just misses live volume changes
+    }
+}
+
+void WinRtPlayer::set_volume_all(double volume) noexcept
+{
+    const double v = std::clamp(volume, 0.0, 1.0);
+    g_live_volume = v;
+    g_live_volume_set = true;
+    try {
+        std::vector<std::shared_ptr<Impl>> live;
+        {
+            const std::scoped_lock lk(g_players_m);
+            for (const auto& w : g_players) {
+                if (auto impl = std::static_pointer_cast<Impl>(w.lock()))
+                    live.push_back(std::move(impl));
+            }
+        }
+        for (const auto& impl : live) {
+            const std::scoped_lock pl(impl->m);
+            if (impl->mp)
+                impl->mp.Volume(v);
+        }
+    } catch (...) { // NOLINT(bugprone-empty-catch): no exception crosses a boundary
     }
 }
 
@@ -417,7 +462,7 @@ bool WinRtPlayer::play(double volume, OnEvent on_event, double rate) noexcept
         const std::scoped_lock lk(impl_->m);
         auto h = std::make_shared<Hook>();
         h->on_event = std::move(on_event);
-        impl_->mp.Volume(std::clamp(volume, 0.0, 1.0));
+        impl_->mp.Volume(g_live_volume_set ? g_live_volume.load() : std::clamp(volume, 0.0, 1.0));
         if (std::abs(rate - 1.0) > 1e-3)
             impl_->mp.PlaybackSession().PlaybackRate(std::clamp(rate, 0.5, 3.0));
         hook_player(impl_->mp, impl_->item, h);

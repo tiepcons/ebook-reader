@@ -232,6 +232,26 @@ int toc_index_at(std::span<const TocItem> toc, uint64_t mark) noexcept
     return best;
 }
 
+int toc_prev_index(std::span<const TocItem> toc, uint64_t mark, int current) noexcept
+{
+    if (current >= 0)
+        return current - 1;
+    int best = -1;
+    for (std::size_t i = 0; i < toc.size(); ++i) {
+        if (toc[i].target < mark && (best < 0 || toc[i].target > toc[static_cast<std::size_t>(best)].target))
+            best = static_cast<int>(i);
+    }
+    return best;
+}
+
+int toc_next_index(std::span<const TocItem> toc, uint64_t mark, int current) noexcept
+{
+    if (current < 0 && mark == kNoAnchor)
+        return -1;
+    const int next = (current >= 0 ? current : toc_index_at(toc, mark)) + 1;
+    return static_cast<std::size_t>(next) < toc.size() ? next : -1;
+}
+
 const PageLink* link_at(std::span<const PageLink> links, float x, float y) noexcept
 {
     const PageLink* best = nullptr;

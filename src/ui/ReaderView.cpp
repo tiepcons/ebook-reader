@@ -312,6 +312,7 @@ void ReaderView::close() noexcept
     book_id_.clear();
     toc_.clear();
     content_version_ = 0;
+    marks_dirty_ = true;
     end_mark_ = UINT64_MAX;
     texts_.clear();
     links_.clear();

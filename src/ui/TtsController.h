@@ -71,6 +71,8 @@ public:
     void stop();
     void step(int delta);
     void set_rate(double rate);
+    // Takes effect at once in the sentence being read and in every following one.
+    void set_volume(int pct);
     void on_text(int32_t page, std::string utf8);
     void on_event(uint32_t utterance, LPARAM lp);
     // The view changed layout: the page numbers and texts are stale, so stop now and restart once the new page is shown.

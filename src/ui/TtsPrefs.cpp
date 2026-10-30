@@ -12,7 +12,7 @@
 namespace eb {
 namespace {
 
-constexpr std::string_view kKeyEngine = "tts.engine", kKeyRatePct = "tts.rate_pct";
+constexpr std::string_view kKeyEngine = "tts.engine", kKeyRatePct = "tts.rate_pct", kKeyVolumePct = "tts.volume_pct";
 constexpr std::array<std::string_view, kTtsKinds> kKindNames{"winrt", "piper", "azure", "vieneu"};
 constexpr std::array<std::string_view, 2> kLangNames{"en", "vi"};
 
@@ -26,6 +26,11 @@ std::string voice_key(std::size_t kind, std::size_t lang)
 double clamp_tts_rate(double rate) noexcept
 {
     return std::isfinite(rate) ? std::clamp(rate, kMinTtsRate, kMaxTtsRate) : 1.0;
+}
+
+int clamp_tts_volume_pct(int pct) noexcept
+{
+    return std::clamp(pct, 0, kMaxTtsVolumePct);
 }
 
 std::string_view tts_kind_name(TtsKind k) noexcept
@@ -52,6 +57,11 @@ TtsPrefs load_tts_prefs(Db& db)
         if (std::from_chars(r->data(), r->data() + r->size(), pct).ec == std::errc{})
             p.rate = clamp_tts_rate(pct / 100.0);
     }
+    if (const auto r = kv_get(db, kKeyVolumePct)) {
+        int pct = 0;
+        if (std::from_chars(r->data(), r->data() + r->size(), pct).ec == std::errc{})
+            p.volume_pct = clamp_tts_volume_pct(pct);
+    }
     for (std::size_t k = 0; k < kTtsKinds; ++k) {
         for (std::size_t l = 0; l < kLangNames.size(); ++l) {
             const auto v = kv_get(db, voice_key(k, l));
@@ -67,7 +77,8 @@ TtsPrefs load_tts_prefs(Db& db)
 bool save_tts_prefs(Db& db, const TtsPrefs& p)
 {
     bool ok = kv_set(db, kKeyEngine, kKindNames[kind_index(p.engine)])
-        && kv_set(db, kKeyRatePct, std::to_string(std::lround(clamp_tts_rate(p.rate) * 100.0)));
+        && kv_set(db, kKeyRatePct, std::to_string(std::lround(clamp_tts_rate(p.rate) * 100.0)))
+        && kv_set(db, kKeyVolumePct, std::to_string(clamp_tts_volume_pct(p.volume_pct)));
     for (std::size_t k = 0; k < kTtsKinds; ++k) {
         for (std::size_t l = 0; l < kLangNames.size(); ++l)
             ok = kv_set(db, voice_key(k, l), wide_to_utf8(p.voice[k][l]).value_or(std::string{})) && ok;

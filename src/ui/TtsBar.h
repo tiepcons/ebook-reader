@@ -29,9 +29,12 @@ public:
     void set_quota(const std::wstring& text) noexcept;
     void set_speed(double rate) noexcept;
     [[nodiscard]] double speed() const noexcept;
+    void set_volume(int pct) noexcept;
+    [[nodiscard]] int volume() const noexcept;
+    [[nodiscard]] bool is_volume(HWND h) const noexcept { return h != nullptr && h == volume_; }
 
 private:
-    HWND play_ = nullptr, stop_ = nullptr, prev_ = nullptr, next_ = nullptr, speed_ = nullptr, settings_ = nullptr,
+    HWND play_ = nullptr, stop_ = nullptr, prev_ = nullptr, next_ = nullptr, speed_ = nullptr, settings_ = nullptr, volume_ = nullptr,
          info_ = nullptr, quota_ = nullptr;
 };
 

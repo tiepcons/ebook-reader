@@ -62,6 +62,7 @@ public:
     [[nodiscard]] int32_t page() const noexcept { return page_; }
     // Bookmark of the shown page, kNoAnchor while unknown.
     [[nodiscard]] uint64_t mark() const noexcept { return mark_; }
+    [[nodiscard]] bool page_bookmarked() const;
     [[nodiscard]] int32_t page_count() const noexcept { return count_; }
     // Text-to-speech support. The text of a page arrives with ReaderEvent::Text (lParam = page).
     void request_text(int32_t page);
@@ -127,7 +128,9 @@ private:
     std::string fmt_, book_id_;
     std::vector<TocItem> toc_;
     uint32_t content_version_ = 0;
+    mutable std::vector<uint64_t> marks_cache_;
     uint64_t end_mark_ = UINT64_MAX;
+    mutable bool marks_dirty_ = true;
     bool prefs_loaded_ = false;
     uint32_t view_id_ = 0;
     uint32_t epoch_ = 0;

@@ -44,9 +44,12 @@ public:
     void pause() noexcept;
     void resume() noexcept;
     void close() noexcept;
+    // Sets the volume (0..1) of every player that is still open, so a change is heard in the sentence being read.
+    static void set_volume_all(double volume) noexcept;
 
 private:
     struct Impl;
+    void adopt() noexcept;
     std::shared_ptr<Impl> impl_;
 };
 

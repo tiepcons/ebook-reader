@@ -115,6 +115,13 @@ private:
     void sync_chapter_combo();
     void fill_chapter_combo(std::span<const TocItem> toc);
     void on_chapter_combo(int code);
+    bool create_bar_buttons();
+    void layout_top_bar(const RECT& rc, int left);
+    void update_bar_buttons();
+    void reset_bar_marked();
+    [[nodiscard]] int remembered_toc_index() const noexcept;
+    void jump_to_toc(int idx);
+    bool on_bar_command(int id);
     void smoke_marks();
     [[nodiscard]] bool toc_shown() const noexcept { return in_reader_ && toc_visible_ && !fullscreen_; }
 
@@ -146,6 +153,7 @@ private:
     bool on_tts_command(WPARAM wp);
     bool tts_button(int id);
     bool on_tts_msg(UINT msg, WPARAM wp, LPARAM lp);
+    void on_volume_scroll(int code);
     void open_tts_settings();
     void refresh_azure_quota();
     void on_azure_warn(Warn level);
@@ -197,6 +205,10 @@ private:
     ReaderView reader_;
     TocPane toc_pane_;
     HWND back_ = nullptr, resume_text_ = nullptr, resume_btn_ = nullptr, aa_ = nullptr, chapter_combo_ = nullptr;
+    HWND chapter_prev_ = nullptr, chapter_next_ = nullptr, toc_btn_ = nullptr, mark_btn_ = nullptr, tips_ = nullptr;
+    bool bar_marked_ = false, nav_pending_ = false;
+    int nav_idx_ = -1;
+    int32_t nav_page_ = -1; // page where the last chapter jump landed; nav_idx_ is only trusted while it is shown
     std::size_t chapter_count_ = 0;
     bool in_reader_ = false, fullscreen_ = false, toc_visible_ = false, smoke_keys_sent_ = false, smoke_theme_ = false, in_settings_ = false;
     int resume_page_ = -1;

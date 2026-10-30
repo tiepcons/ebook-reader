@@ -23,6 +23,7 @@ BEGIN
     POPUP "&Cài đặt"
     BEGIN
         MENUITEM "&Thư viện...", IDM_SETTINGS_LIBRARY
+        MENUITEM "&Giọng đọc...", IDM_SETTINGS_TTS
         POPUP "Khi bấm &X"
         BEGIN
             MENUITEM "&Hỏi", IDM_CLOSE_ASK

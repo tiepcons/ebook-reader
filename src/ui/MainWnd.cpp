@@ -204,7 +204,7 @@ void MainWnd::update_font()
     UniqueFont nf(CreateFontIndirectW(&ncm.lfMessageFont));
     if (!nf)
         return;
-    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_, chapter_combo_, toc_pane_.hwnd()})
+    for (HWND h : {search_, sort_, rescan_, open_, tree_, list_, status_, back_, resume_text_, resume_btn_, aa_, chapter_combo_, chapter_prev_, chapter_next_, toc_btn_, mark_btn_, toc_pane_.hwnd()})
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(nf.get()), TRUE);
     tts_bar_.set_font(nf.get());
     font_ = std::move(nf);
@@ -277,6 +277,8 @@ void MainWnd::on_command(WPARAM wp)
         open_ebooks_folder();
     } else if (id == IdRescan && code == BN_CLICKED) {
         PostMessageW(hwnd_, kMsgRescan, 0, 0);
+    } else if (id == IDM_SETTINGS_TTS) {
+        open_tts_settings();
     } else if (id == IDM_SETTINGS_LIBRARY) {
         const bool roots_changed = show_library_settings(inst_, hwnd_, db_);
         refresh_tree();
