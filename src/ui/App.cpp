@@ -39,6 +39,7 @@ struct EngineScope {
 };
 
 constexpr int kUiBusyTimeoutMs = 50;
+constexpr std::size_t kEngineStoreBytes = std::size_t{32} << 20;
 bool g_quiet = false;
 
 void show_fatal(const wchar_t* message) noexcept
@@ -181,7 +182,9 @@ int run(HINSTANCE inst, int show)
         return fatal(L"Thiếu thư viện libs\\eb_mupdf.dll hoặc sai phiên bản. Hãy cài lại ứng dụng.", &mod.error());
     if (!load_all_imports())
         return fatal(L"Thư viện libs\\eb_mupdf.dll không đầy đủ hoặc bị hỏng. Hãy cài lại ứng dụng.");
-    if (eb_init(nullptr) != EB_OK)
+    eb_limits limits{};
+    limits.store_bytes = kEngineStoreBytes;
+    if (eb_init(&limits) != EB_OK)
         return fatal(L"Không khởi tạo được bộ xử lý tài liệu.");
     const EngineScope engine;
     register_font_dirs(exe_dir);
