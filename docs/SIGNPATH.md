@@ -126,7 +126,7 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 4. ✅ **MFA GitHub** (PO bật 2026-10-30).
 5. ✅ GitHub rulesets (PO duyệt 2026-10-30): `main-protect` (chặn force-push và xoá `main`, không ai bypass);
    `release-tags` (tạo/sửa/xoá tag `v*` chỉ admin repo = tiepcons).
-6. 🔶 (2026-11-04: PO gửi từ tiepcons@gmail.com, chờ trả lời) **Gửi email mục 4a trước**, chờ trả lời.
+6. 🔶 (2026-11-05: đã gửi từ tiepcons@gmail.com, chờ trả lời) **Gửi email mục 4a trước**, chờ trả lời.
 7. ✅ (2026-11-04: `v0.9.0-beta.1` đã publish) **Phát hành công khai bản beta** (điều kiện "already released"): push tag `v0.9.0-beta.N`. Workflow build trên
    GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
    Anh/chị xem lại rồi bấm **Publish**. Bản nháp `v0.9.0-alpha.13` không cần publish nữa.
