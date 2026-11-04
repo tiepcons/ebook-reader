@@ -21,7 +21,7 @@ SignPath có thể đổi nội dung form. Nếu khác tài liệu này thì là
 | "OSI-approved license **without commercial dual-licensing for all components**" | ⚠️ **Xung đột tiềm ẩn lớn nhất:** MuPDF (cả jbig2dec, extract) là AGPL **và** Artifex bán giấy phép thương mại. Ta chỉ dùng theo AGPL, nhưng câu chữ điều khoản áp cho "all components". SQLite (public domain) và libjpeg (giấy phép IJG) không nằm trong danh sách OSI | **Hỏi SignPath trước** (mục 4). Nếu bị từ chối vì MuPDF → phương án dự phòng ở mục 1 |
 | "No proprietary component … you may include System Libraries" | ✅ Gói chính: CRT tĩnh `/MT` (System Library). Gói Piper/VieNeu (không ký, tải riêng) kèm VC++ runtime DLL của Microsoft | Hỏi kèm trong mục 4 |
 | Không malware, không phần mềm không mong muốn | ✅ | — |
-| **Đã phát hành công khai** đúng dạng sẽ ký ("must already be released in the form that should be signed") | ⬜ Chưa có GitHub Release nào | Đăng **một bản alpha prerelease** (chưa ký, ví dụ `v0.9.0-alpha.11`) lên GitHub Releases **trước khi nộp đơn**; không cần beta (mục 6) |
+| **Đã phát hành công khai** đúng dạng sẽ ký ("must already be released in the form that should be signed") | 🔶 Release nháp `v0.9.0-beta.1` | Publish **bản beta prerelease** (chưa ký) trên GitHub Releases **trước khi nộp đơn** (mục 6) |
 | Đang được bảo trì | ✅ | — |
 | Trang tải mô tả chức năng | ✅ README.md | Release notes mô tả ngắn chức năng |
 | Chỉ ký binary build từ mã nguồn của mình | ✅ Chỉ ký `EbookReader.exe` và `libs\eb_mupdf.dll`. Piper, onnxruntime, espeak-ng **không ký** | — |
@@ -127,9 +127,9 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 5. ✅ GitHub rulesets (PO duyệt 2026-10-30): `main-protect` (chặn force-push và xoá `main`, không ai bypass);
    `release-tags` (tạo/sửa/xoá tag `v*` chỉ admin repo = tiepcons).
 6. ⬜ Khi bắt đầu tiến trình SignPath: **gửi email mục 4a trước**, chờ trả lời.
-7. 🔶 (2026-10-31: release nháp `v0.9.0-alpha.13` đã tạo bởi workflow, chờ PO bấm Publish) **Phát hành công khai một bản alpha** (điều kiện "already released"): push tag `v0.9.0-alpha.N`. Workflow build trên
+7. 🔶 (2026-11-04: PO yêu cầu beta; tag `v0.9.0-beta.1`, chờ PO bấm Publish) **Phát hành công khai bản beta** (điều kiện "already released"): push tag `v0.9.0-beta.N`. Workflow build trên
    GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
-   Anh/chị xem lại rồi bấm **Publish**. Không cần beta.
+   Anh/chị xem lại rồi bấm **Publish**. Bản nháp `v0.9.0-alpha.13` không cần publish nữa.
 8. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và **cả 3 câu hỏi ở mục 4**.
 9. ⬜ Khi được duyệt, làm mục 7.
 
