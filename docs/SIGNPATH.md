@@ -46,7 +46,7 @@ SignPath có thể đổi nội dung form. Nếu khác tài liệu này thì là
 | Download / release page | `https://github.com/tiepcons/ebook-reader/releases` |
 | Code signing policy URL | `https://github.com/tiepcons/ebook-reader/blob/main/CODE_SIGNING_POLICY.md` |
 | License | `AGPL-3.0-or-later` (LICENSE file in repo root) |
-| Maintainer / contact | tiepcons — *(email anh/chị muốn SignPath liên hệ)* |
+| Maintainer / contact | tiepcons — tiepcons@gmail.com |
 | Build system | GitHub Actions, GitHub-hosted runner `windows-2022`, workflow `.github/workflows/release.yml`, triggered by tags `v*` only |
 | Artifacts to sign | Portable ZIP `EbookReader-<version>-win-x64.zip` containing `EbookReader.exe` and `libs/eb_mupdf.dll` (Authenticode). No installer. |
 | Number of users | *(trung thực: dự án mới, ghi số sao và lượt tải lúc nộp)* |
@@ -104,6 +104,27 @@ Gửi tới: `support@signpath.io` · từ `tiepcons@gmail.com` (email dùng cho
 > Thank you,
 > tiepcons — https://github.com/tiepcons
 
+### 4b. SignPath trả lời (Phillip Deng, 2026-11-05)
+
+Câu trả lời là sơ bộ, chưa phải duyệt:
+
+| Điểm | Kết quả |
+|---|---|
+| MuPDF dùng theo AGPL | Nhìn chung chấp nhận được, miễn tuân thủ AGPL. Chỉ ký exe không giúp né yêu cầu giấy phép của DLL đi kèm |
+| SQLite | Không vấn đề |
+| libjpeg (IJG) | Không phải OSI, **SignPath phải xem xét trước khi xác nhận** |
+| Gói giọng tùy chọn | Có thể chấp nhận nếu giấy phép đạt và không ký như binary của mình |
+| VC++ runtime | Có thể coi là System Libraries, tùy cách phân phối |
+| Phạm vi ký exe + `eb_mupdf.dll` | Hợp lý về nguyên tắc, còn phải xét giấy phép và nguồn gốc build |
+| Danh tiếng dự án | **Sẽ đánh giá trước khi duyệt** |
+
+**Ghi chú dán vào đơn** (nêu rõ cả FreeType vì FTL cũng không phải OSI, email 4a chưa nhắc):
+
+> Following up on your reply of 2026-11-05 (Phillip Deng): MuPDF is used only under the AGPL. We sign EbookReader.exe and
+> libs/eb_mupdf.dll only. Two licenses bundled inside MuPDF are not OSI-approved: libjpeg (IJG) and FreeType (FTL, which
+> FreeType also offers under the GPL). Full license texts ship in the licenses folder of the ZIP and are listed in
+> THIRD_PARTY_NOTICES.md. Voice packs are separate, unsigned downloads pinned by URL and SHA256.
+
 ## 5. Meta đã có trong file (VERSIONINFO)
 
 | Trường | EbookReader.exe | libs\eb_mupdf.dll |
@@ -126,7 +147,7 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 4. ✅ **MFA GitHub** (PO bật 2026-10-30).
 5. ✅ GitHub rulesets (PO duyệt 2026-10-30): `main-protect` (chặn force-push và xoá `main`, không ai bypass);
    `release-tags` (tạo/sửa/xoá tag `v*` chỉ admin repo = tiepcons).
-6. 🔶 (2026-11-05: đã gửi từ tiepcons@gmail.com, chờ trả lời) **Gửi email mục 4a trước**, chờ trả lời.
+6. ✅ (SignPath trả lời 2026-11-05, xem mục 4b) **Gửi email mục 4a trước**, chờ trả lời.
 7. ✅ (2026-11-04: `v0.9.0-beta.1` đã publish) **Phát hành công khai bản beta** (điều kiện "already released"): push tag `v0.9.0-beta.N`. Workflow build trên
    GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
    Anh/chị xem lại rồi bấm **Publish**. Bản nháp `v0.9.0-alpha.13` không cần publish nữa.
