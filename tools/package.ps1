@@ -77,7 +77,7 @@ EBOOK READER $Version
   roi tu tai giong noi (.onnx va .onnx.json) vao data\voices\ (xem muc VOICES ben duoi). Goi nay KHONG kem giong noi.
 - Doc to bang VieNeu (tuy chon, giong Viet tu nhien hon, can khoang 270 MB o dia va 1 GB RAM): giai nen goi
   $name-vieneu-pack.zip len cung thu muc, roi lam theo README-VieNeu.txt trong goi do de tai mo hinh va giong vao data\vieneu\.
-- Ban alpha: neu file khong co chu ky hop le, Windows SmartScreen co the canh bao.
+- Ban phat hanh chua duoc ky so nen Windows SmartScreen co the canh bao: bam "More info" roi "Run anyway".
 - Go bo: xoa thu muc ung dung; xoa du lieu o data\ canh EbookReader.exe (hoac %LOCALAPPDATA%\EbookReader neu thu muc
   ung dung khong ghi duoc); neu da dung Azure Speech: cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1
 - Chinh sach rieng tu va ky so: CODE_SIGNING_POLICY.md tren GitHub.
@@ -90,7 +90,7 @@ EBOOK READER $Version
   (.onnx and .onnx.json) into data\voices\ yourself (see VOICES below). The pack contains no voices.
 - Optional, more natural offline voices with VieNeu (about 270 MB of disk and 1 GB of RAM): extract $name-vieneu-pack.zip
   into the same folder, then follow the README-VieNeu.txt inside it to download the model and voices into data\vieneu\.
-- This alpha may be unsigned or self-signed, so Windows SmartScreen may warn.
+- Releases are unsigned, so Windows SmartScreen may warn: click "More info", then "Run anyway".
 - Uninstall: delete the app folder; delete data\ next to EbookReader.exe (or %LOCALAPPDATA%\EbookReader when the app folder
   is not writable); if you used Azure Speech, also run: cmdkey /delete:EbookReader.tiepcons/AzureSpeechKey/v1
 - Privacy and code signing policy: CODE_SIGNING_POLICY.md on GitHub (no telemetry; network only if you enable Azure Speech).

@@ -47,8 +47,8 @@ Security issues: [SECURITY.md](SECURITY.md) (please report privately).
 
 ## Code signing policy
 
-Releases are currently unsigned, so Windows SmartScreen may warn on first run. Verify downloads against `SHA256SUMS.txt`
-on the release page. Details and roles: [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+Releases are currently unsigned, so Windows SmartScreen may warn on first run: click **More info**, then **Run anyway**.
+Verify downloads against `SHA256SUMS.txt` on the release page. Details and roles: [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
 
 ## Privacy
 

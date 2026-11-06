@@ -153,7 +153,7 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
    Anh/chị xem lại rồi bấm **Publish**. Bản nháp `v0.9.0-alpha.13` không cần publish nữa.
 8. ❌ (nộp 2026-11-05, từ chối 2026-11-06: chưa đủ độ nhận biết công khai — sao, fork, contributor, bài viết/thảo luận bên ngoài, hoạt động bền vững.
    SignPath mời nộp lại khi dự án được biết đến rộng hơn; không nêu vấn đề giấy phép hay kỹ thuật.) Nộp đơn tại https://signpath.org/apply.html.
-9. ⬜ Khi được duyệt, làm mục 7.
+9. ⬜ Khi được duyệt, làm mục 7. Hiện tại (PO 2026-11-06): giữ bản chưa ký, không mua gói trả phí; nộp lại khi dự án được biết đến rộng hơn.
 
 ## 7. Sau khi SignPath duyệt (cấu hình một lần)
 
