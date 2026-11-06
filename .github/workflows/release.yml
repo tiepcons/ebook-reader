@@ -154,7 +154,7 @@ jobs:
               "a library with covers, resume of the reading position, and read-aloud in Vietnamese/English (Windows voices, optional Piper and VieNeu packs, " +
               "optional Azure Speech with your own key). No telemetry, no installer.`n`n" +
               "Download EbookReader-<version>-win-x64.zip, unzip and run EbookReader.exe. Optional voice packs: *-piper-pack.zip, *-vieneu-pack.zip.`n`n" +
-              "Code signing policy (free code signing provided by SignPath.io, certificate by SignPath Foundation) and privacy policy: " +
+              "Files are unsigned, so Windows SmartScreen may warn on first run; verify them against SHA256SUMS.txt. Code signing policy and privacy policy: " +
               "https://github.com/$env:REPO/blob/main/CODE_SIGNING_POLICY.md"))
           if ($env:TAG.Contains('-')) { $ghArgs += '--prerelease' }
           $ghArgs += (Get-ChildItem release -File | ForEach-Object FullName)

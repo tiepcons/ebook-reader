@@ -1,9 +1,8 @@
 # Code signing policy
 
-**Status:** SignPath Foundation application pending. Until it is approved, releases are unsigned (or carry only a
-self-signed alpha certificate that Windows does not trust).
-
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+**Status:** releases are currently unsigned, so Windows SmartScreen may warn on first run. Verify downloads against
+`SHA256SUMS.txt` on the release page. The rest of this policy describes what will apply once a code signing
+certificate is in place; the project does not hold one today.
 
 ## What is signed
 

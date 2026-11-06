@@ -47,9 +47,8 @@ Security issues: [SECURITY.md](SECURITY.md) (please report privately).
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org)
-(application pending; until approved, releases are unsigned). Details, roles and what is signed:
-[CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+Releases are currently unsigned, so Windows SmartScreen may warn on first run. Verify downloads against `SHA256SUMS.txt`
+on the release page. Details and roles: [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
 
 ## Privacy
 
