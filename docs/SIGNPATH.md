@@ -151,7 +151,8 @@ Phiên bản lấy từ `project(VERSION)` trong CMake, cộng hậu tố từ t
 7. ✅ (2026-11-04: `v0.9.0-beta.1` đã publish) **Phát hành công khai bản beta** (điều kiện "already released"): push tag `v0.9.0-beta.N`. Workflow build trên
    GitHub-hosted runner và tạo **release nháp prerelease** (chưa ký). Ghi chú release có mô tả chức năng và link Code signing policy.
    Anh/chị xem lại rồi bấm **Publish**. Bản nháp `v0.9.0-alpha.13` không cần publish nữa.
-8. ⬜ Nộp đơn tại https://signpath.org/apply.html bằng thông tin mục 3 và **cả 3 câu hỏi ở mục 4**.
+8. ❌ (nộp 2026-11-05, từ chối 2026-11-06: chưa đủ độ nhận biết công khai — sao, fork, contributor, bài viết/thảo luận bên ngoài, hoạt động bền vững.
+   SignPath mời nộp lại khi dự án được biết đến rộng hơn; không nêu vấn đề giấy phép hay kỹ thuật.) Nộp đơn tại https://signpath.org/apply.html.
 9. ⬜ Khi được duyệt, làm mục 7.
 
 ## 7. Sau khi SignPath duyệt (cấu hình một lần)
